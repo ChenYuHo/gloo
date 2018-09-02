@@ -1,0 +1,237 @@
+diff --git a/mk/internal/rte.compile-pre.mk b/mk/internal/rte.compile-pre.mk
+index f740179..2342942 100644
+--- a/mk/internal/rte.compile-pre.mk
++++ b/mk/internal/rte.compile-pre.mk
+@@ -32,12 +32,12 @@
+ #
+ # Common to rte.lib.mk, rte.app.mk, rte.obj.mk
+ #
+-
+ SRCS-all := $(SRCS-y) $(SRCS-n) $(SRCS-)
+ 
+ # convert source to obj file
+ src2obj = $(strip $(patsubst %.c,%.o,\
+-	$(patsubst %.S,%_s.o,$(1))))
++	$(patsubst %.S,%_s.o,\
++	$(patsubst %.cpp,%_cpp.o,$(1)))))
+ 
+ # add a dot in front of the file name
+ dotfile = $(strip $(foreach f,$(1),\
+@@ -46,12 +46,14 @@ dotfile = $(strip $(foreach f,$(1),\
+ # convert source/obj files into dot-dep filename (does not
+ # include .S files)
+ src2dep = $(strip $(call dotfile,$(patsubst %.c,%.o.d, \
+-		$(patsubst %.S,,$(1)))))
++		$(patsubst %.cpp,%_cpp.o.d, \
++		$(patsubst %.S,,$(1))))))
+ obj2dep = $(strip $(call dotfile,$(patsubst %.o,%.o.d,$(1))))
+ 
+ # convert source/obj files into dot-cmd filename
+ src2cmd = $(strip $(call dotfile,$(patsubst %.c,%.o.cmd, \
+-		$(patsubst %.S,%_s.o.cmd,$(1)))))
++		$(patsubst %.cpp,%_cpp.o.cmd, \
++		$(patsubst %.S,%_s.o.cmd,$(1))))))
+ obj2cmd = $(strip $(call dotfile,$(patsubst %.o,%.o.cmd,$(1))))
+ 
+ OBJS-y := $(call src2obj,$(SRCS-y))
+@@ -186,3 +188,45 @@ S_TO_O_DO = @set -e; \
+ 		$(depfile_missing),\
+ 		$(depfile_newer)),\
+ 		$(S_TO_O_DO))
++
++
++# command to compile a .cpp file to generate an object
++ifeq ($(USE_HOST),1)
++CXX_TO_O = $(HOSTCXX) -Wp,-MD,$(call obj2dep,$(@)).tmp $(HOST_CXXFLAGS) \
++	$(CXXFLAGS_$(@)) $(HOST_EXTRA_CXXFLAGS) -o $@ -c $<
++CXX_TO_O_STR = $(subst ','\'',$(CXX_TO_O)) #'# fix syntax highlight
++CXX_TO_O_DISP = $(if $(V),"$(CXX_TO_O_STR)","  HOSTCXX $(@)")
++else
++CXX_TO_O = $(CXX) -Wp,-MD,$(call obj2dep,$(@)).tmp $(CXXFLAGS) \
++	$(CXXFLAGS_$(@)) $(EXTRA_CXXFLAGS) -o $@ -c $<
++CXX_TO_O_STR = $(subst ','\'',$(CXX_TO_O)) #'# fix syntax highlight
++CXX_TO_O_DISP = $(if $(V),"$(CXX_TO_O_STR)","  CXX $(@)")
++endif
++CXX_TO_O_CMD = 'cmd_$@ = $(CXX_TO_O_STR)'
++CXX_TO_O_DO = @set -e; \
++	echo $(CXX_TO_O_DISP); \
++	$(CXX_TO_O) && \
++	echo $(CXX_TO_O_CMD) > $(call obj2cmd,$(@)) && \
++	sed 's,'$@':,dep_'$@' =,' $(call obj2dep,$(@)).tmp > $(call obj2dep,$(@)) && \
++	rm -f $(call obj2dep,$(@)).tmp
++
++#
++# Compile .cpp file if needed
++# Note: dep_$$@ is from the .d file and DEP_$$@ can be specified by
++# user (by default it is empty)
++#
++.SECONDEXPANSION:
++%_cpp.o: %.cpp $$(wildcard $$(dep_$$@)) $$(DEP_$$(@)) FORCE
++	@[ -d $(dir $@) ] || mkdir -p $(dir $@)
++	$(if $(D),\
++		@echo -n "$< -> $@ " ; \
++		echo -n "file_missing=$(call boolean,$(file_missing)) " ; \
++		echo -n "cmdline_changed=$(call boolean,$(call cmdline_changed,$(CXX_TO_O))) " ; \
++		echo -n "depfile_missing=$(call boolean,$(depfile_missing)) " ; \
++		echo "depfile_newer=$(call boolean,$(depfile_newer))")
++	$(if $(or \
++		$(file_missing),\
++		$(call cmdline_changed,$(CXX_TO_O)),\
++		$(depfile_missing),\
++		$(depfile_newer)),\
++		$(CXX_TO_O_DO))
+\ No newline at end of file
+diff --git a/mk/target/generic/rte.vars.mk b/mk/target/generic/rte.vars.mk
+index 75a616a..128d4e2 100644
+--- a/mk/target/generic/rte.vars.mk
++++ b/mk/target/generic/rte.vars.mk
+@@ -138,7 +138,10 @@ endif
+ LDFLAGS += -L$(RTE_SDK_BIN)/lib
+ endif
+ 
++CXXFLAGS := $(CFLAGS)
++
+ export CFLAGS
++export CXXFLAGS
+ export LDFLAGS
+ 
+ endif
+diff --git a/mk/toolchain/clang/rte.vars.mk b/mk/toolchain/clang/rte.vars.mk
+index 7749b99..2a7105e 100644
+--- a/mk/toolchain/clang/rte.vars.mk
++++ b/mk/toolchain/clang/rte.vars.mk
+@@ -32,8 +32,9 @@
+ #
+ # toolchain:
+ #
+-#   - define CC, LD, AR, AS, ... (overridden by cmdline value)
++#   - define CC, CXX, LD, AR, AS, ... (overridden by cmdline value)
+ #   - define TOOLCHAIN_CFLAGS variable (overridden by cmdline value)
++#   - define TOOLCHAIN_CXXFLAGS variable (overridden by cmdline value)
+ #   - define TOOLCHAIN_LDFLAGS variable (overridden by cmdline value)
+ #   - define TOOLCHAIN_ASFLAGS variable (overridden by cmdline value)
+ #
+@@ -41,6 +42,7 @@
+ CC        = $(CROSS)clang
+ KERNELCC  = $(CROSS)gcc
+ CPP       = $(CROSS)cpp
++CXX       = $(CROSS)clang++
+ # for now, we don't use as but nasm.
+ # AS      = $(CROSS)as
+ AS        = nasm
+@@ -57,10 +59,16 @@ HOSTCC    = $(CC)
+ else
+ HOSTCC    = clang
+ endif
++ifeq ("$(origin CXX)", "command line")
++HOSTCXX    = $(CXX)
++else
++HOSTCXX    = clang++
++endif
+ HOSTAS    = as
+ 
+ TOOLCHAIN_ASFLAGS =
+ TOOLCHAIN_CFLAGS =
++TOOLCHAIN_CXXFLAGS =
+ TOOLCHAIN_LDFLAGS =
+ 
+ WERROR_FLAGS := -W -Wall -Wstrict-prototypes -Wmissing-prototypes
+@@ -79,5 +87,5 @@ include $(RTE_SDK)/mk/toolchain/$(RTE_TOOLCHAIN)/rte.toolchain-compat.mk
+ # workaround clang bug with warning "missing field initializer" for "= {0}"
+ WERROR_FLAGS += -Wno-missing-field-initializers
+ 
+-export CC AS AR LD OBJCOPY OBJDUMP STRIP READELF
+-export TOOLCHAIN_CFLAGS TOOLCHAIN_LDFLAGS TOOLCHAIN_ASFLAGS
++export CC CXX AS AR LD OBJCOPY OBJDUMP STRIP READELF
++export TOOLCHAIN_CFLAGS TOOLCHAIN_CXXFLAGS TOOLCHAIN_LDFLAGS TOOLCHAIN_ASFLAGS
+diff --git a/mk/toolchain/gcc/rte.vars.mk b/mk/toolchain/gcc/rte.vars.mk
+index ff70f3d..1961f6c 100644
+--- a/mk/toolchain/gcc/rte.vars.mk
++++ b/mk/toolchain/gcc/rte.vars.mk
+@@ -32,8 +32,9 @@
+ #
+ # toolchain:
+ #
+-#   - define CC, LD, AR, AS, ... (overridden by cmdline value)
++#   - define CC, CXX, LD, AR, AS, ... (overridden by cmdline value)
+ #   - define TOOLCHAIN_CFLAGS variable (overridden by cmdline value)
++#   - define TOOLCHAIN_CXXFLAGS variable (overridden by cmdline value)
+ #   - define TOOLCHAIN_LDFLAGS variable (overridden by cmdline value)
+ #   - define TOOLCHAIN_ASFLAGS variable (overridden by cmdline value)
+ #
+@@ -41,6 +42,7 @@
+ CC        = $(CROSS)gcc
+ KERNELCC  = $(CROSS)gcc
+ CPP       = $(CROSS)cpp
++CXX       = $(CROSS)g++
+ # for now, we don't use as but nasm.
+ # AS      = $(CROSS)as
+ AS        = nasm
+@@ -57,10 +59,16 @@ HOSTCC    = $(CC)
+ else
+ HOSTCC    = gcc
+ endif
++ifeq ("$(origin CXX)", "command line")
++HOSTCXX    = $(CXX)
++else
++HOSTCXX    = g++
++endif
+ HOSTAS    = as
+ 
+ TOOLCHAIN_ASFLAGS =
+ TOOLCHAIN_CFLAGS =
++TOOLCHAIN_CXXFLAGS =
+ TOOLCHAIN_LDFLAGS =
+ 
+ ifeq ($(CONFIG_RTE_LIBRTE_GCOV),y)
+@@ -99,5 +107,5 @@ ifeq ($(shell test $(GCC_VERSION) -lt 47 && echo 1), 1)
+ WERROR_FLAGS += -Wno-uninitialized
+ endif
+ 
+-export CC AS AR LD OBJCOPY OBJDUMP STRIP READELF
+-export TOOLCHAIN_CFLAGS TOOLCHAIN_LDFLAGS TOOLCHAIN_ASFLAGS
++export CC CXX AS AR LD OBJCOPY OBJDUMP STRIP READELF
++export TOOLCHAIN_CFLAGS TOOLCHAIN_CXXFLAGS TOOLCHAIN_LDFLAGS TOOLCHAIN_ASFLAGS
+diff --git a/mk/toolchain/icc/rte.vars.mk b/mk/toolchain/icc/rte.vars.mk
+index ba69f1f..e9d6721 100644
+--- a/mk/toolchain/icc/rte.vars.mk
++++ b/mk/toolchain/icc/rte.vars.mk
+@@ -32,8 +32,9 @@
+ #
+ # toolchain:
+ #
+-#   - define CC, LD, AR, AS, ... (overridden by cmdline value)
++#   - define CC, CXX, LD, AR, AS, ... (overridden by cmdline value)
+ #   - define TOOLCHAIN_CFLAGS variable (overridden by cmdline value)
++#   - define TOOLCHAIN_CXXFLAGS variable (overridden by cmdline value)
+ #   - define TOOLCHAIN_LDFLAGS variable (overridden by cmdline value)
+ #   - define TOOLCHAIN_ASFLAGS variable (overridden by cmdline value)
+ #
+@@ -42,6 +43,7 @@
+ # x86->x86 compiler
+ 
+ CC        = icc
++CXX       = icc
+ KERNELCC  = gcc
+ CPP       = cpp
+ AS        = nasm
+@@ -57,9 +59,11 @@ HOSTCC    = icc
+ else
+ HOSTCC    = gcc
+ endif
++HOSTCXX   = icc
+ HOSTAS    = as
+ 
+ TOOLCHAIN_CFLAGS =
++TOOLCHAIN_CXXFLAGS =
+ TOOLCHAIN_LDFLAGS =
+ TOOLCHAIN_ASFLAGS =
+ 
+@@ -83,5 +87,5 @@ ifeq ($(shell test $(ICC_MAJOR_VERSION) -ge 14 && echo 1), 1)
+ 	TOOLCHAIN_CFLAGS += -no-inline-max-size -no-inline-max-total-size
+ endif
+ 
+-export CC AS AR LD OBJCOPY OBJDUMP STRIP READELF
+-export TOOLCHAIN_CFLAGS TOOLCHAIN_LDFLAGS TOOLCHAIN_ASFLAGS
++export CC CXX AS AR LD OBJCOPY OBJDUMP STRIP READELF
++export TOOLCHAIN_CFLAGS TOOLCHAIN_CXXFLAGS TOOLCHAIN_LDFLAGS TOOLCHAIN_ASFLAGS
