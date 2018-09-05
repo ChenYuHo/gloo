@@ -9,6 +9,7 @@ using namespace std;
 
 namespace daiet {
     mutex info_mutex_, err_mutex_, debug_mutex_;
+    std::ofstream daiet_log;
 
     bool debug = true;
 
@@ -30,7 +31,7 @@ namespace daiet {
     template<typename T>
     void LOG_INFO(T msg) {
         unique_lock<mutex> mlock(info_mutex_);
-        cout << msg << endl << flush;
+        daiet_log << msg << endl << flush;
     }
     template void LOG_INFO<string>(string);
     template void LOG_INFO<char const*>(char const*);

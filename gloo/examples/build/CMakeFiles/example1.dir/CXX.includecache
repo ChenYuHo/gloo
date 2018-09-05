@@ -1,0 +1,24 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/asapio/Documents/workspace/gloo/gloo/examples/example1.cc
+iostream
+-
+memory
+-
+gloo/allreduce_ring.h
+/home/asapio/Documents/workspace/gloo/gloo/examples/gloo/allreduce_ring.h
+gloo/rendezvous/context.h
+/home/asapio/Documents/workspace/gloo/gloo/examples/gloo/rendezvous/context.h
+gloo/rendezvous/file_store.h
+/home/asapio/Documents/workspace/gloo/gloo/examples/gloo/rendezvous/file_store.h
+gloo/rendezvous/prefix_store.h
+/home/asapio/Documents/workspace/gloo/gloo/examples/gloo/rendezvous/prefix_store.h
+gloo/transport/tcp/device.h
+/home/asapio/Documents/workspace/gloo/gloo/examples/gloo/transport/tcp/device.h
+

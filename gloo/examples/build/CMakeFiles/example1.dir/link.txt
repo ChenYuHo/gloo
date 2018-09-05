@@ -1,0 +1,1 @@
+/usr/bin/c++    -rdynamic CMakeFiles/example1.dir/example1.cc.o  -o example1  -L/home/asapio/Documents/workspace/gloo/daiet/build/lib /home/asapio/Documents/workspace/gloo/daiet/build/lib/libdaiet.a -lgloo 

@@ -8,6 +8,7 @@
 #include "params.hpp"
 #include "PsMsgs.hpp"
 #include "dpdk.h"
+#include "DaietContext.hpp"
 
 namespace daiet {
 
@@ -17,11 +18,11 @@ namespace daiet {
     extern uint64_t* latencies;
 #endif
 
-    void msg_setup(ClientSendOpLogMsg*);
-    void build_pkt(rte_mbuf*, unsigned, uint16_t, uint32_t);
+    void msg_setup(ClientSendOpLogMsg*, uint32_t seq_num, int32_t* tensor_update);
+    void build_pkt(rte_mbuf*, unsigned, uint16_t, uint32_t, int32_t*);
     void worker_setup();
     void worker_cleanup();
-    int worker(void*);
+    int worker(BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue);
 
     __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, ClientSendOpLogMsg* msg) {
 

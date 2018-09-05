@@ -5,16 +5,20 @@
 
 #include "worker.hpp"
 
+#include <math.h>
+
 namespace daiet {
 
 #if SAVE_LATENCIES
     rte_atomic64_t* sent_timestamp;
 #endif
 
-    void msg_setup(ClientSendOpLogMsg* new_msg) {
+    float scaling_factor;
+
+    void msg_setup(ClientSendOpLogMsg* new_msg, uint32_t seq_num, TensorUpdate* tensor_update) {
 
         uint8_t* row_ptr;
-        int32_t cell_value_be = daiet_par.getCellValueBe();
+        int32_t cell_value_be;
         /*
          bool last_packet=true;
          uint32_t sqn =0;
@@ -65,12 +69,20 @@ namespace daiet {
          upd2++;
          }
          */
+        seq_num *= 32;
 
         for (uint32_t i = 0; i < daiet_par.getNumUpdates() * 2; i++) {
 
+            //TODO separate functions for FLOAT and INT to avoid this IF for each entry
+            if (tensor_update->type==INT)
+                cell_value_be = rte_cpu_to_be_32(tensor_update->ptr.int_ptr[seq_num]);
+            else if (tensor_update->type==FLOAT)
+                cell_value_be = rte_cpu_to_be_32(round((tensor_update->ptr.float_ptr[seq_num])*scaling_factor));
+
             // Write update
-            rte_memcpy((void*) row_ptr, &cell_value_be, daiet_par.getUpdateSize());
-            row_ptr += daiet_par.getUpdateSize();
+            rte_memcpy((void*) row_ptr, &cell_value_be, sizeof(int32_t));
+            row_ptr += sizeof(int32_t);
+            seq_num++;
         }
     }
 
@@ -90,21 +102,30 @@ namespace daiet {
     }
 #endif
 
-    static __rte_always_inline int aggregate_msg(ClientSendOpLogMsg& msg) {
+    static __rte_always_inline int aggregate_msg(ClientSendOpLogMsg& msg, uint num_workers, TensorUpdate* tensorUpdate) {
         int sum = 0;
+        int32_t seqn = msg.get_row_id();
+        seqn*=32;
+
         uint8_t* row_ptr = msg.get_first_entry_ptr();
         for (int i = 0; i < msg.get_num_updates() * 2; i++) {
-            sum += rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr)));
+
+            //TODO separate functions for FLOAT and INT to avoid this IF for each entry
+            if (tensorUpdate->type==INT)
+                tensorUpdate->ptr.int_ptr[seqn] = int32_t(rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))))/(int32_t)num_workers;
+            else if (tensorUpdate->type==FLOAT)
+                tensorUpdate->ptr.float_ptr[seqn] = (int32_t(rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))))/(int32_t)num_workers)/scaling_factor;
 
             row_ptr += sizeof(int32_t);
+            seqn++;
         }
 
         return sum;
     }
 
-    static __rte_always_inline void reset_pkt(struct ether_hdr * eth, ClientSendOpLogMsg* msg, unsigned portid, uint16_t offset, uint32_t seq_num) {
+    static __rte_always_inline void reset_pkt(struct ether_hdr * eth, ClientSendOpLogMsg* msg, unsigned portid, uint16_t offset, uint32_t seq_num, TensorUpdate* tensorUpdate) {
 
-        int32_t cell_value_be = daiet_par.getCellValueBe();
+        int32_t cell_value_be;
 
         struct ipv4_hdr * const ip_hdr = (struct ipv4_hdr *) (&eth[1]);
         struct udp_hdr * const udp_hdr = (struct udp_hdr *) (&ip_hdr[1]);
@@ -121,19 +142,29 @@ namespace daiet {
         udp_hdr->dst_port = daiet_par.getPsPortBe();
         udp_hdr->src_port = daiet_par.getWorkerPortBe();
 
-        msg->get_seq_num() = rte_cpu_to_be_32(seq_num);
+        msg->get_row_id() = seq_num;
+        msg->get_seq_num()=0;
+
+        seq_num *= 32;
 
         uint8_t * row_ptr = msg->get_first_entry_ptr();
 
         for (uint32_t i = 0; i < daiet_par.getNumUpdates() * 2; i++) {
 
+            //TODO separate functions for FLOAT and INT to avoid this IF for each entry
+            if (tensorUpdate->type==INT)
+                cell_value_be = rte_cpu_to_be_32(tensorUpdate->ptr.int_ptr[seq_num]);
+            else if (tensorUpdate->type==FLOAT)
+                cell_value_be = rte_cpu_to_be_32(round((tensorUpdate->ptr.float_ptr[seq_num])*scaling_factor));
+
             // Write update
-            rte_memcpy((void*) row_ptr, &cell_value_be, daiet_par.getUpdateSize());
-            row_ptr += daiet_par.getUpdateSize();
+            rte_memcpy((void*) row_ptr, &cell_value_be, sizeof(int32_t));
+            row_ptr += sizeof(int32_t);
+            seq_num++;
         }
     }
 
-    void build_pkt(rte_mbuf* m, unsigned portid, uint16_t offset, uint32_t seq_num) {
+    void build_pkt(rte_mbuf* m, unsigned portid, uint16_t offset, uint32_t seq_num, TensorUpdate* tensor_update) {
 
         struct ether_hdr *eth;
         struct ipv4_hdr *ip_hdr;
@@ -172,9 +203,9 @@ namespace daiet {
         // ClientSendOpLogMsg
 
         ClientSendOpLogMsg msg((void*) (&udp_hdr[1]));
-        msg_setup(&msg);
+        msg_setup(&msg, seq_num, tensor_update);
         msg.get_offset_position() = rte_cpu_to_be_16(offset);
-        msg.get_seq_num() = rte_cpu_to_be_32(seq_num);
+        msg.get_row_id() = seq_num;
     }
 
     void worker_setup() {
@@ -183,6 +214,8 @@ namespace daiet {
         for (int i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
             rte_atomic32_init(&sent_message_counters[i]);
         }
+
+        scaling_factor = daiet_par.getScalingFactor();
 
 #if SAVE_LATENCIES
         sent_timestamp = new rte_atomic64_t[daiet_par.getMaxNumPendingMessages()];
@@ -205,8 +238,9 @@ namespace daiet {
 #endif
     }
 
-    int worker(__attribute__((unused)) void*) {
+    int worker(BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue) {
 
+        volatile int rx_pkts =0;
         uint max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
         uint num_workers = daiet_par.getNumWorkers();
 
@@ -214,15 +248,14 @@ namespace daiet {
 
         const uint32_t max_seq_num = daiet_par.getMaxSeqNum();
 
-        int expected_agg_value = daiet_par.getCellValue() * daiet_par.getNumUpdates() * 2;
-
         int ret;
 
-        int lower_bound_num_updates = max_num_msgs / max_num_pending_messages;
-        uint32_t upper_bound_num_updates = lower_bound_num_updates + 1;
-        uint32_t last_update_index = max_num_msgs % max_num_pending_messages;
+        int lower_bound_num_updates;
+        uint32_t upper_bound_num_updates;
+        uint32_t last_update_index;
         int32_t tmp_rx_msg_ctr;
 
+        int burst_size;
         unsigned lcore_id;
         unsigned nb_rx = 0, j = 0;
         uint32_t worker_id;
@@ -237,7 +270,6 @@ namespace daiet {
         struct ether_hdr *eth;
         ClientSendOpLogMsg* msg = new ClientSendOpLogMsg((void*) NULL);
 
-        int agg_val = 0;
         uint32_t seq_num = 0;
         uint16_t offset = 0;
 
@@ -250,102 +282,122 @@ namespace daiet {
         if (unlikely(pkts_burst == NULL))
             LOG_FATAL("Worker thread: cannot allocate pkts burst");
 
+        TensorUpdate* tuptr;
+
+        while (!force_quit) {
+            tuptr = in_queue.pop();
+
+            if (tuptr==NULL)
+                continue;
+
+            memset(sent_message_counters, 0, daiet_par.getMaxNumPendingMessages()*sizeof(*sent_message_counters));
+
+            seq_num = 0;
+            offset = 0;
+
+            rx_pkts = 0;
+
+            max_num_msgs=tuptr->count/32;
+
+            lower_bound_num_updates = max_num_msgs / max_num_pending_messages;
+            upper_bound_num_updates = lower_bound_num_updates + 1;
+            uint32_t last_update_index = max_num_msgs % max_num_pending_messages;
+            int32_t tmp_rx_msg_ctr;
+
 #if !COLOCATED
-        // Only on master core
-        if (lcore_id == rte_get_master_lcore())
+            // Only on master core
+            if (lcore_id == rte_get_master_lcore())
 #endif
-                {
-            // Send first pkt burst
+                    {
+                // Send first pkt burst
+                burst_size = max_num_msgs < max_num_pending_messages ? max_num_msgs : max_num_pending_messages;
+                // Allocate pkt burst
 
-            // Allocate pkt burst
-            ret = rte_pktmbuf_alloc_bulk(dpdk_data.pool, pkts_burst, max_num_pending_messages);
-            if (unlikely(ret < 0))
-                LOG_FATAL("Cannot allocate pkts burst");
+                ret = rte_pktmbuf_alloc_bulk(dpdk_data.pool, pkts_burst, burst_size);
+                if (unlikely(ret < 0))
+                    LOG_FATAL("Cannot allocate pkts burst");
 
-            for (j = 0; j < max_num_pending_messages; j++) {
-                m = pkts_burst[j];
-                build_pkt(m, dpdk_par.portid, offset, seq_num);
-                seq_num = (seq_num + 1) % max_seq_num;
+                for (j = 0; j < burst_size; j++) {
+                    m = pkts_burst[j];
+                    build_pkt(m, dpdk_par.portid, offset, seq_num, tuptr);
+                    seq_num++;
 
-                rte_atomic32_inc(&sent_message_counters[offset]);
+                    rte_atomic32_inc(&sent_message_counters[offset]);
 
 #if SAVE_LATENCIES
-                write_timestamp(offset);
+                    write_timestamp(offset);
 #endif
 
-                offset++;
+                    offset++;
+                }
+
+                // Transmit the packet burst
+                do {
+                    ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
+                } while (ret == 0);
+
+                rte_atomic64_add(&pkt_stats.w_tx, max_num_pending_messages);
             }
 
-            // Transmit the packet burst
-            do {
-                ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, max_num_pending_messages, NULL);
-            } while (ret == 0);
+            while (rx_pkts<max_num_msgs) {
 
-            rte_atomic64_add(&pkt_stats.w_tx, max_num_pending_messages);
-        }
+                // Read packet from RX ring
+                nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
 
-        while (!force_quit && !worker_stop) {
+                for (j = 0; j < nb_rx; j++) {
 
-            // Read packet from RX ring
+                    m = pkts_burst[j];
 
-            nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
-
-            for (j = 0; j < nb_rx; j++) {
-
-                m = pkts_burst[j];
-
-                rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-                eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+                    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+                    eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
 #if COLOCATED
-                msg->Reset((void*) ((uint8_t *) (&eth[1]) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr)));
+                    msg->Reset((void*) ((uint8_t *) (&eth[1]) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr)));
 #else
-                if (likely(is_daiet_pkt(eth, m->data_len, msg))) {
+                    if (likely(is_daiet_pkt(eth, m->data_len, msg))) {
 #endif
 
-                    offset = rte_be_to_cpu_16(msg->get_offset_position());
+                        offset = rte_be_to_cpu_16(msg->get_offset_position());
 
-                    rte_atomic64_inc(&pkt_stats.w_rx);
+                        rte_atomic64_inc(&pkt_stats.w_rx);
 
 #if SAVE_LATENCIES
-                    // Save latency
-                    save_latency(offset, lat_indx);
+                        // Save latency
+                        save_latency(offset, lat_indx);
 
-                    lat_indx += 1;
+                        lat_indx += 1;
 #endif
 
-                    agg_val = aggregate_msg(*msg) / num_workers;
-                    if (unlikely(agg_val != expected_agg_value)) {
-                        rte_atomic64_inc(&pkt_stats.faulty);
-                    }
+                        rx_pkts++;
+                        aggregate_msg(*msg, num_workers, tuptr);
 
-                    tmp_rx_msg_ctr = rte_atomic32_read(&sent_message_counters[offset]);
-                    /*Check if the offset has been sent enough times */
-                    if (likely(tmp_rx_msg_ctr < lower_bound_num_updates || (tmp_rx_msg_ctr < upper_bound_num_updates && offset < last_update_index))) {
+                        tmp_rx_msg_ctr = rte_atomic32_read(&sent_message_counters[offset]);
+                        /*Check if the offset has been sent enough times */
+                        if (likely(tmp_rx_msg_ctr < lower_bound_num_updates || (tmp_rx_msg_ctr < upper_bound_num_updates && offset < last_update_index))) {
 
-                        //Resend the packet
-                        reset_pkt(eth, msg, dpdk_par.portid, offset, seq_num);
-                        seq_num = (seq_num + 1) % max_seq_num;
+                            //Resend the packet
+                            seq_num = max_num_pending_messages*tmp_rx_msg_ctr+offset;
+                            reset_pkt(eth, msg, dpdk_par.portid, offset, seq_num, tuptr);
 
-                        ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
-                        if (unlikely(ret < 0))
-                            LOG_FATAL("Cannot enqueue one packet");
+                            ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
+                            if (unlikely(ret < 0))
+                                LOG_FATAL("Cannot enqueue one packet");
 
-                        rte_atomic64_inc(&pkt_stats.w_tx);
-                        rte_atomic32_inc(&sent_message_counters[offset]);
-                    }
+                            rte_atomic64_inc(&pkt_stats.w_tx);
+                            rte_atomic32_inc(&sent_message_counters[offset]);
+                        }
 
-                    if (unlikely(rte_atomic64_read(&pkt_stats.w_rx) >= max_num_msgs))
-                        worker_stop = true;
 #if !COLOCATED
-                } else {
-                    // Free original packet
-                    rte_pktmbuf_free(m);
-                }
+                    } else {
+                        // Free original packet
+                        rte_pktmbuf_free(m);
+                    }
 #endif
+                }
             }
+            // DONE UPDATE
+            out_queue.push(tuptr);
         }
-
         // Cleanup
         rte_free(pkts_burst);
         // Cleanup

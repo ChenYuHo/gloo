@@ -16,7 +16,7 @@ RTE_TARGET ?= x86_64-native-linuxapp-gcc
 include $(RTE_SDK)/mk/rte.vars.mk
 
 # binary name
-APP = DAIET-PktGen
+LIB = libdaiet.a
 
 # all source are stored in SRCS-y
 SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
@@ -42,7 +42,7 @@ else
 CXXFLAGS += -std=c++11 -O3
 endif
 
-include $(RTE_SDK)/mk/rte.extapp.mk
+include $(RTE_SDK)/mk/rte.extlib.mk
 
 distclean: clean
 	$(RM) -r build

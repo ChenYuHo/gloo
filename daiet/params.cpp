@@ -38,6 +38,8 @@ namespace daiet {
         cell_value = 1;
         cell_value_be = rte_cpu_to_be_32(cell_value);
 
+        scaling_factor = INT32_MAX/FLT_MAX;
+
         worker_port_be = rte_cpu_to_be_16(4000);
         ps_port_be = rte_cpu_to_be_16(5000);
         worker_ip_be = rte_cpu_to_be_32(0x0a000001);
@@ -107,6 +109,14 @@ namespace daiet {
     void daiet_params::setCellValue(int32_t cellValue) {
         cell_value = cellValue;
         cell_value_be = rte_cpu_to_be_32(cell_value);
+    }
+
+    float daiet_params::getScalingFactor() const {
+        return scaling_factor;
+    }
+
+    void daiet_params::setMaxFloat(float maxFloat) {
+        scaling_factor = INT32_MAX/maxFloat;
     }
 
     void daiet_params::setWorkerPort(uint16_t workerPort) {

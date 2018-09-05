@@ -26,6 +26,8 @@ using namespace std;
 
 namespace daiet {
 
+    extern std::ofstream daiet_log;
+
     template<typename T>
     void LOG_FATAL(T);
     template<typename T>

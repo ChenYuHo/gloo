@@ -18,7 +18,7 @@
 #include "gloo/rendezvous/store.h"
 #include "gloo/transport/device.h"
 
-#include "gloo/daiet/daiet.hpp"
+#include "/home/asapio/Documents/workspace/gloo/daiet/DaietContext.hpp"
 
 namespace gloo {
 namespace rendezvous {

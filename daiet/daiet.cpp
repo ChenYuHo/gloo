@@ -5,6 +5,17 @@
 
 #include "daiet.hpp"
 
+
+#include <signal.h>
+
+
+#include "dpdk.h"
+#include "common.hpp"
+#include "utils.hpp"
+#include "params.hpp"
+#include "worker.hpp"
+#include "ps.hpp"
+
 using namespace std;
 using namespace daiet;
 namespace po = boost::program_options;
@@ -363,6 +374,7 @@ namespace daiet {
 
         string config_file;
         int32_t update_value;
+        float max_float;
         uint16_t worker_port, ps_port;
         int num_updates;
         string worker_ip_str, ps_ips_str, ps_macs_str;
@@ -408,7 +420,8 @@ namespace daiet {
                 ("daiet.max_num_msgs", po::value<uint>(&(daiet_par.getMaxNumMsgs()))->default_value(1048576), "Total number of messages")
                 ("daiet.max_num_pending_messages", po::value<uint>(&(daiet_par.getMaxNumPendingMessages()))->default_value(40960), "Max number of pending, unaggregated messages")
                 ("daiet.update_value", po::value<int32_t>(&update_value)->default_value(1), "Update value")
-                ("daiet.num_updates", po::value<int>(&num_updates)->default_value(16), "Number of updates per packet");
+                ("daiet.num_updates", po::value<int>(&num_updates)->default_value(16), "Number of updates per packet")
+                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value");
 
         config_file_options.add(daiet_options).add(dpdk_options);
 
@@ -447,283 +460,287 @@ namespace daiet {
             LOG_FATAL("Invalid PS address: \n" + ps_ips_str + "\n" + ps_macs_str);
 
         daiet_par.setCellValue(update_value);
+        daiet_par.setMaxFloat(max_float);
         daiet_par.setNumUpdates(num_updates);
 
         if (num_updates < 0 || num_updates > 255)
             LOG_FATAL("Invalid number of updates: " + to_string(num_updates) + " (must be within [0,255])");
 
     }
-}
 
-int master(int argc, char *argv[]) {
+    int master(int argc, char *argv[], BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue) {
 
-    try {
+        try {
 
-        int ret;
+            int ret;
 
-        uint64_t hz;
-        ostringstream hz_str;
-        clock_t begin_cpu;
-        uint64_t begin;
-        double elapsed_secs_cpu;
-        double elapsed_secs;
-        ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
+            uint64_t hz;
+            ostringstream hz_str;
+            clock_t begin_cpu;
+            uint64_t begin;
+            double elapsed_secs_cpu;
+            double elapsed_secs;
+            ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
 
-        uint32_t num_workers_threads;
-        string corestr;
+            uint32_t num_workers_threads;
+            string corestr;
 
-        force_quit = false;
-        worker_stop = false;
-        ps_stop = false;
+            force_quit = false;
+            ps_stop = false;
 
-        /* Set signal handler */
-        signal(SIGINT, signal_handler);
-        signal(SIGTERM, signal_handler);
+            /* Set signal handler */
+            //signal(SIGINT, signal_handler);
+            //signal(SIGTERM, signal_handler);
 
-        parse_parameters(argc, argv, corestr);
+            parse_parameters(argc, argv, corestr);
 
-        // Set EAL log file
-        FILE * dpdk_log_file;
-        dpdk_log_file = fopen("dpdk.log", "w");
-        if (dpdk_log_file == NULL) {
-            string serror(strerror(errno));
-            LOG_ERROR("Failed to open log file: " + serror);
-        } else {
-            ret = rte_openlog_stream(dpdk_log_file);
+            // Set EAL log file
+            FILE * dpdk_log_file;
+            dpdk_log_file = fopen("dpdk.log", "w");
+            if (dpdk_log_file == NULL) {
+                string serror(strerror(errno));
+                LOG_ERROR("Failed to open log file: " + serror);
+            } else {
+                ret = rte_openlog_stream(dpdk_log_file);
+                if (ret < 0)
+                    LOG_ERROR("Failed to open dpdk log stream");
+            }
+
+            daiet_log = std::ofstream("daiet.log", std::ios::out);
+
+            // Set core list
+            corestr = string(argv[0]) + " -l " + corestr;
+            vector<string> par_vec = split(corestr);
+
+            int args_c = par_vec.size();
+            char* args[args_c];
+            char* args_ptr[args_c];
+
+            for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+                args[i] = new char[par_vec[i].size() + 1];
+                args_ptr[i] = args[i];
+                strcpy(args[i], par_vec[i].c_str());
+            }
+
+            // init EAL
+            ret = rte_eal_init(args_c, args);
             if (ret < 0)
-                LOG_ERROR("Failed to open dpdk log stream");
-        }
+                LOG_FATAL("Invalid EAL arguments");
 
-        // Set core list
-        corestr = string(argv[0]) + " -l " + corestr;
-        vector<string> par_vec = split(corestr);
+            uint32_t n_lcores = 0, lcore_id, worker_id, wid = 0;
 
-        int args_c = par_vec.size();
-        char* args[args_c];
-        char* args_ptr[args_c];
+            for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+                if (rte_lcore_is_enabled(lcore_id) != 0) {
 
-        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-            args[i] = new char[par_vec[i].size() + 1];
-            args_ptr[i] = args[i];
-            strcpy(args[i], par_vec[i].c_str());
-        }
+                    // First core is for the master
+                    if (n_lcores == 1)
+                        dpdk_data.core_rx = lcore_id;
+                    else if (n_lcores == 2)
+                        dpdk_data.core_tx = lcore_id;
+                    else {
+                        core_to_workers_ids[lcore_id] = wid;
+                        wid++;
+                    }
 
-        // init EAL
-        ret = rte_eal_init(args_c, args);
-        if (ret < 0)
-            LOG_FATAL("Invalid EAL arguments");
-
-        uint32_t n_lcores = 0, lcore_id, worker_id, wid = 0;
-
-        for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
-            if (rte_lcore_is_enabled(lcore_id) != 0) {
-
-                // First core is for the master
-                if (n_lcores == 1)
-                    dpdk_data.core_rx = lcore_id;
-                else if (n_lcores == 2)
-                    dpdk_data.core_tx = lcore_id;
-                else {
-                    core_to_workers_ids[lcore_id] = wid;
-                    wid++;
+                    n_lcores++;
                 }
-
-                n_lcores++;
             }
-        }
 
-        if (n_lcores < 3)
-            LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be greater than 3");
+            if (n_lcores < 3)
+                LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be greater than 3");
 
-        num_workers_threads = wid;
-        LOG_INFO("Number of worker threads: " + to_string(num_workers_threads));
+            num_workers_threads = wid;
+            LOG_INFO("Number of worker threads: " + to_string(num_workers_threads));
 
-        // Estimate CPU frequency
-        hz = rte_get_timer_hz();
-        hz_str << setprecision(3) << (double) hz / 1000000000;
-        LOG_INFO("Estimated CPU freq: " + hz_str.str() + " GHz");
+            // Estimate CPU frequency
+            hz = rte_get_timer_hz();
+            hz_str << setprecision(3) << (double) hz / 1000000000;
+            LOG_INFO("Estimated CPU freq: " + hz_str.str() + " GHz");
 
-        // Create the mbuf pool
-        mbuf_pool_init();
+            // Create the mbuf pool
+            mbuf_pool_init();
 
-        // Initialize rings
-#if COLOCATED
-        rings_init("worker");
-        rings_init("ps");
-#else
-        rings_init(daiet_par.getMode());
-#endif
+            // Initialize rings
+    #if COLOCATED
+            rings_init("worker");
+            rings_init("ps");
+    #else
+            rings_init(daiet_par.getMode());
+    #endif
 
-        // Initialize port
-        port_init();
+            // Initialize port
+            port_init();
 
-        // Initialize shared variables
-#if COLOCATED
-        worker_setup();
-        ps_setup();
-#else
-        if (daiet_par.getMode() == "worker") {
+            // Initialize shared variables
+    #if COLOCATED
             worker_setup();
-        } else if (daiet_par.getMode() == "ps") {
             ps_setup();
-        }
-#endif
+    #else
+            if (daiet_par.getMode() == "worker") {
+                worker_setup();
+            } else if (daiet_par.getMode() == "ps") {
+                ps_setup();
+            }
+    #endif
 
-        // Check state of slave cores
-        RTE_LCORE_FOREACH_SLAVE(lcore_id)
-        {
-            if (rte_eal_get_lcore_state(lcore_id) != WAIT)
-                LOG_FATAL("Core " + to_string(lcore_id) + " in state " + to_string(rte_eal_get_lcore_state(lcore_id)));
-        }
+            // Check state of slave cores
+            RTE_LCORE_FOREACH_SLAVE(lcore_id)
+            {
+                if (rte_eal_get_lcore_state(lcore_id) != WAIT)
+                    LOG_FATAL("Core " + to_string(lcore_id) + " in state " + to_string(rte_eal_get_lcore_state(lcore_id)));
+            }
 
-        // Launch RX and TX loops
-        rte_eal_remote_launch(rx_loop, NULL, dpdk_data.core_rx);
-        rte_eal_remote_launch(tx_loop, NULL, dpdk_data.core_tx);
+            // Launch RX and TX loops
+            rte_eal_remote_launch(rx_loop, NULL, dpdk_data.core_rx);
+            rte_eal_remote_launch(tx_loop, NULL, dpdk_data.core_tx);
 
-        sleep(5);
+            sleep(1);
 
-        begin_cpu = clock();
-        begin = rte_get_timer_cycles();
+            begin_cpu = clock();
+            begin = rte_get_timer_cycles();
 
-        // Launch functions on slave cores
-        RTE_LCORE_FOREACH_SLAVE(lcore_id)
-        {
+            // Launch functions on slave cores
+            RTE_LCORE_FOREACH_SLAVE(lcore_id)
+            {
 
-            if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
+                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
 
-                if (daiet_par.getMode() == "worker") {
-                    rte_eal_remote_launch(worker, NULL, lcore_id);
-#if COLOCATED
-                    // One worker and as many PSs as needed
-                    daiet_par.getMode() = "ps";
-#endif
-                } else if (daiet_par.getMode() == "ps") {
-                    rte_eal_remote_launch(ps, NULL, lcore_id);
+                    if (daiet_par.getMode() == "worker") {
+                        //rte_eal_remote_launch(worker, NULL, lcore_id);
+                        LOG_FATAL("Slave worker thread");
+    #if COLOCATED
+                        // One worker and as many PSs as needed
+                        daiet_par.getMode() = "ps";
+    #endif
+                    } else if (daiet_par.getMode() == "ps") {
+                        rte_eal_remote_launch(ps, NULL, lcore_id);
+                    }
                 }
             }
-        }
 
-        // Launch function on master cores
-        if (daiet_par.getMode() == "worker")
-            worker(NULL);
-        else if (daiet_par.getMode() == "ps")
-            ps(NULL);
+            // Launch function on master cores
+            if (daiet_par.getMode() == "worker")
+                worker(in_queue,out_queue);
+            else if (daiet_par.getMode() == "ps")
+                ps(NULL);
 
-        // Join worker/ps threads
-        RTE_LCORE_FOREACH_SLAVE(lcore_id)
-        {
-            if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
-                ret = rte_eal_wait_lcore(lcore_id);
-                if (unlikely(ret < 0)) {
-                    LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
+            // Join worker/ps threads
+            RTE_LCORE_FOREACH_SLAVE(lcore_id)
+            {
+                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
+                    ret = rte_eal_wait_lcore(lcore_id);
+                    if (unlikely(ret < 0)) {
+                        LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
+                    }
                 }
             }
-        }
 
-        elapsed_secs = ((double) (rte_get_timer_cycles() - begin)) / hz;
-        elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
+            elapsed_secs = ((double) (rte_get_timer_cycles() - begin)) / hz;
+            elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
 
-        tx_rx_stop=true;
+            tx_rx_stop=true;
 
-        // Wait RX/TX cores
-        ret = rte_eal_wait_lcore(dpdk_data.core_rx);
-        if (unlikely(ret < 0)) {
-            LOG_DEBUG("Core " + to_string(dpdk_data.core_rx) + " returned " + to_string(ret));
-        }
-
-        ret = rte_eal_wait_lcore(dpdk_data.core_tx);
-        if (unlikely(ret < 0)) {
-            LOG_DEBUG("Core " + to_string(dpdk_data.core_tx) + " returned " + to_string(ret));
-        }
-
-        // Print stats
-        print_dev_stats(dpdk_par.portid);
-        //print_dev_xstats(dpdk_par.portid);
-
-#if !COLOCATED
-        if (daiet_par.getMode() == "worker") {
-            LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
-            LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
-        } else if (daiet_par.getMode() == "ps") {
-            LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
-            LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
-        }
-#else
-        LOG_INFO("Worker TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
-        LOG_INFO("Worker RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
-        LOG_INFO("PS TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
-        LOG_INFO("PS RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
-#endif
-
-#if !COLOCATED
-        if (daiet_par.getMode() == "worker")
-#endif
-        {
-
-            LOG_INFO("Faulty " + to_string(rte_atomic64_read(&pkt_stats.faulty)));
-
-            int32_t min = rte_atomic32_read(&sent_message_counters[0]);
-            int32_t max = min;
-            int32_t tmp;
-
-            for (int i = 1; i < daiet_par.getMaxNumPendingMessages(); i++) {
-                tmp = rte_atomic32_read(&sent_message_counters[i]);
-                if (tmp < min)
-                    min = tmp;
-                if (tmp > max)
-                    max = tmp;
+            // Wait RX/TX cores
+            ret = rte_eal_wait_lcore(dpdk_data.core_rx);
+            if (unlikely(ret < 0)) {
+                LOG_DEBUG("Core " + to_string(dpdk_data.core_rx) + " returned " + to_string(ret));
             }
 
-            LOG_INFO("Number of updates: min " + to_string(min) + " max " + to_string(max));
-        }
+            ret = rte_eal_wait_lcore(dpdk_data.core_tx);
+            if (unlikely(ret < 0)) {
+                LOG_DEBUG("Core " + to_string(dpdk_data.core_tx) + " returned " + to_string(ret));
+            }
 
-        elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
-        elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
+            // Print stats
+            print_dev_stats(dpdk_par.portid);
+            //print_dev_xstats(dpdk_par.portid);
 
-        LOG_INFO("Time elapsed: " + elapsed_secs_str.str() + " seconds (CPU time: " + elapsed_secs_cpu_str.str() + " seconds)");
+    #if !COLOCATED
+            if (daiet_par.getMode() == "worker") {
+                LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
+                LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
+            } else if (daiet_par.getMode() == "ps") {
+                LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
+                LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
+            }
+    #else
+            LOG_INFO("Worker TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
+            LOG_INFO("Worker RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
+            LOG_INFO("PS TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
+            LOG_INFO("PS RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
+    #endif
 
-#if SAVE_LATENCIES
-#if !COLOCATED
-        if (daiet_par.getMode() == "worker")
-#endif
-            write_latencies("latency_usec.dat", hz);
-#endif
+    #if !COLOCATED
+            if (daiet_par.getMode() == "worker")
+    #endif
+            {
 
-        // Cleanup
+                LOG_INFO("Faulty " + to_string(rte_atomic64_read(&pkt_stats.faulty)));
 
-        LOG_DEBUG("Closing port...");
-        rte_eth_dev_stop(dpdk_par.portid);
-        rte_eth_dev_close(dpdk_par.portid);
-        LOG_DEBUG("Port closed");
+                int32_t min = rte_atomic32_read(&sent_message_counters[0]);
+                int32_t max = min;
+                int32_t tmp;
 
-#if COLOCATED
-        worker_cleanup();
-        ps_cleanup();
-#else
-        if (daiet_par.getMode() == "worker") {
+                for (int i = 1; i < daiet_par.getMaxNumPendingMessages(); i++) {
+                    tmp = rte_atomic32_read(&sent_message_counters[i]);
+                    if (tmp < min)
+                        min = tmp;
+                    if (tmp > max)
+                        max = tmp;
+                }
+
+                LOG_INFO("Number of updates: min " + to_string(min) + " max " + to_string(max));
+            }
+
+            elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
+            elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
+
+            LOG_INFO("Time elapsed: " + elapsed_secs_str.str() + " seconds (CPU time: " + elapsed_secs_cpu_str.str() + " seconds)");
+
+    #if SAVE_LATENCIES
+    #if !COLOCATED
+            if (daiet_par.getMode() == "worker")
+    #endif
+                write_latencies("latency_usec.dat", hz);
+    #endif
+
+            // Cleanup
+
+            LOG_DEBUG("Closing port...");
+            rte_eth_dev_stop(dpdk_par.portid);
+            rte_eth_dev_close(dpdk_par.portid);
+            LOG_DEBUG("Port closed");
+
+    #if COLOCATED
             worker_cleanup();
-        } else if (daiet_par.getMode() == "ps") {
             ps_cleanup();
+    #else
+            if (daiet_par.getMode() == "worker") {
+                worker_cleanup();
+            } else if (daiet_par.getMode() == "ps") {
+                ps_cleanup();
+            }
+    #endif
+
+            fclose(dpdk_log_file);
+            daiet_log.close();
+
+            for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+                delete[] args_ptr[i];
+            }
+
+    #if COLOCATED
+            rings_cleanup("worker");
+            rings_cleanup("ps");
+    #else
+            rings_cleanup(daiet_par.getMode());
+    #endif
+
+            return 0;
+
+        } catch (exception& e) {
+            cerr << e.what() << endl;
+            return -1;
         }
-#endif
-
-        fclose(dpdk_log_file);
-
-        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-            delete[] args_ptr[i];
-        }
-
-#if COLOCATED
-        rings_cleanup("worker");
-        rings_cleanup("ps");
-#else
-        rings_cleanup(daiet_par.getMode());
-#endif
-
-        exit(EXIT_SUCCESS);
-
-    } catch (exception& e) {
-        cerr << e.what() << endl;
-        exit(EXIT_FAILURE);
     }
-}
+} // End namespace

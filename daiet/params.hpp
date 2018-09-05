@@ -111,6 +111,8 @@ namespace daiet {
             int32_t cell_value;
             int32_t cell_value_be;
 
+            float scaling_factor;
+
             uint16_t worker_port_be;
             uint16_t ps_port_be;
             uint32_t worker_ip_be;
@@ -152,6 +154,9 @@ namespace daiet {
 
             int32_t getCellValue() const;
             void setCellValue(int32_t);
+
+            float getScalingFactor() const;
+            void setMaxFloat(float);
 
             __rte_always_inline int32_t getCellValueBe() const {
                 return cell_value_be;
