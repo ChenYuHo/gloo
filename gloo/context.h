@@ -15,6 +15,8 @@
 #include "gloo/transport/device.h"
 #include "gloo/transport/pair.h"
 
+#include "daiet/DaietContext.hpp"
+
 namespace gloo {
 
 class Context {
@@ -43,6 +45,8 @@ class Context {
   std::vector<std::unique_ptr<transport::Pair>> pairs_;
   int slot_;
   std::chrono::milliseconds timeout_;
+
+  daiet::DaietContext daietContext;
 
 };
 

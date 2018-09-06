@@ -263,6 +263,21 @@ void CudaAllreduceHalvingDoubling<T, W>::run() {
     return;
   }
 
+  if (std::is_same<W, CudaHostWorkspace<T>>::value){
+      // scratch is a CudaHostPointer
+      if (context_->daietContext.try_daiet(*scratch_,count_,fn_)){
+
+          // Asynchronously copy result buffer to all device buffers
+          if (localBroadcastOp_) {
+              localBroadcastOp_->runAsync();
+              localBroadcastOp_->wait();
+          }
+          return;
+      }
+  }
+
+  // Fallback
+
   // Reduce-scatter
   for (int i = 0; i < stepsWithinBlock_; i++) {
     if (sendOffsets_[i] < count_) {

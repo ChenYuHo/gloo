@@ -343,6 +343,26 @@ class AllreduceBcube : public Algorithm {
       fn_->call(ptrs_[0], ptrs_[i], totalNumElems_);
     }
 
+    if (this->contextSize_ == 1) {
+      // Broadcast ptrs_[0]
+      for (int i = 1; i < ptrs_.size(); i++) {
+        memcpy(ptrs_[i], ptrs_[0], bytes_);
+      }
+      return;
+    }
+
+    if (context_->daietContext.try_daiet(ptrs_[0],totalNumElems_,fn_)){
+
+        // Broadcast ptrs_[0]
+        for (int i = 1; i < ptrs_.size(); i++) {
+          memcpy(ptrs_[i], ptrs_[0], bytes_);
+        }
+
+        return;
+    }
+
+    // Fallback
+
     if (nodes_ == 1) {
       // Broadcast ptrs_[0]
       for (int i = 1; i < ptrs_.size(); i++) {

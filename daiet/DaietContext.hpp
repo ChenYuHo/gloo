@@ -52,8 +52,11 @@ namespace daiet {
 
             void StopMaster();
 
-            void AllReduceFloat(float*, int count);
-            void AllReduceInt32(int32_t*, int count);
+            void AllReduceFloat(float*, int);
+            void AllReduceInt32(int32_t*, int);
+
+            template<typename T>
+            void try_daiet<T>(T*, int, int);
 
             friend void *DaietMaster(void *ctx);
         private:

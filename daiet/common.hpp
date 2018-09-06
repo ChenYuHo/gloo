@@ -9,7 +9,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
 #include <errno.h>
@@ -22,8 +21,8 @@
 
 #include <iostream>
 #include <string>
-#include <cstring>
 #include <fstream>
+#include <cstring>
 
 #include "dpdk.h"
 #include "PsMsgs.hpp"

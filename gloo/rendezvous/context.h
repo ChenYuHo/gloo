@@ -18,8 +18,6 @@
 #include "gloo/rendezvous/store.h"
 #include "gloo/transport/device.h"
 
-#include "/home/asapio/Documents/workspace/gloo/daiet/DaietContext.hpp"
-
 namespace gloo {
 namespace rendezvous {
 
@@ -36,9 +34,6 @@ class Context : public ::gloo::Context {
 
  protected:
   std::vector<char> extractAddress(std::vector<char>& allAddrs, int i);
-
- private:
-      daiet::DaietContext daietContext;
 
   friend class ContextFactory;
 };

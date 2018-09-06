@@ -79,6 +79,23 @@ void CudaAllreduceRing<T, W>::run() {
     localReduceOp_->run();
   }
 
+  if (std::is_same<W, CudaHostWorkspace<T>>::value){
+      // scratch is a CudaHostPointer
+      if (context_->daietContext.try_daiet(*scratch_,count_,fn_)){
+
+          // Asynchronously copy result buffer to all device buffers
+          if (localBroadcastOp_) {
+              localBroadcastOp_->runAsync();
+              if (synchronizeDeviceOutputs_) {
+                localBroadcastOp_->wait();
+              }
+          }
+          return;
+      }
+  }
+
+  // Fallback
+
   // Initialize outbox with locally reduced values
   stream.copyAsync(outbox_, scratch_);
   stream.wait();

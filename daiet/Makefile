@@ -19,10 +19,12 @@ include $(RTE_SDK)/mk/rte.vars.mk
 LIB = libdaiet.a
 
 # all source are stored in SRCS-y
-SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
+SRCS-y := common.cpp ps.cpp # DaietContext.cpp  daiet.cpp  params.cpp  ps.cpp  utils.cpp  worker.cpp
+#$(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
+CXXFLAGS += -I ${DAIET_PATH}/.. # -I ${DAIET_PATH}/../gloo/common
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)

@@ -129,6 +129,21 @@ void CudaAllreduceBcube<T, W>::run() {
     return;
   }
 
+  if (std::is_same<W, CudaHostWorkspace<T>>::value){
+      // scratch is a CudaHostPointer
+      if (context_->daietContext.try_daiet(*scratch_,totalNumElems_,fn_)){
+
+          // Asynchronously copy result buffer to all device buffers
+          if (localBroadcastOp_) {
+              localBroadcastOp_->runAsync();
+              localBroadcastOp_->wait();
+          }
+          return;
+      }
+  }
+
+  // Fallback
+
   // Reduce-scatter
   DEBUG_PRINT_STAGE("start");
   for (int step = 0; step < steps_; ++step) {

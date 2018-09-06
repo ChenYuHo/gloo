@@ -73,13 +73,25 @@ class AllreduceRing : public Algorithm {
       fn_->call(ptrs_[0], ptrs_[i], count_);
     }
 
-    if (fn_==ReductionFunction<T>::sum){
+    if (this->contextSize_ == 1) {
+      // Broadcast ptrs_[0]
+      for (int i = 1; i < ptrs_.size(); i++) {
+        memcpy(ptrs_[i], ptrs_[0], bytes_);
+      }
+      return;
+    }
+
+    if (context_->daietContext.try_daiet(ptrs_[0],count_,fn_)){
+
         // Broadcast ptrs_[0]
         for (int i = 1; i < ptrs_.size(); i++) {
           memcpy(ptrs_[i], ptrs_[0], bytes_);
         }
+
         return;
     }
+
+    // Fallback
 
     // Intialize outbox with locally reduced values
     memcpy(outbox_, ptrs_[0], bytes_);

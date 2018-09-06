@@ -230,6 +230,7 @@ class AllreduceHalvingDoubling : public Algorithm {
     for (int i = 1; i < ptrs_.size(); i++) {
       fn_->call(ptrs_[0], ptrs_[i], count_);
     }
+
     if (this->contextSize_ == 1) {
       // Broadcast ptrs_[0]
       for (int i = 1; i < ptrs_.size(); i++) {
@@ -237,6 +238,18 @@ class AllreduceHalvingDoubling : public Algorithm {
       }
       return;
     }
+
+    if (context_->daietContext.try_daiet(ptrs_[0],count_,fn_)){
+
+        // Broadcast ptrs_[0]
+        for (int i = 1; i < ptrs_.size(); i++) {
+          memcpy(ptrs_[i], ptrs_[0], bytes_);
+        }
+
+        return;
+    }
+
+    // Fallback
 
     // Reduce-scatter
     for (int i = 0; i < stepsWithinBlock_; i++) {

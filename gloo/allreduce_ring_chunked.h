@@ -91,6 +91,16 @@ class AllreduceRingChunked : public Algorithm {
       return;
     }
 
+    if (context_->daietContext.try_daiet(ptrs_[0],count_,fn_)){
+
+        // Broadcast ptrs_[0]
+        for (int i = 1; i < ptrs_.size(); i++) {
+          memcpy(ptrs_[i], ptrs_[0], bytes_);
+        }
+
+        return;
+    }
+
     // Kick off copying initial chunks
     copyChunkAtOffset(2 * this->contextRank_);
     copyChunkAtOffset(2 * this->contextRank_ + 1);
