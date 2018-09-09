@@ -1,42 +1,61 @@
 dep_cmdline_parse.o = \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/lib/librte_cmdline/cmdline_parse.c \
+ /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse.c \
  /usr/include/stdc-predef.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_config.h \
- /usr/include/stdio.h /usr/include/features.h /usr/include/sys/cdefs.h \
- /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h \
- /usr/include/gnu/stubs-64.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stddef.h \
- /usr/include/bits/types.h /usr/include/bits/typesizes.h \
- /usr/include/libio.h /usr/include/_G_config.h /usr/include/wchar.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stdarg.h \
- /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
- /usr/include/bits/stdio.h /usr/include/errno.h /usr/include/bits/errno.h \
- /usr/include/linux/errno.h /usr/include/asm/errno.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /usr/include/stdio.h /usr/include/features.h \
+ /usr/include/x86_64-linux-gnu/sys/cdefs.h \
+ /usr/include/x86_64-linux-gnu/bits/wordsize.h \
+ /usr/include/x86_64-linux-gnu/gnu/stubs.h \
+ /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stddef.h \
+ /usr/include/x86_64-linux-gnu/bits/types.h \
+ /usr/include/x86_64-linux-gnu/bits/typesizes.h /usr/include/libio.h \
+ /usr/include/_G_config.h /usr/include/wchar.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stdarg.h \
+ /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/sys_errlist.h \
+ /usr/include/x86_64-linux-gnu/bits/stdio.h \
+ /usr/include/x86_64-linux-gnu/bits/stdio2.h /usr/include/errno.h \
+ /usr/include/x86_64-linux-gnu/bits/errno.h /usr/include/linux/errno.h \
+ /usr/include/x86_64-linux-gnu/asm/errno.h \
  /usr/include/asm-generic/errno.h /usr/include/asm-generic/errno-base.h \
- /usr/include/string.h /usr/include/xlocale.h /usr/include/bits/string.h \
- /usr/include/bits/string2.h /usr/include/stdlib.h \
- /usr/include/inttypes.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stdint.h \
- /usr/include/stdint.h /usr/include/bits/wchar.h /usr/include/ctype.h \
- /usr/include/endian.h /usr/include/bits/endian.h \
- /usr/include/bits/byteswap.h /usr/include/bits/byteswap-16.h \
- /usr/include/termios.h /usr/include/bits/termios.h \
- /usr/include/sys/ttydefaults.h /usr/include/netinet/in.h \
- /usr/include/sys/socket.h /usr/include/sys/uio.h \
- /usr/include/sys/types.h /usr/include/time.h /usr/include/sys/select.h \
- /usr/include/bits/select.h /usr/include/bits/sigset.h \
- /usr/include/bits/time.h /usr/include/sys/sysmacros.h \
- /usr/include/bits/pthreadtypes.h /usr/include/bits/uio.h \
- /usr/include/bits/socket.h /usr/include/bits/socket_type.h \
- /usr/include/bits/sockaddr.h /usr/include/asm/socket.h \
- /usr/include/asm-generic/socket.h /usr/include/asm/sockios.h \
- /usr/include/asm-generic/sockios.h /usr/include/bits/in.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_string_fns.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/lib/librte_cmdline/cmdline_rdline.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/cmdline_cirbuf.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_config.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/cmdline_vt100.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/lib/librte_cmdline/cmdline_parse.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/lib/librte_cmdline/cmdline.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/cmdline_rdline.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/cmdline_parse.h
+ /usr/include/string.h /usr/include/xlocale.h \
+ /usr/include/x86_64-linux-gnu/bits/string.h \
+ /usr/include/x86_64-linux-gnu/bits/string2.h /usr/include/endian.h \
+ /usr/include/x86_64-linux-gnu/bits/endian.h \
+ /usr/include/x86_64-linux-gnu/bits/byteswap.h \
+ /usr/include/x86_64-linux-gnu/bits/byteswap-16.h /usr/include/stdlib.h \
+ /usr/include/x86_64-linux-gnu/bits/string3.h /usr/include/inttypes.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
+ /usr/include/x86_64-linux-gnu/bits/wchar.h /usr/include/ctype.h \
+ /usr/include/termios.h /usr/include/x86_64-linux-gnu/bits/termios.h \
+ /usr/include/x86_64-linux-gnu/sys/ttydefaults.h \
+ /usr/include/netinet/in.h /usr/include/x86_64-linux-gnu/sys/socket.h \
+ /usr/include/x86_64-linux-gnu/sys/uio.h \
+ /usr/include/x86_64-linux-gnu/sys/types.h /usr/include/time.h \
+ /usr/include/x86_64-linux-gnu/sys/select.h \
+ /usr/include/x86_64-linux-gnu/bits/select.h \
+ /usr/include/x86_64-linux-gnu/bits/sigset.h \
+ /usr/include/x86_64-linux-gnu/bits/time.h \
+ /usr/include/x86_64-linux-gnu/bits/select2.h \
+ /usr/include/x86_64-linux-gnu/sys/sysmacros.h \
+ /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
+ /usr/include/x86_64-linux-gnu/bits/uio.h \
+ /usr/include/x86_64-linux-gnu/bits/socket.h \
+ /usr/include/x86_64-linux-gnu/bits/socket_type.h \
+ /usr/include/x86_64-linux-gnu/bits/sockaddr.h \
+ /usr/include/x86_64-linux-gnu/asm/socket.h \
+ /usr/include/asm-generic/socket.h \
+ /usr/include/x86_64-linux-gnu/asm/sockios.h \
+ /usr/include/asm-generic/sockios.h \
+ /usr/include/x86_64-linux-gnu/bits/socket2.h \
+ /usr/include/x86_64-linux-gnu/bits/in.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_rdline.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_cirbuf.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_vt100.h \
+ /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse.h \
+ /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_rdline.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_parse.h

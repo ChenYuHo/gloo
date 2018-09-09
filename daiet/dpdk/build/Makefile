@@ -9,7 +9,7 @@ endif
 MAKEFLAGS += --no-print-directory
 
 all:
-	@$(MAKE) -C ../ O=build
+	@$(MAKE) -C ../ O=x86_64-native-linuxapp-gcc
 
 %::
-	@$(MAKE) -C ../ O=build $@
+	@$(MAKE) -C ../ O=x86_64-native-linuxapp-gcc $@

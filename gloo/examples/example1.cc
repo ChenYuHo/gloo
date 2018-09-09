@@ -3,7 +3,7 @@
 
 #include "gloo/allreduce_ring.h"
 #include "gloo/rendezvous/context.h"
-#include "gloo/rendezvous/file_store.h"
+#include "gloo/rendezvous/redis_store.h"
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
 
@@ -49,7 +49,7 @@ int main(void) {
   gloo::transport::tcp::attr attr;
   //attr.iface = "eth0";
   //attr.iface = "ib0";
-  attr.iface = "lo";
+  attr.iface = "enp1s0f1";
 
   // attr.ai_family = AF_INET; // Force IPv4
   // attr.ai_family = AF_INET6; // Force IPv6
@@ -80,14 +80,14 @@ int main(void) {
   // Below, we instantiate rendezvous using the filesystem, given that
   // this example uses multiple processes on a single machine.
   //
-  auto fileStore = gloo::rendezvous::FileStore("/tmp");
+  auto redisStore = gloo::rendezvous::RedisStore("10.0.0.107");
 
   // To be able to reuse the same store over and over again and not have
   // interference between runs, we scope it to a unique prefix with the
   // PrefixStore. This wraps another store and prefixes every key before
   // forwarding the call to the underlying store.
   std::string prefix = getenv("PREFIX");
-  auto prefixStore = gloo::rendezvous::PrefixStore(prefix, fileStore);
+  auto prefixStore = gloo::rendezvous::PrefixStore(prefix, redisStore);
 
   // Using this store, we can now create a Gloo context. The context
   // holds a reference to every communication pair involving this
@@ -101,7 +101,7 @@ int main(void) {
 
   // All connections are now established. We can now initialize some
   // test data, instantiate the collective algorithm, and run it.
-  std::array<int, 4> data;
+  std::array<int, 128> data;
   std::cout << "Input: " << std::endl;
   for (int i = 0; i < data.size(); i++) {
     data[i] = i;

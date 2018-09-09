@@ -1,48 +1,64 @@
 dep_pmdinfogen.o = \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/buildtools/pmdinfogen/pmdinfogen.c \
+ /home/ubuntu/gloo/daiet/dpdk/buildtools/pmdinfogen/pmdinfogen.c \
  /usr/include/stdc-predef.h /usr/include/stdio.h /usr/include/features.h \
- /usr/include/sys/cdefs.h /usr/include/bits/wordsize.h \
- /usr/include/gnu/stubs.h /usr/include/gnu/stubs-64.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stddef.h \
- /usr/include/bits/types.h /usr/include/bits/typesizes.h \
- /usr/include/libio.h /usr/include/_G_config.h /usr/include/wchar.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stdarg.h \
- /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
- /usr/include/ctype.h /usr/include/endian.h /usr/include/bits/endian.h \
- /usr/include/bits/byteswap.h /usr/include/bits/byteswap-16.h \
- /usr/include/xlocale.h /usr/include/string.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/limits.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/syslimits.h \
- /usr/include/limits.h /usr/include/bits/posix1_lim.h \
- /usr/include/bits/local_lim.h /usr/include/linux/limits.h \
- /usr/include/bits/posix2_lim.h /usr/include/bits/xopen_lim.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stdbool.h \
- /usr/include/errno.h /usr/include/bits/errno.h \
- /usr/include/linux/errno.h /usr/include/asm/errno.h \
+ /usr/include/x86_64-linux-gnu/sys/cdefs.h \
+ /usr/include/x86_64-linux-gnu/bits/wordsize.h \
+ /usr/include/x86_64-linux-gnu/gnu/stubs.h \
+ /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stddef.h \
+ /usr/include/x86_64-linux-gnu/bits/types.h \
+ /usr/include/x86_64-linux-gnu/bits/typesizes.h /usr/include/libio.h \
+ /usr/include/_G_config.h /usr/include/wchar.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stdarg.h \
+ /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/sys_errlist.h /usr/include/ctype.h \
+ /usr/include/endian.h /usr/include/x86_64-linux-gnu/bits/endian.h \
+ /usr/include/x86_64-linux-gnu/bits/byteswap.h \
+ /usr/include/x86_64-linux-gnu/bits/byteswap-16.h /usr/include/xlocale.h \
+ /usr/include/string.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include-fixed/limits.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include-fixed/syslimits.h \
+ /usr/include/limits.h /usr/include/x86_64-linux-gnu/bits/posix1_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/local_lim.h \
+ /usr/include/linux/limits.h \
+ /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
+ /usr/include/x86_64-linux-gnu/bits/xopen_lim.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stdbool.h /usr/include/errno.h \
+ /usr/include/x86_64-linux-gnu/bits/errno.h /usr/include/linux/errno.h \
+ /usr/include/x86_64-linux-gnu/asm/errno.h \
  /usr/include/asm-generic/errno.h /usr/include/asm-generic/errno-base.h \
  /usr/include/libgen.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_common.h \
- /usr/lib/gcc/x86_64-redhat-linux/6.4.1/include/stdint.h \
- /usr/include/stdint.h /usr/include/bits/wchar.h /usr/include/stdlib.h \
- /usr/include/bits/waitflags.h /usr/include/bits/waitstatus.h \
- /usr/include/sys/types.h /usr/include/time.h /usr/include/sys/select.h \
- /usr/include/bits/select.h /usr/include/bits/sigset.h \
- /usr/include/bits/time.h /usr/include/sys/sysmacros.h \
- /usr/include/bits/pthreadtypes.h /usr/include/alloca.h \
- /usr/include/bits/stdlib-float.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_config.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/buildtools/pmdinfogen/pmdinfogen.h \
- /usr/include/sys/stat.h /usr/include/bits/stat.h /usr/include/sys/mman.h \
- /usr/include/bits/mman.h /usr/include/bits/mman-linux.h \
- /usr/include/fcntl.h /usr/include/bits/fcntl.h \
- /usr/include/bits/fcntl-linux.h /usr/include/bits/uio.h \
- /usr/include/unistd.h /usr/include/bits/posix_opt.h \
- /usr/include/bits/environments.h /usr/include/bits/confname.h \
- /usr/include/getopt.h /usr/include/elf.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_pci.h \
- /usr/include/sys/queue.h /usr/include/inttypes.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_debug.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_log.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_branch_prediction.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_interrupts.h \
- /home/asapio/Documents/workspace/DAIET-ML/PktGen/dpdk/build/include/rte_eal_interrupts.h
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
+ /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
+ /usr/include/x86_64-linux-gnu/bits/wchar.h /usr/include/stdlib.h \
+ /usr/include/x86_64-linux-gnu/bits/waitflags.h \
+ /usr/include/x86_64-linux-gnu/bits/waitstatus.h \
+ /usr/include/x86_64-linux-gnu/sys/types.h /usr/include/time.h \
+ /usr/include/x86_64-linux-gnu/sys/select.h \
+ /usr/include/x86_64-linux-gnu/bits/select.h \
+ /usr/include/x86_64-linux-gnu/bits/sigset.h \
+ /usr/include/x86_64-linux-gnu/bits/time.h \
+ /usr/include/x86_64-linux-gnu/sys/sysmacros.h \
+ /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h /usr/include/alloca.h \
+ /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/buildtools/pmdinfogen/pmdinfogen.h \
+ /usr/include/x86_64-linux-gnu/sys/stat.h \
+ /usr/include/x86_64-linux-gnu/bits/stat.h \
+ /usr/include/x86_64-linux-gnu/sys/mman.h \
+ /usr/include/x86_64-linux-gnu/bits/mman.h \
+ /usr/include/x86_64-linux-gnu/bits/mman-linux.h /usr/include/fcntl.h \
+ /usr/include/x86_64-linux-gnu/bits/fcntl.h \
+ /usr/include/x86_64-linux-gnu/bits/fcntl-linux.h \
+ /usr/include/x86_64-linux-gnu/bits/uio.h /usr/include/unistd.h \
+ /usr/include/x86_64-linux-gnu/bits/posix_opt.h \
+ /usr/include/x86_64-linux-gnu/bits/environments.h \
+ /usr/include/x86_64-linux-gnu/bits/confname.h /usr/include/getopt.h \
+ /usr/include/elf.h /usr/include/x86_64-linux-gnu/bits/auxv.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_pci.h \
+ /usr/include/x86_64-linux-gnu/sys/queue.h /usr/include/inttypes.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_debug.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_branch_prediction.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_interrupts.h \
+ /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_eal_interrupts.h

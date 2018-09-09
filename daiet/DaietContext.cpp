@@ -87,19 +87,28 @@ namespace daiet {
 
     template <typename T>
     bool DaietContext::try_daiet(T* ptr, int count, int fn_){
+       return false;
+    }
+
+    template <>
+    bool DaietContext::try_daiet<int32_t>(int32_t* ptr, int count, int fn_){
         if (fn_==1){ //sum
-            if (std::is_same<T, int32_t>::value) {
 
-                AllReduceInt32(ptr,count);
+            AllReduceInt32(ptr,count);
 
-                return true;
+            return true;
+        }
 
-            } else if (std::is_same<T, float>::value) {
+        return false;
+    }
 
-                AllReduceFloat(ptr,count);
+    template <>
+    bool DaietContext::try_daiet<float>(float* ptr, int count, int fn_){
+        if (fn_==1){ //sum
 
-                return true;
-            }
+            AllReduceFloat(ptr,count);
+
+            return true;
         }
 
         return false;
