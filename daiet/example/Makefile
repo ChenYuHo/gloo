@@ -16,15 +16,14 @@ RTE_TARGET ?= x86_64-native-linuxapp-gcc
 include $(RTE_SDK)/mk/rte.vars.mk
 
 # binary name
-LIB = libdaiet.a
+APP = test
 
 # all source are stored in SRCS-y
 SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
-CXXFLAGS += -I ${DAIET_PATH}/.. 
-LDFLAGS += -lstdc++ -l boost_program_options
+LDFLAGS += -lstdc++ -l boost_program_options -l boost_system -l boost_thread -l boost_chrono
 
 ifeq ($(colocated),y)
 $(info "Colocated")
@@ -43,7 +42,7 @@ else
 CXXFLAGS += -std=c++11 -O3
 endif
 
-include $(RTE_SDK)/mk/rte.extlib.mk
+include $(RTE_SDK)/mk/rte.extapp.mk
 
 distclean: clean
 	$(RM) -r build

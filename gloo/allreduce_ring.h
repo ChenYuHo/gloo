@@ -81,7 +81,7 @@ class AllreduceRing : public Algorithm {
       return;
     }
 
-    if (context_->daietContext.try_daiet(ptrs_[0],count_,fn_)){
+    if (context_->daietContext.try_daiet(ptrs_[0],count_,fn_->type())){
 
         // Broadcast ptrs_[0]
         for (int i = 1; i < ptrs_.size(); i++) {

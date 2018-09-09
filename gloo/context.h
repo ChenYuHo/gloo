@@ -27,6 +27,7 @@ class Context {
   const int rank;
   const int size;
   int base;
+  daiet::DaietContext daietContext;
 
   std::shared_ptr<transport::Device>& getDevice();
 
@@ -45,8 +46,6 @@ class Context {
   std::vector<std::unique_ptr<transport::Pair>> pairs_;
   int slot_;
   std::chrono::milliseconds timeout_;
-
-  daiet::DaietContext daietContext;
 
 };
 

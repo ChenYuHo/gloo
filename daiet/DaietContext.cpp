@@ -86,7 +86,7 @@ namespace daiet {
     }
 
     template <typename T>
-    void DaietContext::try_daiet<T>(T* ptr, int count, int fn_){
+    bool DaietContext::try_daiet(T* ptr, int count, int fn_){
         if (fn_==1){ //sum
             if (std::is_same<T, int32_t>::value) {
 
