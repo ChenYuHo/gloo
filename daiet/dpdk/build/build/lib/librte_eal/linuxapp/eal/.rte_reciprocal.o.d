@@ -1,7 +1,7 @@
 dep_rte_reciprocal.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/rte_reciprocal.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -18,7 +18,7 @@ dep_rte_reciprocal.o = \
  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
  /usr/include/stdlib.h /usr/include/x86_64-linux-gnu/bits/waitflags.h \
  /usr/include/x86_64-linux-gnu/bits/waitstatus.h /usr/include/endian.h \
  /usr/include/x86_64-linux-gnu/bits/endian.h \
@@ -45,5 +45,5 @@ dep_rte_reciprocal.o = \
  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
  /usr/include/linux/limits.h \
  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_reciprocal.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_reciprocal.h

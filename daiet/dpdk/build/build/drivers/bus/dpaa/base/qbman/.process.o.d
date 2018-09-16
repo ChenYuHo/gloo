@@ -1,7 +1,7 @@
 process.o: \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/dpaa/base/qbman/process.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/assert.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -85,48 +85,48 @@ process.o: \
  /usr/include/x86_64-linux-gnu/bits/xopen_lim.h /usr/include/dirent.h \
  /usr/include/x86_64-linux-gnu/bits/dirent.h /usr/include/inttypes.h \
  /usr/include/error.h /usr/include/x86_64-linux-gnu/bits/error.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_byteorder.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_byteorder.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_byteorder_64.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_atomic.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_byteorder.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_byteorder.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_byteorder_64.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_atomic.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/emmintrin.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/xmmintrin.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/mmintrin.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/mm_malloc.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_atomic.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_atomic_64.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_spinlock.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_spinlock.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_lcore.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_per_lcore.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_eal.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_compat.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_bus.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_atomic.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_atomic_64.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_spinlock.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_spinlock.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_lcore.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_per_lcore.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_eal.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_compat.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_bus.h \
  /usr/include/x86_64-linux-gnu/sys/queue.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_dev.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_pci_dev_feature_defs.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_launch.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_pause.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_pause.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_rtm.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_cpuflags.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_cpuflags.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_branch_prediction.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_pause.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_debug.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_cycles.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_cycles.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_branch_prediction.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_dev.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_pci_dev_feature_defs.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_launch.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_pause.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_pause.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_rtm.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_cpuflags.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_cpuflags.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_branch_prediction.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_pause.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_debug.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_cycles.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_cycles.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_branch_prediction.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/dpaa/include/dpaa_list.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/dpaa/include/dpaa_bits.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/dpaa/include/fsl_usd.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/dpaa/include/fsl_qman.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/dpaa/include/dpaa_rbtree.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_eventdev.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_memory.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_errno.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_eventdev.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_memory.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_errno.h

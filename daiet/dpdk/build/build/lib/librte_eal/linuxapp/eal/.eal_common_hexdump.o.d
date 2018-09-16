@@ -1,7 +1,7 @@
 dep_eal_common_hexdump.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/eal_common_hexdump.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdlib.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -37,5 +37,5 @@ dep_eal_common_hexdump.o = \
  /usr/include/asm-generic/errno.h /usr/include/asm-generic/errno-base.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_hexdump.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_hexdump.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h

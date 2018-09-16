@@ -1,7 +1,7 @@
 dep_nfp_resource.o = \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_resource.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -20,7 +20,7 @@ dep_nfp_resource.o = \
  /usr/include/endian.h /usr/include/x86_64-linux-gnu/bits/endian.h \
  /usr/include/x86_64-linux-gnu/bits/byteswap.h \
  /usr/include/x86_64-linux-gnu/bits/byteswap-16.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_cpp.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp-common/nfp_platform.h \
  /usr/include/fcntl.h /usr/include/x86_64-linux-gnu/bits/fcntl.h \

@@ -1,7 +1,7 @@
 dep_eal_common_options.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/eal_common_options.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdlib.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -52,36 +52,36 @@ dep_eal_common_options.o = \
  /usr/include/x86_64-linux-gnu/sys/stat.h \
  /usr/include/x86_64-linux-gnu/bits/stat.h /usr/include/dirent.h \
  /usr/include/x86_64-linux-gnu/bits/dirent.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_eal.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_eal.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h /usr/include/sched.h \
  /usr/include/x86_64-linux-gnu/bits/sched.h \
  /usr/include/x86_64-linux-gnu/bits/timex.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_compat.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_per_lcore.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_compat.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_per_lcore.h \
  /usr/include/pthread.h /usr/include/x86_64-linux-gnu/bits/setjmp.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_bus.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_bus.h \
  /usr/include/stdio.h /usr/include/libio.h /usr/include/_G_config.h \
  /usr/include/wchar.h /usr/include/x86_64-linux-gnu/bits/sys_errlist.h \
  /usr/include/x86_64-linux-gnu/bits/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
  /usr/include/x86_64-linux-gnu/sys/queue.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_dev.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_pci_dev_feature_defs.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_lcore.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_launch.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_tailq.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_debug.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_branch_prediction.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_version.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_devargs.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_memcpy.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_vect.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_vect.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_dev.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_pci_dev_feature_defs.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_lcore.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_launch.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_tailq.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_debug.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_branch_prediction.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_version.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_devargs.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_memcpy.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_vect.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_vect.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/x86intrin.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/ia32intrin.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/mmintrin.h \
@@ -138,6 +138,6 @@ dep_eal_common_options.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/eal_internal_cfg.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/eal_options.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/eal_filesystem.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_eal/common/eal_private.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/stdbool.h

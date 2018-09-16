@@ -1,6 +1,6 @@
 dep_rte_pci.o = /home/ubuntu/gloo/daiet/dpdk/lib/librte_pci/rte_pci.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/string.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -40,13 +40,13 @@ dep_rte_pci.o = /home/ubuntu/gloo/daiet/dpdk/lib/librte_pci/rte_pci.c \
  /usr/include/x86_64-linux-gnu/sys/mman.h \
  /usr/include/x86_64-linux-gnu/bits/mman.h \
  /usr/include/x86_64-linux-gnu/bits/mman-linux.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_errno.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_per_lcore.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_errno.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_per_lcore.h \
  /usr/include/pthread.h /usr/include/sched.h \
  /usr/include/x86_64-linux-gnu/bits/sched.h \
  /usr/include/x86_64-linux-gnu/bits/setjmp.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_interrupts.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_interrupts.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
  /usr/include/ctype.h /usr/include/errno.h \
  /usr/include/x86_64-linux-gnu/bits/errno.h /usr/include/linux/errno.h \
  /usr/include/x86_64-linux-gnu/asm/errno.h \
@@ -57,17 +57,17 @@ dep_rte_pci.o = /home/ubuntu/gloo/daiet/dpdk/lib/librte_pci/rte_pci.c \
  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
  /usr/include/linux/limits.h \
  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_eal_interrupts.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_bus.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_dev.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_compat.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_memory.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_eal.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_pci_dev_feature_defs.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_eal_interrupts.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_bus.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_dev.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_compat.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_memory.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_eal.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_pci_dev_feature_defs.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_pci/rte_pci.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_debug.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_branch_prediction.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_debug.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_branch_prediction.h

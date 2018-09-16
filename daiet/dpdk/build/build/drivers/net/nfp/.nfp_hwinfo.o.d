@@ -1,7 +1,7 @@
 dep_nfp_hwinfo.o = \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_hwinfo.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \

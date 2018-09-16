@@ -1,7 +1,7 @@
 dep_nfp_cpp_pcie_ops.o = \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_cpp_pcie_ops.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/assert.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -58,7 +58,7 @@ dep_nfp_cpp_pcie_ops.o = \
  /usr/include/x86_64-linux-gnu/bits/mman-linux.h \
  /usr/include/x86_64-linux-gnu/sys/file.h \
  /usr/include/x86_64-linux-gnu/sys/stat.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_cpp.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp-common/nfp_platform.h \
  /usr/include/ctype.h /usr/include/inttypes.h \

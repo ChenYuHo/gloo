@@ -1,8 +1,8 @@
 dep_e1000_logs.o = /home/ubuntu/gloo/daiet/dpdk/drivers/net/e1000/e1000_logs.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/e1000/e1000_logs.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_log.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_log.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
  /usr/include/features.h /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -19,7 +19,7 @@ dep_e1000_logs.o = /home/ubuntu/gloo/daiet/dpdk/drivers/net/e1000/e1000_logs.c \
  /usr/include/x86_64-linux-gnu/bits/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
  /usr/include/x86_64-linux-gnu/sys/queue.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
  /usr/include/stdlib.h /usr/include/x86_64-linux-gnu/bits/waitflags.h \
  /usr/include/x86_64-linux-gnu/bits/waitstatus.h /usr/include/endian.h \
  /usr/include/x86_64-linux-gnu/bits/endian.h \
@@ -46,4 +46,4 @@ dep_e1000_logs.o = /home/ubuntu/gloo/daiet/dpdk/drivers/net/e1000/e1000_logs.c \
  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
  /usr/include/linux/limits.h \
  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h

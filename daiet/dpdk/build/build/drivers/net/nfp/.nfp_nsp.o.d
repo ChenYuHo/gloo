@@ -1,6 +1,6 @@
 dep_nfp_nsp.o = /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_nsp.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -16,7 +16,7 @@ dep_nfp_nsp.o = /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_nsp.c \
  /usr/include/x86_64-linux-gnu/bits/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/stdio2.h /usr/include/time.h \
  /usr/include/x86_64-linux-gnu/bits/time.h /usr/include/xlocale.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
  /usr/lib/gcc/x86_64-linux-gnu/5/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h /usr/include/stdlib.h \
  /usr/include/x86_64-linux-gnu/bits/waitflags.h \
@@ -43,7 +43,7 @@ dep_nfp_nsp.o = /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_nsp.c \
  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
  /usr/include/linux/limits.h \
  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_cpp.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp-common/nfp_platform.h \
  /usr/include/fcntl.h /usr/include/x86_64-linux-gnu/bits/fcntl.h \

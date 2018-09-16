@@ -1,7 +1,7 @@
 dep_cmdline_parse_portlist.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse_portlist.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -40,7 +40,7 @@ dep_cmdline_parse_portlist.o = \
  /usr/include/x86_64-linux-gnu/bits/errno.h /usr/include/linux/errno.h \
  /usr/include/x86_64-linux-gnu/asm/errno.h \
  /usr/include/asm-generic/errno.h /usr/include/asm-generic/errno-base.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse_portlist.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_parse.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline_parse.h

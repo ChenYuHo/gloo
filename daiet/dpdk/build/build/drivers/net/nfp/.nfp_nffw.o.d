@@ -1,7 +1,7 @@
 dep_nfp_nffw.o = \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_nffw.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp_cpp.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/net/nfp/nfpcore/nfp-common/nfp_platform.h \
  /usr/include/fcntl.h /usr/include/features.h \

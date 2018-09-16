@@ -1,7 +1,7 @@
 dep_cmdline_parse_etheraddr.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse_etheraddr.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -50,7 +50,7 @@ dep_cmdline_parse_etheraddr.o = \
  /usr/include/x86_64-linux-gnu/asm/posix_types.h \
  /usr/include/x86_64-linux-gnu/asm/posix_types_64.h \
  /usr/include/asm-generic/posix_types.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_string_fns.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_string_fns.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse_etheraddr.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_parse.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline_parse.h

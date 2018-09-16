@@ -112,9 +112,9 @@ namespace daiet {
 
             //TODO separate functions for FLOAT and INT to avoid this IF for each entry
             if (tensorUpdate->type==INT)
-                tensorUpdate->ptr.int_ptr[seqn] = int32_t(rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))))/(int32_t)num_workers;
+                tensorUpdate->ptr.int_ptr[seqn] = int32_t(rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))));
             else if (tensorUpdate->type==FLOAT)
-                tensorUpdate->ptr.float_ptr[seqn] = (int32_t(rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))))/(int32_t)num_workers)/scaling_factor;
+                tensorUpdate->ptr.float_ptr[seqn] = (int32_t(rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr)))))/scaling_factor;
 
             row_ptr += sizeof(int32_t);
             seqn++;

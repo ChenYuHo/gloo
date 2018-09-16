@@ -1,7 +1,7 @@
 dep_cmdline_cirbuf.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_cirbuf.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/string.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -26,4 +26,4 @@ dep_cmdline_cirbuf.o = \
  /usr/include/x86_64-linux-gnu/bits/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_cirbuf.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h

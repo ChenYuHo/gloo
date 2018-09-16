@@ -1,7 +1,7 @@
 dep_cmdline_socket.o = \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_socket.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -50,11 +50,11 @@ dep_cmdline_socket.o = \
  /usr/include/x86_64-linux-gnu/sys/ttydefaults.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_parse.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_rdline.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_cirbuf.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_vt100.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline_cirbuf.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline_vt100.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline_socket.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_parse.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/cmdline_rdline.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline_parse.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/cmdline_rdline.h \
  /home/ubuntu/gloo/daiet/dpdk/lib/librte_cmdline/cmdline.h

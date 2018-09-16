@@ -67,6 +67,7 @@ CONFIG_RTE_ENABLE_AVX=y
 CONFIG_RTE_ENABLE_AVX512=n
 # Default driver path (or "" to disable)
 CONFIG_RTE_EAL_PMD_PATH=""
+#CONFIG_RTE_EAL_PMD_PATH="/usr/local/lib/dpdk-pmds"
 # Compile Environment Abstraction Layer to support Vmware TSC map
 CONFIG_RTE_LIBRTE_EAL_VMWARE_TSC_MAP_SUPPORT=y
 # Compile architecture we compile for. PCI library

@@ -1,6 +1,6 @@
 dpci.o: /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/dpci.c \
  /usr/include/stdc-predef.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/fsl_mc_sys.h \
  /usr/include/stdio.h /usr/include/features.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
@@ -45,8 +45,8 @@ dpci.o: /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/dpci.c \
  /usr/include/asm-generic/posix_types.h /usr/include/linux/swab.h \
  /usr/include/x86_64-linux-gnu/asm/swab.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/fsl_mc_cmd.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_byteorder.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_common.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_byteorder.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_common.h \
  /usr/include/stdlib.h /usr/include/x86_64-linux-gnu/bits/waitflags.h \
  /usr/include/x86_64-linux-gnu/bits/waitstatus.h /usr/include/alloca.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
@@ -59,8 +59,8 @@ dpci.o: /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/dpci.c \
  /usr/include/x86_64-linux-gnu/bits/local_lim.h \
  /usr/include/linux/limits.h \
  /usr/include/x86_64-linux-gnu/bits/posix2_lim.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_config.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/generic/rte_byteorder.h \
- /home/ubuntu/gloo/daiet/dpdk/x86_64-native-linuxapp-gcc/include/rte_byteorder_64.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_config.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/generic/rte_byteorder.h \
+ /home/ubuntu/gloo/daiet/dpdk/build/include/rte_byteorder_64.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/fsl_dpci.h \
  /home/ubuntu/gloo/daiet/dpdk/drivers/bus/fslmc/mc/fsl_dpci_cmd.h
