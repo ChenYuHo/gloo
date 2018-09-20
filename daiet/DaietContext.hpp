@@ -56,7 +56,9 @@ namespace daiet {
             void AllReduceInt32(int32_t*, int);
 
             template<typename T>
-            bool try_daiet(T*, int, int);
+            bool try_daiet(T* ptr, int count, int fn_){
+               return false;
+            }
 
             friend void *DaietMaster(void *ctx);
         private:

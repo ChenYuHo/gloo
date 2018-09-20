@@ -85,11 +85,6 @@ namespace daiet {
         tu=*tuptr;
     }
 
-    template <typename T>
-    bool DaietContext::try_daiet(T* ptr, int count, int fn_){
-       return false;
-    }
-
     template <>
     bool DaietContext::try_daiet<int32_t>(int32_t* ptr, int count, int fn_){
         if (fn_==1){ //sum

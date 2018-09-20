@@ -7,20 +7,9 @@
 using namespace daiet;
 using namespace std;
 
-void signal_handler(int signum) {
-        if (signum == SIGINT || signum == SIGTERM) {
-            std::cerr<<" Signal " + to_string(signum) + " received, preparing to exit...\n";
-//            ctx.StopMaster(); 
-        }
-    }
-
 int main(){
 
 DaietContext ctx;
-/* Set signal handler */
-//signal(SIGINT, signal_handler);
-//signal(SIGTERM, signal_handler);
-
 
 int count= 131072*32;
 int32_t* p = new int32_t[count];
