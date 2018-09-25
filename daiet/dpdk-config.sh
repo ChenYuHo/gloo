@@ -10,14 +10,14 @@ export RTE_TARGET=build
 
 cd $RTE_SDK/$RTE_TARGET
 
-sudo modprobe uio
-sudo insmod kmod/igb_uio.ko
+modprobe uio
+insmod kmod/igb_uio.ko
 
 cd ../usertools
 
 for i in "${intfs[@]}"
 do
-    sudo ./dpdk-devbind.py --bind=igb_uio $i
+    ./dpdk-devbind.py --bind=igb_uio $i
 done
 
 cd $cwd
