@@ -7,7 +7,7 @@
 
 
 #include <signal.h>
-
+#include <unistd.h>
 
 #include "dpdk.h"
 #include "common.hpp"
@@ -445,7 +445,7 @@ namespace daiet {
         ifstream ifs(config_file.c_str());
 
         if (!ifs)
-            LOG_FATAL("Cannot open config file: " + config_file);
+            LOG_FATAL("Cannot open config file: " + config_file + " Path: " + string(get_current_dir_name()));
 
         po::store(po::parse_config_file(ifs, config_file_options), vm);
         po::notify(vm);
