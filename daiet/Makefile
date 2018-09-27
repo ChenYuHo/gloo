@@ -40,7 +40,7 @@ ifeq ($(debug),y)
 $(info "Debug")
 CXXFLAGS += -std=c++11 -g
 else
-CXXFLAGS += -std=c++11 -O3
+CXXFLAGS += -std=c++11 -O3 -fPIC
 endif
 
 include $(RTE_SDK)/mk/rte.extlib.mk
