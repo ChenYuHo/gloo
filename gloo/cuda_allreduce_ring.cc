@@ -81,7 +81,7 @@ void CudaAllreduceRing<T, W>::run() {
 
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
-      if (context_->daietContext.try_daiet(*scratch_,count_,fn_->type())){
+      if (Context::daietContext.try_daiet(*scratch_,count_,fn_->type())){
 
           // Asynchronously copy result buffer to all device buffers
           if (localBroadcastOp_) {

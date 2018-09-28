@@ -178,7 +178,7 @@ void CudaAllreduceRingChunked<T, W>::run() {
 
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
-      if (context_->daietContext.try_daiet(*scratch_,count_,fn_->type())){
+      if (Context::daietContext.try_daiet(*scratch_,count_,fn_->type())){
 
           // Wait for broadcast to complete
           for (auto i = 0; i < chunks_; i++) {

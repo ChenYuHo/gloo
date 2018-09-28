@@ -27,7 +27,7 @@ class Context {
   const int rank;
   const int size;
   int base;
-  daiet::DaietContext daietContext;
+  static daiet::DaietContext daietContext;
 
   std::shared_ptr<transport::Device>& getDevice();
 
