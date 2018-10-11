@@ -238,6 +238,24 @@ namespace daiet {
 #endif
     }
 
+    /**
+     * Free a list of packet mbufs back into its original mempool.
+     *
+     * Free a list of mbufs by calling rte_pktmbuf_free() in a loop as a wrapper function.
+     *
+     * @param m_list
+     *   An array of rte_mbuf pointers to be freed.
+     * @param npkts
+     *   Number of packets to free in m_list.
+     */
+    static inline void __attribute__((always_inline))
+    rte_pktmbuf_free_bulk(struct rte_mbuf *m_list[], int16_t npkts)
+    {
+       while(npkts--)
+           rte_pktmbuf_free(*m_list++);
+    }
+
+
     int worker(BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue) {
 
         volatile int rx_pkts =0;
@@ -396,6 +414,8 @@ namespace daiet {
                 }
             }
             // DONE UPDATE
+
+            rte_pktmbuf_free_bulk(pkts_burst, burst_size);
             out_queue.push(tuptr);
         }
         // Cleanup
