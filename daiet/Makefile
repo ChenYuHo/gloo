@@ -23,7 +23,7 @@ SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
-CXXFLAGS += -I ${DAIET_PATH}/.. 
+CXXFLAGS += -I ${DAIET_PATH}/.. -std=c++11
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)
@@ -38,9 +38,9 @@ endif
 
 ifeq ($(debug),y)
 $(info "Debug")
-CXXFLAGS += -std=c++11 -g
+CXXFLAGS += -g -O0 -fPIC
 else
-CXXFLAGS += -std=c++11 -O3 -fPIC
+CXXFLAGS += -O3 -fPIC
 endif
 
 include $(RTE_SDK)/mk/rte.extlib.mk
