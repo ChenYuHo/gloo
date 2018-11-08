@@ -55,12 +55,11 @@ namespace daiet {
             void AllReduceFloat(float*, int);
             void AllReduceInt32(int32_t*, int);
 
-            template<typename T>
-            bool try_daiet(T* ptr, int count, int fn_){
-               return false;
-            }
+            bool try_daiet(int32_t*, int, int);
+            bool try_daiet(float*, int, int);
+            bool try_daiet(void*, int, int);
 
-            friend void *DaietMaster(void *ctx);
+            friend void *DaietMaster(void*);
         private:
             pthread_t masterThread;
             int ret;

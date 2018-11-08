@@ -21,9 +21,8 @@ LIB = libdaiet.a
 # all source are stored in SRCS-y
 SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
 
-CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
-CXXFLAGS += -I ${DAIET_PATH}/.. -std=c++11
+CXXFLAGS += -I ${DAIET_PATH}/.. -std=c++11 -fPIC
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)
@@ -38,9 +37,11 @@ endif
 
 ifeq ($(debug),y)
 $(info "Debug")
-CXXFLAGS += -g -O0 -fPIC
+CFLAGS += -O0
+CXXFLAGS += -g -O0
 else
-CXXFLAGS += -O3 -fPIC
+CFLAGS += -O3
+CXXFLAGS += -O3
 endif
 
 include $(RTE_SDK)/mk/rte.extlib.mk

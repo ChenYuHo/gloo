@@ -357,7 +357,7 @@ namespace daiet {
                 rte_atomic64_add(&pkt_stats.w_tx, max_num_pending_messages);
             }
 
-            while (rx_pkts<max_num_msgs) {
+            while (rx_pkts<max_num_msgs && !force_quit) {
 
                 // Read packet from RX ring
                 nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
@@ -398,7 +398,7 @@ namespace daiet {
                             reset_pkt(eth, msg, dpdk_par.portid, offset, seq_num, tuptr);
 
                             ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
-                            if (unlikely(ret < 0))
+                            if (unlikely(ret != 0))
                                 LOG_FATAL("Cannot enqueue one packet");
 
                             rte_atomic64_inc(&pkt_stats.w_tx);

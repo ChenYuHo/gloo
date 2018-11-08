@@ -489,8 +489,8 @@ namespace daiet {
             ps_stop = false;
 
             /* Set signal handler */
-            //signal(SIGINT, signal_handler);
-            //signal(SIGTERM, signal_handler);
+            signal(SIGINT, signal_handler);
+            signal(SIGTERM, signal_handler);
 
             parse_parameters(argc, argv, corestr);
 

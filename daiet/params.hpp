@@ -96,7 +96,7 @@ namespace daiet {
 
     class daiet_params {
         private:
-            const size_t update_size = sizeof(int32_t);;
+            const size_t update_size = sizeof(int32_t);
             const uint32_t max_seq_num = ~(1 << (sizeof(uint32_t) * 8 - 1));
 
             string mode;

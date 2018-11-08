@@ -9,25 +9,25 @@
 
 namespace daiet {
 
-    void *DaietMaster(void *ctx) {
+    void* DaietMaster(void *ctx) {
 
-    DaietContext* d_ctx_ptr = (DaietContext *)ctx;
+        DaietContext* d_ctx_ptr = (DaietContext *) ctx;
 
-    string corestr = "daiet -c daiet.cfg";
+        string corestr = "daiet -c daiet.cfg";
 
-    vector<string> par_vec = split(corestr);
-    int args_c = par_vec.size();
-    char* args[args_c];
-    char* args_ptr[args_c];
+        vector<string> par_vec = split(corestr);
+        int args_c = par_vec.size();
+        char* args[args_c];
+        char* args_ptr[args_c];
 
-    for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-        args[i] = new char[par_vec[i].size() + 1];
-        args_ptr[i] = args[i];
-        strcpy(args[i], par_vec[i].c_str());
-    }
+        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+            args[i] = new char[par_vec[i].size() + 1];
+            args_ptr[i] = args[i];
+            strcpy(args[i], par_vec[i].c_str());
+        }
 
-    d_ctx_ptr->ret = master(args_c, args, d_ctx_ptr->in_queue, d_ctx_ptr->out_queue);
-    return NULL;
+        d_ctx_ptr->ret = master(args_c, args, d_ctx_ptr->in_queue, d_ctx_ptr->out_queue);
+        return NULL;
     }
 
     DaietContext::DaietContext() {
@@ -42,7 +42,7 @@ namespace daiet {
         force_quit = true;
 
         int join_ret = pthread_join(masterThread, NULL);
-        if(join_ret)
+        if (join_ret)
             GLOO_THROW("Error joining master dpdk thread: returned ", join_ret);
 
         if (this->ret < 0)
@@ -54,42 +54,41 @@ namespace daiet {
         StopMaster();
     }
 
-    void DaietContext::AllReduceFloat(float* ptr, int count){
+    void DaietContext::AllReduceFloat(float* ptr, int count) {
 
         TensorUpdate tu;
-        TensorUpdate* tuptr;;
-        tu.ptr.float_ptr=ptr;
-        tu.count=count;
-        tu.type=FLOAT;
+        TensorUpdate* tuptr;
+        tu.ptr.float_ptr = ptr;
+        tu.count = count;
+        tu.type = FLOAT;
         in_queue.push(&tu);
 
         do {
             tuptr = out_queue.pop();
-        } while(tuptr==NULL);
+        } while (tuptr == NULL);
 
-        tu=*tuptr;
+        tu = *tuptr;
     }
 
-    void DaietContext::AllReduceInt32(int32_t* ptr, int count){
+    void DaietContext::AllReduceInt32(int32_t* ptr, int count) {
         TensorUpdate tu;
-        TensorUpdate* tuptr;;
-        tu.ptr.int_ptr=ptr;
-        tu.count=count;
-        tu.type=INT;
+        TensorUpdate* tuptr;
+        tu.ptr.int_ptr = ptr;
+        tu.count = count;
+        tu.type = INT;
         in_queue.push(&tu);
 
         do {
             tuptr = out_queue.pop();
-        } while(tuptr==NULL);
+        } while (tuptr == NULL);
 
-        tu=*tuptr;
+        tu = *tuptr;
     }
 
-    template <>
-    bool DaietContext::try_daiet<int32_t>(int32_t* ptr, int count, int fn_){
-        if (fn_==1){ //sum
+    bool DaietContext::try_daiet(int32_t* ptr, int count, int fn_) {
+        if (fn_ == 1) { //sum
 
-            AllReduceInt32(ptr,count);
+            AllReduceInt32(ptr, count);
 
             return true;
         }
@@ -97,14 +96,18 @@ namespace daiet {
         return false;
     }
 
-    template <>
-    bool DaietContext::try_daiet<float>(float* ptr, int count, int fn_){
-        if (fn_==1){ //sum
+    bool DaietContext::try_daiet(float* ptr, int count, int fn_) {
+        if (fn_ == 1) { //sum
 
-            AllReduceFloat(ptr,count);
+            AllReduceFloat(ptr, count);
 
             return true;
         }
+
+        return false;
+    }
+
+    bool DaietContext::try_daiet(void* ptr, int count, int fn_) {
 
         return false;
     }
