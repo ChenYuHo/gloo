@@ -3,7 +3,7 @@
  * author: amedeo.sapio@kaust.edu.sa
  */
 
-# include "params.hpp"
+#include "params.hpp"
 
 namespace daiet {
 
@@ -20,28 +20,24 @@ namespace daiet {
         LOG_INFO("Burst size rx read: " + to_string(dpdk_par.burst_size_rx_read));
         LOG_INFO("Burst size worker: " + to_string(dpdk_par.burst_size_worker));
         LOG_INFO("Burst size tx read: " + to_string(dpdk_par.burst_size_tx_read));
-        LOG_INFO("Burst size tx write: " + to_string(dpdk_par.burst_size_tx_write));
+        LOG_INFO("Burst drain tx us: " + to_string(dpdk_par.burst_drain_tx_us));
     }
 
     daiet_params::daiet_params() {
         // Defaults
 
-        mode ="worker";
+        mode = "worker";
 
-        num_updates = 16;
-        payload_size = EXT_HEADER_SIZE + INT_HEADER_SIZE + (num_updates * 2 * update_size);
+        num_updates = 32;
 
         max_num_pending_messages = 40960;
-        num_workers = 1;
-        max_num_msgs = 1048576;
 
-        cell_value = 1;
-        cell_value_be = rte_cpu_to_be_32(cell_value);
+        tx_flags = PKT_TX_IP_CKSUM | PKT_TX_IPV4 | PKT_TX_UDP_CKSUM;
 
         scaling_factor = INT32_MAX/FLT_MAX;
 
         worker_port_be = rte_cpu_to_be_16(4000);
-        ps_port_be = rte_cpu_to_be_16(5000);
+        ps_port_be = rte_cpu_to_be_16(48879);
         worker_ip_be = rte_cpu_to_be_32(0x0a000001);
 
         ps_ips_be = NULL;
@@ -63,11 +59,9 @@ namespace daiet {
         LOG_INFO("** DAIET parameters **");
         LOG_INFO("Num updates: " + to_string(num_updates));
         LOG_INFO("Max num pending messages: " + to_string(max_num_pending_messages));
-        LOG_INFO("Num workers: " + to_string(num_workers));
-        LOG_INFO("Max num msgs: " + to_string(max_num_msgs));
-        LOG_INFO("Cell value: " + to_string(cell_value));
         LOG_INFO("Worker port: " + to_string(rte_be_to_cpu_16(worker_port_be)));
         LOG_INFO("Ps port: " + to_string(rte_be_to_cpu_16(ps_port_be)));
+        LOG_INFO("Scaling factor: " + to_string(scaling_factor));
 
         LOG_INFO("Worker IP: " + ip_to_str(worker_ip_be));
 
@@ -81,38 +75,12 @@ namespace daiet {
         return mode;
     }
 
-    const uint32_t daiet_params::getMaxSeqNum() const {
-        return max_seq_num;
+    uint32_t& daiet_params::getNumWorkers() {
+        return num_workers;
     }
 
     void daiet_params::setNumUpdates(uint8_t numUpdates) {
         num_updates = numUpdates;
-        payload_size = EXT_HEADER_SIZE + INT_HEADER_SIZE + (num_updates * 2 * update_size);
-    }
-
-    uint& daiet_params::getMaxNumPendingMessages() {
-        return max_num_pending_messages;
-    }
-
-    uint& daiet_params::getNumWorkers() {
-        return num_workers;
-    }
-
-    uint& daiet_params::getMaxNumMsgs() {
-        return max_num_msgs;
-    }
-
-    int32_t daiet_params::getCellValue() const {
-        return cell_value;
-    }
-
-    void daiet_params::setCellValue(int32_t cellValue) {
-        cell_value = cellValue;
-        cell_value_be = rte_cpu_to_be_32(cell_value);
-    }
-
-    float daiet_params::getScalingFactor() const {
-        return scaling_factor;
     }
 
     void daiet_params::setMaxFloat(float maxFloat) {

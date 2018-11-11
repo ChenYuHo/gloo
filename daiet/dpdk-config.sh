@@ -4,7 +4,7 @@ declare -a intfs=("enp1s0f0")
 
 cwd=$(pwd)
 
-export RTE_SDK=$cwd/dpdk
+export RTE_SDK=$cwd/lib/dpdk
 #export RTE_TARGET=x86_64-native-linuxapp-gcc
 export RTE_TARGET=build
 

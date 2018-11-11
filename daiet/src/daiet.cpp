@@ -5,7 +5,6 @@
 
 #include "daiet.hpp"
 
-
 #include <signal.h>
 #include <unistd.h>
 
@@ -15,6 +14,7 @@
 #include "params.hpp"
 #include "worker.hpp"
 #include "ps.hpp"
+
 
 using namespace std;
 using namespace daiet;
@@ -32,6 +32,41 @@ namespace daiet {
 #if SAVE_LATENCIES
     uint64_t* latencies;
 #endif
+
+    static __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, bool& to_ps) {
+
+        int idx;
+        uint16_t etherType;
+        struct ipv4_hdr* ip_hdr;
+        struct udp_hdr* udp_hdr;
+
+        idx = sizeof(struct ether_hdr);
+        etherType = rte_be_to_cpu_16(eth->ether_type);
+
+        if (etherType == ETHER_TYPE_IPv4 && size >= idx + sizeof(struct ipv4_hdr)) {
+
+            idx += sizeof(struct ipv4_hdr);
+            ip_hdr = (struct ipv4_hdr *) (eth + 1);
+
+            if (ip_hdr->next_proto_id == IPPROTO_UDP && size >= idx + sizeof(struct udp_hdr)) {
+                idx += sizeof(struct udp_hdr);
+                udp_hdr = (struct udp_hdr *) (ip_hdr + 1);
+
+                if (udp_hdr->dst_port == daiet_par.getPsPortBe()) {
+                    to_ps = true;
+                } else if (udp_hdr->dst_port == daiet_par.getWorkerPortBe()) {
+                    to_ps = false;
+                } else {
+                    return false;
+                }
+
+                if (size >= idx + sizeof(struct daiet_hdr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     int rx_loop(__attribute__((unused)) void*) {
         // Get core ID
@@ -80,13 +115,13 @@ namespace daiet {
 
                             ret = rte_ring_enqueue(dpdk_data.p_ring_rx, m);
                             if (unlikely(ret < 0))
-                                LOG_FATAL("Cannot enqueue one packet");
+                            LOG_FATAL("Cannot enqueue one packet");
 
                         } else {
 
                             ret = rte_ring_enqueue(dpdk_data.w_ring_rx, m);
                             if (unlikely(ret < 0))
-                                LOG_FATAL("Cannot enqueue one packet");
+                            LOG_FATAL("Cannot enqueue one packet");
                         }
                     } else {
                         // Free original packet
@@ -112,35 +147,45 @@ namespace daiet {
             ring_tx = dpdk_data.p_ring_tx;
 #endif
 
-        uint32_t n_mbufs = 0, n_pkts, pending_mbufs, sent = 0;
+        uint32_t n_mbufs = 0, n_pkts, sent = 0;
         struct rte_mbuf *tx_pkts_burst[MAX_PKT_BURST];
+
+        uint64_t prev_tsc=0, diff_tsc, cur_tsc;
+        const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * dpdk_par.burst_drain_tx_us;
 
         LOG_DEBUG("TX core: " + to_string(lcore_id));
 
         while (!force_quit && !tx_rx_stop) {
 
+            cur_tsc = rte_rdtsc();
+
+            diff_tsc = cur_tsc - prev_tsc;
+            if (unlikely(diff_tsc > drain_tsc)) {
+                // Ring drain
 #if !COLOCATED
-            pending_mbufs = rte_ring_sc_dequeue_bulk(ring_tx, (void **) &tx_pkts_burst[n_mbufs], dpdk_par.burst_size_tx_read, NULL);
+                n_mbufs = rte_ring_sc_dequeue_burst(ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
 #else
-            pending_mbufs = rte_ring_sc_dequeue_bulk(dpdk_data.w_ring_tx, (void **) &tx_pkts_burst[n_mbufs], dpdk_par.burst_size_tx_read, NULL);
-            pending_mbufs += rte_ring_sc_dequeue_bulk(dpdk_data.p_ring_tx, (void **) &tx_pkts_burst[n_mbufs+pending_mbufs], dpdk_par.burst_size_tx_read, NULL);
+                n_mbufs = rte_ring_sc_dequeue_burst(dpdk_data.w_ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
+                n_mbufs += rte_ring_sc_dequeue_burst(dpdk_data.p_ring_tx, (void **) &tx_pkts_burst[n_mbufs], dpdk_par.burst_size_tx_read, NULL);
 #endif
-            if (pending_mbufs != 0) {
+            } else {
+#if !COLOCATED
+                n_mbufs = rte_ring_sc_dequeue_bulk(ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
+#else
+                n_mbufs = rte_ring_sc_dequeue_bulk(dpdk_data.w_ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
+                n_mbufs += rte_ring_sc_dequeue_bulk(dpdk_data.p_ring_tx, (void **) &tx_pkts_burst[n_mbufs], dpdk_par.burst_size_tx_read, NULL);
+#endif
+            }
 
-                n_mbufs += pending_mbufs;
+            if (n_mbufs != 0) {
 
-                if (n_mbufs >= dpdk_par.burst_size_tx_write) {
+                do {
+                    n_pkts = rte_eth_tx_burst(dpdk_par.portid, 0, &tx_pkts_burst[sent], n_mbufs - sent);
 
-                    do {
-                        n_pkts = rte_eth_tx_burst(dpdk_par.portid, 0, &tx_pkts_burst[sent], n_mbufs - sent);
-
-                        sent += n_pkts;
-
-                    } while (sent < n_mbufs);
-
-                    n_mbufs = 0;
-                    sent = 0;
-                }
+                    sent += n_pkts;
+                } while (sent < n_mbufs);
+                sent = 0;
+                prev_tsc = cur_tsc;
             }
         }
         return 0;
@@ -234,14 +279,13 @@ namespace daiet {
         LOG_DEBUG("Initializing port " + to_string(dpdk_par.portid) + "...");
 
         rxm.split_hdr_size = 0;
-        rxm.header_split = 0; //< Header Split disabled
-        rxm.hw_ip_checksum = 1; //IP checksum offload enabled
-        rxm.hw_vlan_filter = 0; //< VLAN filtering disabled
-        rxm.jumbo_frame = 0; //< Jumbo Frame Support disabled
-        rxm.hw_strip_crc = 1; //< CRC stripped by hardware
-        // rxm.max_rx_pkt_len = ETHER_MAX_LEN; // < Only used if jumbo_frame enabled.
+
+        // Checksum offload + CRC stripped by hardware
+        rxm.offloads |= DEV_RX_OFFLOAD_CHECKSUM | DEV_RX_OFFLOAD_CRC_STRIP;
 
         txm.mq_mode = ETH_MQ_TX_NONE;
+        txm.offloads |= DEV_TX_OFFLOAD_IPV4_CKSUM | DEV_TX_OFFLOAD_UDP_CKSUM | DEV_TX_OFFLOAD_TCP_CKSUM;
+
         port_conf.rxmode = rxm;
         port_conf.txmode = txm;
         port_conf.link_speeds = ETH_LINK_SPEED_AUTONEG;
@@ -393,7 +437,7 @@ namespace daiet {
 #if !COLOCATED
                 ("mode,m", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
 #endif
-                ;
+                ("num_workers, nw", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(2), "Number of workers (only for PS mode)");
 
         dpdk_options.add_options()
                 ("dpdk.cores", po::value<string>(&corestr)->default_value("0-2"), "List of cores")
@@ -408,19 +452,16 @@ namespace daiet {
                 //("dpdk.burst_size_rx_write", po::value<uint32_t>(&dpdk_par.burst_size_rx_write)->default_value(64), "RX write burst size")
                 ("dpdk.burst_size_worker", po::value<uint32_t>(&dpdk_par.burst_size_worker)->default_value(64), "Worker burst size")
                 ("dpdk.burst_size_tx_read", po::value<uint32_t>(&dpdk_par.burst_size_tx_read)->default_value(64), "TX read burst size")
-                ("dpdk.burst_size_tx_write", po::value<uint32_t>(&dpdk_par.burst_size_tx_write)->default_value(64), "TX write burst size");
+                ("dpdk.burst_drain_tx_us", po::value<uint32_t>(&dpdk_par.burst_drain_tx_us)->default_value(100), "TX burst drain timer (us)");
 
         daiet_options.add_options()
-                ("daiet.num_workers", po::value<uint>(&(daiet_par.getNumWorkers()))->default_value(1), "Number of workers")
                 ("daiet.worker_ip", po::value<string>(&worker_ip_str)->default_value("10.0.0.1"), "IP address of this worker")
                 ("daiet.worker_port", po::value<uint16_t>(&worker_port)->default_value(4000), "Worker UDP port")
-                ("daiet.ps_port", po::value<uint16_t>(&ps_port)->default_value(5000), "PS UDP port")
+                ("daiet.ps_port", po::value<uint16_t>(&ps_port)->default_value(48879), "PS UDP port")
                 ("daiet.ps_ips", po::value<string>(&ps_ips_str)->default_value(ps_ips_default), "Comma-separated list of PS IP addresses")
                 ("daiet.ps_macs", po::value<string>(&ps_macs_str)->default_value(ps_macs_default), "Comma-separated list of PS MAC addresses")
-                ("daiet.max_num_msgs", po::value<uint>(&(daiet_par.getMaxNumMsgs()))->default_value(1048576), "Total number of messages")
-                ("daiet.max_num_pending_messages", po::value<uint>(&(daiet_par.getMaxNumPendingMessages()))->default_value(40960), "Max number of pending, unaggregated messages")
-                ("daiet.update_value", po::value<int32_t>(&update_value)->default_value(1), "Update value")
-                ("daiet.num_updates", po::value<int>(&num_updates)->default_value(16), "Number of updates per packet")
+                ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(40960), "Max number of pending, unaggregated messages")
+                ("daiet.num_updates", po::value<int>(&num_updates)->default_value(32), "Number of updates per packet")
                 ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value");
 
         config_file_options.add(daiet_options).add(dpdk_options);
@@ -435,7 +476,7 @@ namespace daiet {
         }
 
         if (vm.count("version")) {
-            LOG_INFO("DAIET version " + string(__DAIET_VERSION__));
+            LOG_INFO(string(argv[0]) + " version " + string(__DAIET_VERSION__));
             exit(EXIT_SUCCESS);
         }
 
@@ -445,10 +486,15 @@ namespace daiet {
         ifstream ifs(config_file.c_str());
 
         if (!ifs)
-            LOG_FATAL("Cannot open config file: " + config_file + " Path: " + string(get_current_dir_name()));
+            LOG_FATAL("Cannot open config file: " + config_file);
 
         po::store(po::parse_config_file(ifs, config_file_options), vm);
         po::notify(vm);
+
+        if (dpdk_par.burst_size_rx_read > MAX_PKT_BURST / 2)
+            LOG_FATAL("Burst size rx read must be less than: " + to_string(MAX_PKT_BURST / 2));
+        if (dpdk_par.burst_size_tx_read > MAX_PKT_BURST / 2)
+            LOG_FATAL("Burst size tx read must be less than: " + to_string(MAX_PKT_BURST / 2));
 
         if (!daiet_par.setWorkerIp(worker_ip_str))
             LOG_FATAL("Invalid worker IP: " + worker_ip_str);
@@ -487,6 +533,7 @@ namespace daiet {
 
             force_quit = false;
             ps_stop = false;
+            tx_rx_stop = false;
 
             /* Set signal handler */
             signal(SIGINT, signal_handler);
@@ -546,8 +593,13 @@ namespace daiet {
                 }
             }
 
+    #if !COLOCATED
             if (n_lcores < 3)
-                LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be greater than 3");
+                LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 3");
+    #else
+            if (n_lcores < 4)
+            LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 4");
+    #endif
 
             num_workers_threads = wid;
             LOG_INFO("Number of worker threads: " + to_string(num_workers_threads));
@@ -555,32 +607,32 @@ namespace daiet {
             // Estimate CPU frequency
             hz = rte_get_timer_hz();
             hz_str << setprecision(3) << (double) hz / 1000000000;
-            LOG_INFO("Estimated CPU freq: " + hz_str.str() + " GHz");
+            LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
 
             // Create the mbuf pool
             mbuf_pool_init();
 
             // Initialize rings
-    #if COLOCATED
+    #if !COLOCATED
+            rings_init(daiet_par.getMode());
+    #else
             rings_init("worker");
             rings_init("ps");
-    #else
-            rings_init(daiet_par.getMode());
     #endif
 
             // Initialize port
             port_init();
 
-            // Initialize shared variables
-    #if COLOCATED
-            worker_setup();
-            ps_setup();
-    #else
+            // Initialize workers/PSs
+    #if !COLOCATED
             if (daiet_par.getMode() == "worker") {
                 worker_setup();
             } else if (daiet_par.getMode() == "ps") {
                 ps_setup();
             }
+    #else
+            worker_setup();
+            ps_setup();
     #endif
 
             // Check state of slave cores
@@ -606,8 +658,7 @@ namespace daiet {
                 if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
 
                     if (daiet_par.getMode() == "worker") {
-                        //rte_eal_remote_launch(worker, NULL, lcore_id);
-                        LOG_FATAL("Slave worker thread");
+                        rte_eal_remote_launch(worker, NULL, lcore_id);
     #if COLOCATED
                         // One worker and as many PSs as needed
                         daiet_par.getMode() = "ps";
@@ -638,7 +689,7 @@ namespace daiet {
             elapsed_secs = ((double) (rte_get_timer_cycles() - begin)) / hz;
             elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
 
-            tx_rx_stop=true;
+            tx_rx_stop = true;
 
             // Wait RX/TX cores
             ret = rte_eal_wait_lcore(dpdk_data.core_rx);
@@ -670,28 +721,6 @@ namespace daiet {
             LOG_INFO("PS RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
     #endif
 
-    #if !COLOCATED
-            if (daiet_par.getMode() == "worker")
-    #endif
-            {
-
-                LOG_INFO("Faulty " + to_string(rte_atomic64_read(&pkt_stats.faulty)));
-
-                int32_t min = rte_atomic32_read(&sent_message_counters[0]);
-                int32_t max = min;
-                int32_t tmp;
-
-                for (int i = 1; i < daiet_par.getMaxNumPendingMessages(); i++) {
-                    tmp = rte_atomic32_read(&sent_message_counters[i]);
-                    if (tmp < min)
-                        min = tmp;
-                    if (tmp > max)
-                        max = tmp;
-                }
-
-                LOG_INFO("Number of updates: min " + to_string(min) + " max " + to_string(max));
-            }
-
             elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
             elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
 
@@ -701,7 +730,7 @@ namespace daiet {
     #if !COLOCATED
             if (daiet_par.getMode() == "worker")
     #endif
-                write_latencies("latency_usec.dat", hz);
+            write_latencies("latency_usec.dat", hz);
     #endif
 
             // Cleanup
@@ -711,15 +740,15 @@ namespace daiet {
             rte_eth_dev_close(dpdk_par.portid);
             LOG_DEBUG("Port closed");
 
-    #if COLOCATED
-            worker_cleanup();
-            ps_cleanup();
-    #else
+    #if !COLOCATED
             if (daiet_par.getMode() == "worker") {
                 worker_cleanup();
             } else if (daiet_par.getMode() == "ps") {
                 ps_cleanup();
             }
+    #else
+            worker_cleanup();
+            ps_cleanup();
     #endif
 
             fclose(dpdk_log_file);
@@ -729,11 +758,11 @@ namespace daiet {
                 delete[] args_ptr[i];
             }
 
-    #if COLOCATED
+    #if !COLOCATED
+            rings_cleanup(daiet_par.getMode());
+    #else
             rings_cleanup("worker");
             rings_cleanup("ps");
-    #else
-            rings_cleanup(daiet_par.getMode());
     #endif
 
             return 0;

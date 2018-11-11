@@ -11,11 +11,10 @@ namespace daiet {
     mutex info_mutex_, err_mutex_, debug_mutex_;
     std::ofstream daiet_log;
 
-    bool debug = true;
-
     template<typename T>
     void LOG_FATAL(T msg) {
         unique_lock<mutex> mlock(err_mutex_);
+        daiet_log << msg << endl << flush;
         cerr << msg << endl << flush;
         exit(1);
     }
@@ -24,7 +23,7 @@ namespace daiet {
     template<typename T>
     void LOG_ERROR(T msg) {
         unique_lock<mutex> mlock(err_mutex_);
-        cerr << msg << endl << flush;
+        daiet_log << msg << endl << flush;
     }
     template void LOG_ERROR<string>(string);
 
@@ -41,8 +40,10 @@ namespace daiet {
 
     template<typename T>
     void LOG_DEBUG(T msg) {
+#if DEBUG
         unique_lock<mutex> mlock(debug_mutex_);
-        cout << msg << endl << flush;
+        daiet_log << msg << endl << flush;
+#endif
     }
     template void LOG_DEBUG<string>(string);
 
@@ -84,27 +85,26 @@ namespace daiet {
 
     string mac_to_str(const uint64_t mac, bool change_endianess) {
 
-        string mac_str="", hex;
+        string mac_str = "", hex;
 
         if (change_endianess) {
 
-            for (int i=0; i<5;i++){
-                hex=to_hex((mac & ((uint64_t)0xFF<<8*i))>>8*i);
-                mac_str+=hex.substr(sizeof(uint64_t)*2-2, 2)+":";
+            for (int i = 0; i < 5; i++) {
+                hex = to_hex((mac & ((uint64_t) 0xFF << 8 * i)) >> 8 * i);
+                mac_str += hex.substr(sizeof(uint64_t) * 2 - 2, 2) + ":";
             }
 
-            hex=to_hex((mac & ((uint64_t)0xFF<<40))>>40);
-            mac_str+=hex.substr(sizeof(uint64_t)*2-2, 2);
-        }
-        else {
+            hex = to_hex((mac & ((uint64_t) 0xFF << 40)) >> 40);
+            mac_str += hex.substr(sizeof(uint64_t) * 2 - 2, 2);
+        } else {
 
-            hex=to_hex((mac & ((uint64_t)0xFF<<40))>>40);
-            mac_str+=hex.substr(sizeof(uint64_t)*2-2, 2);
+            hex = to_hex((mac & ((uint64_t) 0xFF << 40)) >> 40);
+            mac_str += hex.substr(sizeof(uint64_t) * 2 - 2, 2);
 
-            for (int i=4; i>=0;i++){
+            for (int i = 4; i >= 0; i++) {
 
-                hex=to_hex((mac & ((uint64_t)0xFF<<8*i))>>8*i);
-                mac_str+=":"+hex.substr(sizeof(uint64_t)*2-2, 2);
+                hex = to_hex((mac & ((uint64_t) 0xFF << 8 * i)) >> 8 * i);
+                mac_str += ":" + hex.substr(sizeof(uint64_t) * 2 - 2, 2);
             }
         }
 
@@ -128,9 +128,9 @@ namespace daiet {
             return uint64_t(mac[0]) << 40 | uint64_t(mac[1]) << 32 | uint64_t(mac[2]) << 24 | uint64_t(mac[3]) << 16 | uint64_t(mac[4]) << 8 | uint64_t(mac[5]);
     }
 
-    string ip_to_str(uint32_t ip){
+    string ip_to_str(uint32_t ip) {
         struct in_addr addr;
-        addr.s_addr=ip;
+        addr.s_addr = ip;
         string ipstr(inet_ntoa(addr));
         return ipstr;
     }
@@ -165,74 +165,62 @@ namespace daiet {
                     "Link Up. Speed " + to_string(link.link_speed) + " Mbps - "
                             + ((link.link_duplex == ETH_LINK_FULL_DUPLEX) ? ("Full-duplex") : ("Half-duplex")));
         } else
-            LOG_ERROR("Link Down");
+            LOG_FATAL("Link Down");
     }
 
     void print_packet(struct ether_hdr *eth, uint16_t size, uint16_t worker_port_be, uint16_t ps_port_be) {
 
         int idx = sizeof(struct ether_hdr);
 
-        LOG_DEBUG("** Ethernet **");
-        LOG_DEBUG("Src: " + mac_to_str(eth->s_addr));
-        LOG_DEBUG("Dst: " + mac_to_str(eth->d_addr));
+        LOG_INFO("** Ethernet **");
+        LOG_INFO("Src: " + mac_to_str(eth->s_addr));
+        LOG_INFO("Dst: " + mac_to_str(eth->d_addr));
         uint16_t etherType = rte_be_to_cpu_16(eth->ether_type);
-        LOG_DEBUG("EtherType: 0x" + to_hex(etherType));
+        LOG_INFO("EtherType: 0x" + to_hex(etherType));
 
         if (etherType == ETHER_TYPE_IPv4 && size >= idx + sizeof(struct ipv4_hdr)) {
 
             idx += sizeof(struct ipv4_hdr);
-            struct ipv4_hdr* ip_hdr = (struct ipv4_hdr *) (&eth[1]);
-            LOG_DEBUG("** IPv4 **");
-            LOG_DEBUG("Version: " + to_string((ip_hdr->version_ihl & 0xf0) >> 4));
-            LOG_DEBUG("IHL: " + to_string(ip_hdr->version_ihl & 0x0f));
-            LOG_DEBUG("TTL: " + to_string(ip_hdr->time_to_live));
-            LOG_DEBUG("TotalLen: " + to_string(rte_be_to_cpu_16(ip_hdr->total_length)));
-            LOG_DEBUG("Src: 0x" + to_hex(rte_be_to_cpu_32(ip_hdr->src_addr)));
-            LOG_DEBUG("Dst: 0x" + to_hex(rte_be_to_cpu_32(ip_hdr->dst_addr)));
-            LOG_DEBUG("Protocol: " + to_string(ip_hdr->next_proto_id));
+            struct ipv4_hdr* ip = (struct ipv4_hdr *) (eth + 1);
+            LOG_INFO("** IPv4 **");
+            LOG_INFO("Version: " + to_string((ip->version_ihl & 0xf0) >> 4));
+            LOG_INFO("IHL: " + to_string(ip->version_ihl & 0x0f));
+            LOG_INFO("TTL: " + to_string(ip->time_to_live));
+            LOG_INFO("TotalLen: " + to_string(rte_be_to_cpu_16(ip->total_length)));
+            LOG_INFO("Src: 0x" + to_hex(rte_be_to_cpu_32(ip->src_addr)));
+            LOG_INFO("Dst: 0x" + to_hex(rte_be_to_cpu_32(ip->dst_addr)));
+            LOG_INFO("Protocol: " + to_string(ip->next_proto_id));
 
-            if (ip_hdr->next_proto_id == IPPROTO_UDP && size >= idx + sizeof(struct udp_hdr)) {
+            if (ip->next_proto_id == IPPROTO_UDP && size >= idx + sizeof(struct udp_hdr)) {
+
                 idx += sizeof(struct udp_hdr);
-                struct udp_hdr* udp_hdr = (struct udp_hdr *) (&ip_hdr[1]);
-                uint16_t dst_port_be = udp_hdr->dst_port;
+                struct udp_hdr* udp = (struct udp_hdr *) (ip + 1);
 
-                LOG_DEBUG("** UDP **");
-                LOG_DEBUG("Src: " + to_string(rte_be_to_cpu_16(udp_hdr->src_port)));
-                LOG_DEBUG("Dst: " + to_string(rte_be_to_cpu_16(dst_port_be)));
-                LOG_DEBUG("Len: " + to_string(rte_be_to_cpu_16(udp_hdr->dgram_len)));
+                LOG_INFO("** UDP **");
+                LOG_INFO("Src: " + to_string(rte_be_to_cpu_16(udp->src_port)));
+                LOG_INFO("Dst: " + to_string(rte_be_to_cpu_16(udp->dst_port)));
+                LOG_INFO("Len: " + to_string(rte_be_to_cpu_16(udp->dgram_len)));
 
-                if ((dst_port_be == worker_port_be || dst_port_be == ps_port_be) && size >= idx + EXT_HEADER_SIZE + INT_HEADER_SIZE) {
-                    idx += EXT_HEADER_SIZE + INT_HEADER_SIZE;
-                    ClientSendOpLogMsg msg((void*) (&udp_hdr[1]));
-                    print_msg(msg);
+                if ((udp->dst_port == worker_port_be || udp->dst_port == ps_port_be) && size >= idx + sizeof(struct daiet_hdr)) {
+
+                    idx += sizeof(struct daiet_hdr);
+                    struct daiet_hdr* daiet = (struct daiet_hdr *) (udp + 1);
+                    LOG_INFO("** DAIET **");
+                    LOG_INFO("TSI: " + to_string(rte_be_to_cpu_32(daiet->tsi)));
+                    LOG_INFO("PoolIndex: " + to_string(rte_be_to_cpu_16(daiet->pool_index)));
+
+                    struct entry_hdr* entry = (struct entry_hdr *) (daiet + 1);
+
+                    for (int i = 0; i < daiet_par.getNumUpdates() && size >= idx + sizeof(struct entry_hdr); i++) {
+
+                        idx += sizeof(struct entry_hdr);
+                        LOG_INFO("Entry " + to_string(i) + ": " + to_string((int32_t) rte_be_to_cpu_32(entry->upd)));
+                        entry++;
+                    }
                 }
             }
         }
-        LOG_DEBUG("*******");
-    }
-
-    void print_msg(ClientSendOpLogMsg& msg) {
-
-        LOG_DEBUG("** OpLog **");
-        LOG_DEBUG("SeqNum:  " + to_string(rte_be_to_cpu_32(msg.get_seq_num())));
-        //LOG_DEBUG("AckNum:  " + to_string(msg.get_ack_num()));
-        //LOG_DEBUG("Size:  " + to_string(msg.get_avai_size()));
-        LOG_DEBUG("NumUpdates:  " + to_string(msg.get_num_updates()));
-        LOG_DEBUG("Offset:  " + to_string(rte_be_to_cpu_16(msg.get_offset_position())));
-
-        uint8_t* row_ptr = msg.get_first_entry_ptr();
-
-        stringstream stream;
-
-        for (int i = 0; i < msg.get_num_updates() * 2; i++) {
-            stream << rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))) << " ";
-
-            row_ptr += sizeof(int32_t);
-        }
-
-        stream << endl;
-
-        LOG_DEBUG("MSG: " + stream.str());
+        LOG_INFO("*******");
     }
 
     void print_dev_info(struct rte_eth_dev_info& dev_info) {

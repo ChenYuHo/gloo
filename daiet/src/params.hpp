@@ -62,10 +62,9 @@ namespace daiet {
 
             // Burst sizes
             uint32_t burst_size_rx_read;
-            //uint32_t burst_size_rx_write;
             uint32_t burst_size_worker;
             uint32_t burst_size_tx_read;
-            uint32_t burst_size_tx_write;
+            uint32_t burst_drain_tx_us;
 
             dpdk_params() {
                 // Defaults
@@ -85,10 +84,9 @@ namespace daiet {
 
                 // Burst sizes
                 burst_size_rx_read = 64;
-                //burst_size_rx_write=64;
                 burst_size_worker = 64;
                 burst_size_tx_read = 64;
-                burst_size_tx_write = 64;
+                burst_drain_tx_us = 100;
             }
     }__rte_cache_aligned;
 
@@ -96,20 +94,15 @@ namespace daiet {
 
     class daiet_params {
         private:
-            const size_t update_size = sizeof(int32_t);
-            const uint32_t max_seq_num = ~(1 << (sizeof(uint32_t) * 8 - 1));
 
             string mode;
+            uint32_t num_workers;
 
             uint8_t num_updates;
-            uint payload_size;
 
-            uint max_num_pending_messages;
-            uint num_workers;
-            uint max_num_msgs;
+            uint32_t max_num_pending_messages;
 
-            int32_t cell_value;
-            int32_t cell_value_be;
+            uint64_t tx_flags;
 
             float scaling_factor;
 
@@ -121,7 +114,7 @@ namespace daiet {
 
             uint64_t* ps_macs_be;
 
-            uint num_ps;
+            uint32_t num_ps;
 
         public:
             daiet_params();
@@ -129,37 +122,27 @@ namespace daiet {
 
             void print_params();
 
-            __rte_always_inline const size_t getUpdateSize() const {
-                return update_size;
-            }
-
             string& getMode();
-
-            const uint32_t getMaxSeqNum() const;
+            uint32_t& getNumWorkers();
 
             __rte_always_inline uint8_t getNumUpdates() const {
                 return num_updates;
             }
-            void setNumUpdates(uint8_t);
 
-            __rte_always_inline uint getPayloadSize() const {
-                return payload_size;
+            __rte_always_inline uint32_t& getMaxNumPendingMessages() {
+                return max_num_pending_messages;
             }
 
-            uint& getMaxNumPendingMessages();
+            void setNumUpdates(uint8_t);
 
-            uint& getNumWorkers();
-
-            uint& getMaxNumMsgs();
-
-            int32_t getCellValue() const;
-            void setCellValue(int32_t);
-
-            float getScalingFactor() const;
             void setMaxFloat(float);
 
-            __rte_always_inline int32_t getCellValueBe() const {
-                return cell_value_be;
+            __rte_always_inline float getScalingFactor() const {
+                return scaling_factor;
+            }
+
+            __rte_always_inline int64_t getTxFlags() const {
+                return tx_flags;
             }
 
             __rte_always_inline uint16_t getWorkerPortBe() const {
@@ -201,7 +184,7 @@ namespace daiet {
 
             bool setPs(string, string);
 
-            __rte_always_inline uint getNumPs() const {
+            __rte_always_inline uint32_t getNumPs() const {
                 return num_ps;
             }
     };

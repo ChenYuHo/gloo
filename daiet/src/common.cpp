@@ -1,9 +1,9 @@
-#include "common.hpp"
-
 /**
  * DAIET project
  * author: amedeo.sapio@kaust.edu.sa
  */
+
+#include "common.hpp"
 
 namespace daiet {
 

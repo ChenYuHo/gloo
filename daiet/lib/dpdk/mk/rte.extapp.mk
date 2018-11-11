@@ -3,8 +3,6 @@
 
 MAKEFLAGS += --no-print-directory
 
-EXTLIB_BUILD := y
-
 # we must create the output dir first and recall the same Makefile
 # from this directory
 ifeq ($(NOT_FIRST_CALL),)
@@ -16,11 +14,12 @@ all:
 	$(Q)mkdir -p $(RTE_OUTPUT)
 	$(Q)$(MAKE) -C $(RTE_OUTPUT) -f $(RTE_EXTMK) \
 		S=$(RTE_SRCDIR) O=$(RTE_OUTPUT) SRCDIR=$(RTE_SRCDIR)
+	$(Q)$(MAKE) clean
 
 %::
 	$(Q)mkdir -p $(RTE_OUTPUT)
 	$(Q)$(MAKE) -C $(RTE_OUTPUT) -f $(RTE_EXTMK) $@ \
 		S=$(RTE_SRCDIR) O=$(RTE_OUTPUT) SRCDIR=$(RTE_SRCDIR)
 else
-include $(RTE_SDK)/mk/rte.lib.mk
+include $(RTE_SDK)/mk/rte.app.mk
 endif

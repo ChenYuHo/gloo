@@ -1,17 +1,13 @@
 # DAIET project
 # author: amedeo.sapio@kaust.edu.sa
 
-ifeq ($(RTE_SDK),)
-$(error "Please define RTE_SDK environment variable")
-endif
-
 ifeq ($(DAIET_PATH),)
 DAIET_PATH = $(shell pwd)
 export DAIET_PATH
 endif
 
-# Default target, can be overriden by command line or environment
-RTE_TARGET ?= x86_64-native-linuxapp-gcc
+RTE_SDK = ${DAIET_PATH}/lib/dpdk
+RTE_TARGET = build
 
 include $(RTE_SDK)/mk/rte.vars.mk
 
@@ -19,10 +15,10 @@ include $(RTE_SDK)/mk/rte.vars.mk
 LIB = libdaiet.a
 
 # all source are stored in SRCS-y
-SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
+SRCS-y := $(shell find ${DAIET_PATH}/src -maxdepth 1 -name "*.cpp")
 
 CFLAGS += $(WERROR_FLAGS)
-CXXFLAGS += -I ${DAIET_PATH}/.. -std=c++11 -fPIC
+CXXFLAGS += -std=c++11 -fPIC -I ${DAIET_PATH}/lib -mavx2 -fabi-version=0 -mfma
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)
@@ -38,7 +34,7 @@ endif
 ifeq ($(debug),y)
 $(info "Debug")
 CFLAGS += -O0
-CXXFLAGS += -g -O0
+CXXFLAGS += -DDEBUG -g -O0
 else
 CFLAGS += -O3
 CXXFLAGS += -O3

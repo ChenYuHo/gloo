@@ -12,37 +12,55 @@ namespace daiet {
     rte_atomic32_t** ps_aggregated_messages;
     rte_atomic32_t* ps_received_message_counters;
 
-    void ps_msg_setup(ClientSendOpLogMsg* new_msg, uint16_t offset, uint32_t seq_num) {
+    static __rte_always_inline struct daiet_hdr * is_daiet_pkt_to_ps(struct ether_hdr* eth_hdr, uint16_t size) {
 
-        int32_t value_n;
-        new_msg->get_num_updates() = daiet_par.getNumUpdates();
-//        new_msg->get_offset_position() = rte_cpu_to_be_16(offset);
-//        new_msg->get_ack_num() = new_msg->get_seq_num();
-        new_msg->get_seq_num() = rte_cpu_to_be_32(seq_num);
+        int idx;
+        uint16_t etherType;
+        struct ipv4_hdr* ip_hdr;
+        struct udp_hdr* udp_hdr;
 
-        // Size
-//        new_msg->get_avai_size() = INT_HEADER_SIZE + (daiet_par.getNumUpdates() * 2 * daiet_par.getUpdateSize());
-        uint8_t* row_ptr = new_msg->get_first_entry_ptr();
+        idx = sizeof(struct ether_hdr);
+        etherType = rte_be_to_cpu_16(eth_hdr->ether_type);
 
-        for (uint32_t i = 0; i < daiet_par.getNumUpdates() * 2; i++) {
-            // Write update
-            value_n = rte_atomic32_exchange(reinterpret_cast<volatile uint32_t*>(&(ps_aggregated_messages[i][offset].cnt)), 0);
-            value_n = rte_cpu_to_be_32(value_n);
+        if (etherType == ETHER_TYPE_IPv4 && size >= idx + sizeof(struct ipv4_hdr)) {
 
-            rte_memcpy((void*) row_ptr, &value_n, daiet_par.getUpdateSize());
-            row_ptr += daiet_par.getUpdateSize();
+            idx += sizeof(struct ipv4_hdr);
+            ip_hdr = (struct ipv4_hdr *) (eth_hdr + 1);
+
+            if (ip_hdr->next_proto_id == IPPROTO_UDP && size >= idx + sizeof(struct udp_hdr)) {
+                idx += sizeof(struct udp_hdr);
+                udp_hdr = (struct udp_hdr *) (ip_hdr + 1);
+
+                if (udp_hdr->dst_port == daiet_par.getPsPortBe() && size >= idx + sizeof(struct daiet_hdr)) {
+
+                    return (struct daiet_hdr *) (udp_hdr + 1);
+                }
+            }
+        }
+        return NULL;
+    }
+
+    static __rte_always_inline void ps_msg_setup(struct daiet_hdr * daiet, uint16_t pool_index, uint32_t tsi) {
+
+        struct entry_hdr *entry;
+
+        daiet->tsi = rte_cpu_to_be_32(tsi);
+        //daiet->pool_index = rte_cpu_to_be_16(pool_index);
+
+        entry = (struct entry_hdr *) (daiet + 1);
+        for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
+            entry->upd = rte_cpu_to_be_32(rte_atomic32_exchange(reinterpret_cast<volatile uint32_t*>(&(ps_aggregated_messages[i][pool_index].cnt)), 0));
+            entry++;
         }
     }
 
     /* Returns true if the aggregation for the offset is complete */
-    bool ps_aggregate_message(ClientSendOpLogMsg* msg, uint32_t be_src_ip, struct ether_addr src_mac, uint16_t& offset) {
+    static __rte_always_inline bool ps_aggregate_message(struct daiet_hdr* daiet, uint32_t be_src_ip, struct ether_addr src_mac, uint16_t pool_index) {
 
-        offset = rte_be_to_cpu_16(msg->get_offset_position());
-        uint8_t* row_ptr = msg->get_first_entry_ptr();
-
-        for (int i = 0; i < msg->get_num_updates() * 2; i++) {
-            rte_atomic32_add(&ps_aggregated_messages[i][offset], rte_be_to_cpu_32(*(reinterpret_cast<int32_t*>(row_ptr))));
-            row_ptr += sizeof(int32_t);
+        struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
+        for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
+            rte_atomic32_add(&ps_aggregated_messages[i][pool_index], rte_be_to_cpu_32(entry->upd));
+            entry++;
         }
 
         // READ LOCK
@@ -76,8 +94,8 @@ namespace daiet {
             rte_rwlock_read_unlock(&ps_workers_ip_to_mac_lock);
         }
 
-        if (rte_atomic32_dec_and_test (&ps_received_message_counters[offset])) {
-            rte_atomic32_set(&ps_received_message_counters[offset], daiet_par.getNumWorkers());
+        if (rte_atomic32_dec_and_test(&ps_received_message_counters[pool_index])) {
+            rte_atomic32_set(&ps_received_message_counters[pool_index], daiet_par.getNumWorkers());
             return true;
         }
 
@@ -85,18 +103,18 @@ namespace daiet {
     }
 
     void ps_setup() {
-        ps_aggregated_messages = new rte_atomic32_t*[daiet_par.getNumUpdates() * 2];
-        for (int i = 0; i < daiet_par.getNumUpdates() * 2; i++) {
+        ps_aggregated_messages = new rte_atomic32_t*[daiet_par.getNumUpdates()];
+        for (int i = 0; i < daiet_par.getNumUpdates(); i++) {
             ps_aggregated_messages[i] = new rte_atomic32_t[daiet_par.getMaxNumPendingMessages()];
 
             for (int j = 0; j < daiet_par.getMaxNumPendingMessages(); j++) {
-                rte_atomic32_init (&ps_aggregated_messages[i][j]);
+                rte_atomic32_init(&ps_aggregated_messages[i][j]);
             }
         }
 
         ps_received_message_counters = new rte_atomic32_t[daiet_par.getMaxNumPendingMessages()];
         for (int i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
-            rte_atomic32_init (&ps_received_message_counters[i]);
+            rte_atomic32_init(&ps_received_message_counters[i]);
             rte_atomic32_set(&ps_received_message_counters[i], daiet_par.getNumWorkers());
         }
 
@@ -106,7 +124,7 @@ namespace daiet {
     void ps_cleanup() {
         delete[] ps_received_message_counters;
 
-        for (int i = 0; i < daiet_par.getNumUpdates() * 2; i++) {
+        for (int i = 0; i < daiet_par.getNumUpdates(); i++) {
             delete[] ps_aggregated_messages[i];
         }
         delete[] ps_aggregated_messages;
@@ -129,11 +147,11 @@ namespace daiet {
         struct rte_mbuf* clone;
 
         struct ether_hdr* eth;
-        struct ipv4_hdr * ip_hdr;
-        struct udp_hdr * udp_hdr;
-        ClientSendOpLogMsg* msg = new ClientSendOpLogMsg((void*) NULL);
-        uint32_t seq_num = 0;
-        uint16_t offset = 0;
+        struct ipv4_hdr * ip;
+        struct udp_hdr * udp;
+        struct daiet_hdr* daiet;
+        uint32_t tsi = 0;
+        uint16_t pool_index = 0;
 
         // Get core ID
         lcore_id = rte_lcore_id();
@@ -152,32 +170,42 @@ namespace daiet {
 
                 m = pkts_burst[j];
 
-                rte_prefetch0 (rte_pktmbuf_mtod(m, void *));eth
-                = rte_pktmbuf_mtod(m, struct ether_hdr *);
+                rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+                eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
-#if COLOCATED
-                msg->Reset((void*) ((uint8_t *) (&eth[1]) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr)));
+#if !COLOCATED
+                daiet = is_daiet_pkt_to_ps(eth, m->data_len);
+                if (likely(daiet!=NULL)) {
 #else
-                if (likely(is_daiet_pkt(eth, m->data_len, msg))) {
+                    daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
 #endif
 
                     rte_atomic64_inc(&pkt_stats.p_rx);
-                    ip_hdr = (struct ipv4_hdr *) (&eth[1]);
-                    udp_hdr = (struct udp_hdr *) (&ip_hdr[1]);
+                    ip = (struct ipv4_hdr *) (eth + 1);
+                    udp = (struct udp_hdr *) (ip + 1);
 
-                    if (ps_aggregate_message(msg, ip_hdr->src_addr, eth->s_addr, offset)) {
+                    pool_index = rte_be_to_cpu_16(daiet->pool_index);
+                    tsi = rte_be_to_cpu_32(daiet->tsi);
 
-                        ps_msg_setup(msg, offset, seq_num);
-                        seq_num = (seq_num + 1) % daiet_par.getMaxSeqNum();
+                    if (ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index)) {
 
-                        // Swap ports
-                        swap((uint16_t&) (udp_hdr->dst_port), (uint16_t&) (udp_hdr->src_port));
-
-                        // Set src IP
-                        ip_hdr->src_addr = ip_hdr->dst_addr;
+                        // Checksum offload
+                        m->l2_len = sizeof(struct ether_hdr);
+                        m->l3_len = sizeof(struct ipv4_hdr);
+                        m->ol_flags |= daiet_par.getTxFlags();
 
                         // Set src MAC
                         ether_addr_copy(&(eth->d_addr), &(eth->s_addr));
+
+                        // Set src IP
+                        ip->hdr_checksum = 0;
+                        ip->src_addr = ip->dst_addr;
+
+                        // Swap ports
+                        swap((uint16_t&) (udp->dst_port), (uint16_t&) (udp->src_port));
+                        udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
+
+                        ps_msg_setup(daiet, pool_index, tsi);
 
                         // READ LOCK
                         rte_rwlock_read_lock(&ps_workers_ip_to_mac_lock);
@@ -196,8 +224,8 @@ namespace daiet {
                             ether_addr_copy(&(worker_addr.second), &(eth->d_addr));
 
                             // Set dst IP
-                            ip_hdr = (struct ipv4_hdr *) (&eth[1]);
-                            ip_hdr->dst_addr = worker_addr.first;
+                            ip = (struct ipv4_hdr *) (eth + 1);
+                            ip->dst_addr = worker_addr.first;
 
                             // Send packet
                             ret = rte_ring_enqueue(dpdk_data.p_ring_tx, clone);
@@ -212,8 +240,6 @@ namespace daiet {
                         // Free original packet
                         rte_pktmbuf_free(m);
 
-                        if (unlikely(rte_atomic64_read(&pkt_stats.p_tx) >= max_num_msgs))
-                            ps_stop = true;
                     } else {
                         // Free original packet
                         rte_pktmbuf_free(m);
@@ -229,9 +255,6 @@ namespace daiet {
 
         // Cleanup
         rte_free(pkts_burst);
-
-        delete msg;
-        msg = 0;
 
         return 0;
     }
