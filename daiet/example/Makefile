@@ -8,11 +8,12 @@ CC = gcc
 
 CXXFLAGS += -std=c++11
 LDFLAGS += -lstdc++ -pthread -Wl,--whole-archive -ldaiet -ldpdk -Wl,--no-whole-archive -ldl -lnuma -lboost_chrono -lboost_system -lboost_thread -lboost_program_options -lm
+
 ifeq ($(debug),y)
 $(info "Debug")
 CXXFLAGS += -O0 -g
 else
-CXXFLAGS += -O3
+CXXFLAGS += -O0
 endif
 
 .PHONY: default all clean
