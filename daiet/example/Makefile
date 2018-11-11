@@ -1,48 +1,38 @@
 # DAIET project
 # author: amedeo.sapio@kaust.edu.sa
 
-ifeq ($(RTE_SDK),)
-$(error "Please define RTE_SDK environment variable")
-endif
-
-ifeq ($(DAIET_PATH),)
-DAIET_PATH = $(shell pwd)
-export DAIET_PATH
-endif
-
-# Default target, can be overriden by command line or environment
-RTE_TARGET ?= x86_64-native-linuxapp-gcc
-
-include $(RTE_SDK)/mk/rte.vars.mk
-
-# binary name
-APP = test
-
 # all source are stored in SRCS-y
-SRCS-y := $(shell find ${DAIET_PATH} -maxdepth 1 -name "*.cpp")
 
-CFLAGS += -O3
-CFLAGS += $(WERROR_FLAGS)
-LDFLAGS += -lstdc++ -l boost_program_options -l boost_system -l boost_thread -l boost_chrono
+TARGET = example
+CC = gcc
 
-ifeq ($(colocated),y)
-$(info "Colocated")
-CXXFLAGS += -DCOLOCATED
-endif
-
-ifeq ($(save_latencies),y)
-$(info "Save_latencies")
-CXXFLAGS += -DSAVE_LATENCIES
-endif
-
+CXXFLAGS += -std=c++11
+LDFLAGS += -lstdc++ -pthread -Wl,--whole-archive -ldaiet -ldpdk -Wl,--no-whole-archive -ldl -lnuma -lboost_chrono -lboost_system -lboost_thread -lboost_program_options -lm
 ifeq ($(debug),y)
 $(info "Debug")
-CXXFLAGS += -std=c++11 -g
+CXXFLAGS += -O0 -g
 else
-CXXFLAGS += -std=c++11 -O3
+CXXFLAGS += -O3
 endif
 
-include $(RTE_SDK)/mk/rte.extapp.mk
+.PHONY: default all clean
 
-distclean: clean
-	$(RM) -r build
+default: $(TARGET)
+
+all: default
+
+OBJECTS = $(patsubst %.cpp, %.o, $(wildcard *.cpp))
+HEADERS = $(wildcard *.hpp)
+
+%.o: %.cpp $(HEADERS)
+	$(CC) $(CXXFLAGS) -c $< -o $@
+
+.PRECIOUS: $(TARGET) $(OBJECTS)
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(OBJECTS) -Wall $(LDFLAGS) -o $@
+	-rm -f *.o
+
+clean:
+	-rm -f *.o
+	-rm -f $(TARGET)

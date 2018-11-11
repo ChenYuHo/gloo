@@ -6,6 +6,7 @@
 #include "DaietContext.hpp"
 #include "daiet.hpp"
 #include "utils.hpp"
+#include "gloo/common/error.h"
 
 namespace daiet {
 

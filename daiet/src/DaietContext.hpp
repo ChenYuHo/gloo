@@ -5,9 +5,6 @@
 
 #pragma once
 
-#include "gloo/common/error.h"
-#include "gloo/common/logging.h"
-
 #include <boost/thread.hpp>
 #include <deque>
 
