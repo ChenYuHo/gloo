@@ -18,7 +18,7 @@ LIB = libdaiet.a
 SRCS-y := $(shell find ${DAIET_PATH}/src -maxdepth 1 -name "*.cpp")
 
 CFLAGS += $(WERROR_FLAGS)
-CXXFLAGS += -std=c++11 -fPIC -I ${DAIET_PATH}/lib -mavx2 -fabi-version=0 -mfma
+CXXFLAGS += -std=c++11 -fPIC -I ${DAIET_PATH}/.. -mavx2 -fabi-version=0 -mfma
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)

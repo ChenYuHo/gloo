@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "DaietContext.hpp"
 #include "utils.hpp"
 #include "params.hpp"
 

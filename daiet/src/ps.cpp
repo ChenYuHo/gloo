@@ -140,8 +140,6 @@ namespace daiet {
 
         uint32_t worker_id;
 
-        uint max_num_msgs = daiet_par.getMaxNumMsgs();
-
         struct rte_mbuf **pkts_burst;
         struct rte_mbuf* m;
         struct rte_mbuf* clone;

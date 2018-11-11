@@ -417,7 +417,6 @@ namespace daiet {
     void parse_parameters(int argc, char *argv[], string& corestr) {
 
         string config_file;
-        int32_t update_value;
         float max_float;
         uint16_t worker_port, ps_port;
         int num_updates;
@@ -505,7 +504,6 @@ namespace daiet {
         if (!daiet_par.setPs(ps_ips_str, ps_macs_str))
             LOG_FATAL("Invalid PS address: \n" + ps_ips_str + "\n" + ps_macs_str);
 
-        daiet_par.setCellValue(update_value);
         daiet_par.setMaxFloat(max_float);
         daiet_par.setNumUpdates(num_updates);
 
@@ -658,7 +656,9 @@ namespace daiet {
                 if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
 
                     if (daiet_par.getMode() == "worker") {
-                        rte_eal_remote_launch(worker, NULL, lcore_id);
+
+                        // rte_eal_remote_launch(worker, NULL, lcore_id);
+                        LOG_FATAL("Slave worker thread");
     #if COLOCATED
                         // One worker and as many PSs as needed
                         daiet_par.getMode() = "ps";
