@@ -352,6 +352,9 @@ octeontx_dev_close(struct rte_eth_dev *dev)
 
 		rte_free(txq);
 	}
+
+	dev->tx_pkt_burst = NULL;
+	dev->rx_pkt_burst = NULL;
 }
 
 static int
@@ -445,9 +448,6 @@ octeontx_dev_stop(struct rte_eth_dev *dev)
 			     ret);
 		return;
 	}
-
-	dev->tx_pkt_burst = NULL;
-	dev->rx_pkt_burst = NULL;
 }
 
 static void
@@ -787,7 +787,7 @@ octeontx_dev_rx_queue_setup(struct rte_eth_dev *dev, uint16_t qidx,
 	pki_qos_cfg_t pki_qos;
 	uintptr_t pool;
 	int ret, port;
-	uint8_t gaura;
+	uint16_t gaura;
 	unsigned int ev_queues = (nic->ev_queues * nic->port_id) + qidx;
 	unsigned int ev_ports = (nic->ev_ports * nic->port_id) + qidx;
 
@@ -898,8 +898,8 @@ octeontx_dev_rx_queue_setup(struct rte_eth_dev *dev, uint16_t qidx,
 
 		pool = (uintptr_t)mb_pool->pool_id;
 
-		/* Get the gpool Id */
-		gaura = octeontx_fpa_bufpool_gpool(pool);
+		/* Get the gaura Id */
+		gaura = octeontx_fpa_bufpool_gaura(pool);
 
 		pki_qos.qpg_qos = PKI_QPG_QOS_NONE;
 		pki_qos.num_entry = 1;
@@ -1014,6 +1014,8 @@ octeontx_create(struct rte_vdev_device *dev, int port, uint8_t evdev,
 		if (eth_dev == NULL)
 			return -ENODEV;
 
+		eth_dev->dev_ops = &octeontx_dev_ops;
+		eth_dev->device = &dev->device;
 		eth_dev->tx_pkt_burst = octeontx_xmit_pkts;
 		eth_dev->rx_pkt_burst = octeontx_recv_pkts;
 		rte_eth_dev_probing_finish(eth_dev);
@@ -1182,6 +1184,7 @@ octeontx_probe(struct rte_vdev_device *dev)
 		}
 		/* TODO: request info from primary to set up Rx and Tx */
 		eth_dev->dev_ops = &octeontx_dev_ops;
+		eth_dev->device = &dev->device;
 		rte_eth_dev_probing_finish(eth_dev);
 		return 0;
 	}

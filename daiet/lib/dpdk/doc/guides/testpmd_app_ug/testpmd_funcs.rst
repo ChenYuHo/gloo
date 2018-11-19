@@ -1510,7 +1510,7 @@ Enable or disable a per port Tx offloading on all Tx queues of a port::
    testpmd> port config (port_id) tx_offload (offloading) on|off
 
 * ``offloading``: can be any of these offloading capability:
-                  vlan_insert, ipv4_cksum, udp_cksum, udp_cksum,
+                  vlan_insert, ipv4_cksum, udp_cksum, tcp_cksum,
                   sctp_cksum, tcp_tso, udp_tso, outer_ipv4_cksum,
                   qinq_insert, vxlan_tnl_tso, gre_tnl_tso,
                   ipip_tnl_tso, geneve_tnl_tso, macsec_insert,
@@ -1526,7 +1526,7 @@ Enable or disable a per queue Tx offloading only on a specific Tx queue::
    testpmd> port (port_id) txq (queue_id) tx_offload (offloading) on|off
 
 * ``offloading``: can be any of these offloading capability:
-                  vlan_insert, ipv4_cksum, udp_cksum, udp_cksum,
+                  vlan_insert, ipv4_cksum, udp_cksum, tcp_cksum,
                   sctp_cksum, tcp_tso, udp_tso, outer_ipv4_cksum,
                   qinq_insert, vxlan_tnl_tso, gre_tnl_tso,
                   ipip_tnl_tso, geneve_tnl_tso, macsec_insert,
@@ -1986,7 +1986,7 @@ Create a new bonding device::
 
 For example, to create a bonded device in mode 1 on socket 0::
 
-   testpmd> create bonded 1 0
+   testpmd> create bonded device 1 0
    created new bonded device (port X)
 
 add bonding slave

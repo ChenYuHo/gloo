@@ -113,15 +113,20 @@ mlx5_get_tx_port_offloads(struct rte_eth_dev *dev)
 			     DEV_TX_OFFLOAD_TCP_CKSUM);
 	if (config->tso)
 		offloads |= DEV_TX_OFFLOAD_TCP_TSO;
+	if (config->swp) {
+		if (config->hw_csum)
+			offloads |= DEV_TX_OFFLOAD_OUTER_IPV4_CKSUM;
+		if (config->tso)
+			offloads |= (DEV_TX_OFFLOAD_IP_TNL_TSO |
+				     DEV_TX_OFFLOAD_UDP_TNL_TSO);
+	}
+
 	if (config->tunnel_en) {
 		if (config->hw_csum)
 			offloads |= DEV_TX_OFFLOAD_OUTER_IPV4_CKSUM;
 		if (config->tso)
 			offloads |= (DEV_TX_OFFLOAD_VXLAN_TNL_TSO |
 				     DEV_TX_OFFLOAD_GRE_TNL_TSO);
-		if (config->swp)
-			offloads |= (DEV_TX_OFFLOAD_IP_TNL_TSO |
-				     DEV_TX_OFFLOAD_UDP_TNL_TSO);
 	}
 	return offloads;
 }
@@ -514,8 +519,6 @@ mlx5_txq_ibv_new(struct rte_eth_dev *dev, uint16_t idx)
 		rte_errno = EINVAL;
 		goto error;
 	}
-	DRV_LOG(DEBUG, "port %u Verbs Tx queue %u: refcnt %d",
-		dev->data->port_id, idx, rte_atomic32_read(&txq_ibv->refcnt));
 	LIST_INSERT_HEAD(&priv->txqsibv, txq_ibv, next);
 	txq_ibv->txq_ctrl = txq_ctrl;
 	priv->verbs_alloc_ctx.type = MLX5_VERBS_ALLOC_TYPE_NONE;
@@ -553,12 +556,8 @@ mlx5_txq_ibv_get(struct rte_eth_dev *dev, uint16_t idx)
 	if (!(*priv->txqs)[idx])
 		return NULL;
 	txq_ctrl = container_of((*priv->txqs)[idx], struct mlx5_txq_ctrl, txq);
-	if (txq_ctrl->ibv) {
+	if (txq_ctrl->ibv)
 		rte_atomic32_inc(&txq_ctrl->ibv->refcnt);
-		DRV_LOG(DEBUG, "port %u Verbs Tx queue %u: refcnt %d",
-			dev->data->port_id, txq_ctrl->idx,
-		      rte_atomic32_read(&txq_ctrl->ibv->refcnt));
-	}
 	return txq_ctrl->ibv;
 }
 
@@ -575,9 +574,6 @@ int
 mlx5_txq_ibv_release(struct mlx5_txq_ibv *txq_ibv)
 {
 	assert(txq_ibv);
-	DRV_LOG(DEBUG, "port %u Verbs Tx queue %u: refcnt %d",
-		PORT_ID(txq_ibv->txq_ctrl->priv),
-		txq_ibv->txq_ctrl->idx, rte_atomic32_read(&txq_ibv->refcnt));
 	if (rte_atomic32_dec_and_test(&txq_ibv->refcnt)) {
 		claim_zero(mlx5_glue->destroy_qp(txq_ibv->qp));
 		claim_zero(mlx5_glue->destroy_cq(txq_ibv->cq));
@@ -716,7 +712,7 @@ txq_set_params(struct mlx5_txq_ctrl *txq_ctrl)
 						   max_tso_inline);
 		txq_ctrl->txq.tso_en = 1;
 	}
-	txq_ctrl->txq.tunnel_en = config->tunnel_en;
+	txq_ctrl->txq.tunnel_en = config->tunnel_en | config->swp;
 	txq_ctrl->txq.swp_en = ((DEV_TX_OFFLOAD_IP_TNL_TSO |
 				 DEV_TX_OFFLOAD_UDP_TNL_TSO |
 				 DEV_TX_OFFLOAD_OUTER_IPV4_CKSUM) &
@@ -778,8 +774,6 @@ mlx5_txq_new(struct rte_eth_dev *dev, uint16_t idx, uint16_t desc,
 		(struct rte_mbuf *(*)[1 << tmpl->txq.elts_n])(tmpl + 1);
 	tmpl->txq.stats.idx = idx;
 	rte_atomic32_inc(&tmpl->refcnt);
-	DRV_LOG(DEBUG, "port %u Tx queue %u: refcnt %d", dev->data->port_id,
-		idx, rte_atomic32_read(&tmpl->refcnt));
 	LIST_INSERT_HEAD(&priv->txqsctrl, tmpl, next);
 	return tmpl;
 error:
@@ -809,9 +803,6 @@ mlx5_txq_get(struct rte_eth_dev *dev, uint16_t idx)
 				    txq);
 		mlx5_txq_ibv_get(dev, idx);
 		rte_atomic32_inc(&ctrl->refcnt);
-		DRV_LOG(DEBUG, "port %u Tx queue %u refcnt %d",
-			dev->data->port_id,
-			ctrl->idx, rte_atomic32_read(&ctrl->refcnt));
 	}
 	return ctrl;
 }
@@ -837,8 +828,6 @@ mlx5_txq_release(struct rte_eth_dev *dev, uint16_t idx)
 	if (!(*priv->txqs)[idx])
 		return 0;
 	txq = container_of((*priv->txqs)[idx], struct mlx5_txq_ctrl, txq);
-	DRV_LOG(DEBUG, "port %u Tx queue %u: refcnt %d", dev->data->port_id,
-		txq->idx, rte_atomic32_read(&txq->refcnt));
 	if (txq->ibv && !mlx5_txq_ibv_release(txq->ibv))
 		txq->ibv = NULL;
 	if (priv->uar_base)

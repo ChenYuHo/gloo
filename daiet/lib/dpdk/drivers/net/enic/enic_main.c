@@ -320,6 +320,8 @@ enic_alloc_rx_queue_mbufs(struct enic *enic, struct vnic_rq *rq)
 	 * enic_start_rq().
 	 */
 	rq->need_initial_post = true;
+	/* Initialize fetch index while RQ is disabled */
+	iowrite32(0, &rq->ctrl->fetch_index);
 	return 0;
 }
 
@@ -345,7 +347,6 @@ enic_initial_post_rx(struct enic *enic, struct vnic_rq *rq)
 	dev_debug(enic, "port=%u, qidx=%u, Write %u posted idx, %u sw held\n",
 		enic->port_id, rq->index, rq->posted_index, rq->rx_nb_hold);
 	iowrite32(rq->posted_index, &rq->ctrl->posted_index);
-	iowrite32(0, &rq->ctrl->fetch_index);
 	rte_rmb();
 	rq->need_initial_post = false;
 }
@@ -869,25 +870,23 @@ int enic_alloc_wq(struct enic *enic, uint16_t queue_idx,
 	static int instance;
 
 	wq->socket_id = socket_id;
-	if (nb_desc) {
-		if (nb_desc > enic->config.wq_desc_count) {
-			dev_warning(enic,
-				"WQ %d - number of tx desc in cmd line (%d)"\
-				"is greater than that in the UCSM/CIMC adapter"\
-				"policy.  Applying the value in the adapter "\
-				"policy (%d)\n",
-				queue_idx, nb_desc, enic->config.wq_desc_count);
-		} else if (nb_desc != enic->config.wq_desc_count) {
-			enic->config.wq_desc_count = nb_desc;
-			dev_info(enic,
-				"TX Queues - effective number of descs:%d\n",
-				nb_desc);
-		}
+	if (nb_desc > enic->config.wq_desc_count) {
+		dev_warning(enic,
+			    "WQ %d - number of tx desc in cmd line (%d) "
+			    "is greater than that in the UCSM/CIMC adapter "
+			    "policy.  Applying the value in the adapter "
+			    "policy (%d)\n",
+			    queue_idx, nb_desc, enic->config.wq_desc_count);
+		nb_desc = enic->config.wq_desc_count;
+	} else if (nb_desc != enic->config.wq_desc_count) {
+		dev_info(enic,
+			 "TX Queues - effective number of descs:%d\n",
+			 nb_desc);
 	}
 
 	/* Allocate queue resources */
 	err = vnic_wq_alloc(enic->vdev, &enic->wq[queue_idx], queue_idx,
-		enic->config.wq_desc_count,
+		nb_desc,
 		sizeof(struct wq_enet_desc));
 	if (err) {
 		dev_err(enic, "error in allocation of wq\n");
@@ -895,7 +894,7 @@ int enic_alloc_wq(struct enic *enic, uint16_t queue_idx,
 	}
 
 	err = vnic_cq_alloc(enic->vdev, &enic->cq[cq_index], cq_index,
-		socket_id, enic->config.wq_desc_count,
+		socket_id, nb_desc,
 		sizeof(struct cq_enet_wq_desc));
 	if (err) {
 		vnic_wq_free(wq);
@@ -1197,7 +1196,7 @@ int enic_set_rss_conf(struct enic *enic, struct rte_eth_rss_conf *rss_conf)
 			rss_hash_type |= NIC_CFG_RSS_HASH_TYPE_TCP_IPV4;
 		if (rss_hf & ETH_RSS_NONFRAG_IPV4_UDP) {
 			rss_hash_type |= NIC_CFG_RSS_HASH_TYPE_UDP_IPV4;
-			if (ENIC_SETTING(enic, RSSHASH_UDP_WEAK)) {
+			if (enic->udp_rss_weak) {
 				/*
 				 * 'TCP' is not a typo. The "weak" version of
 				 * UDP RSS requires both the TCP and UDP bits
@@ -1213,7 +1212,7 @@ int enic_set_rss_conf(struct enic *enic, struct rte_eth_rss_conf *rss_conf)
 			rss_hash_type |= NIC_CFG_RSS_HASH_TYPE_TCP_IPV6;
 		if (rss_hf & (ETH_RSS_NONFRAG_IPV6_UDP | ETH_RSS_IPV6_UDP_EX)) {
 			rss_hash_type |= NIC_CFG_RSS_HASH_TYPE_UDP_IPV6;
-			if (ENIC_SETTING(enic, RSSHASH_UDP_WEAK))
+			if (enic->udp_rss_weak)
 				rss_hash_type |= NIC_CFG_RSS_HASH_TYPE_TCP_IPV6;
 		}
 	} else {
@@ -1237,8 +1236,11 @@ int enic_set_rss_conf(struct enic *enic, struct rte_eth_rss_conf *rss_conf)
 		enic->rss_hf = rss_hf;
 		enic->rss_hash_type = rss_hash_type;
 		enic->rss_enable = rss_enable;
+	} else {
+		dev_err(enic, "Failed to update RSS configurations."
+			" hash=0x%x\n", rss_hash_type);
 	}
-	return 0;
+	return ret;
 }
 
 int enic_set_vlan_strip(struct enic *enic)

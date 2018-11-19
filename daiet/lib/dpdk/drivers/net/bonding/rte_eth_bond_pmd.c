@@ -2057,10 +2057,6 @@ bond_ethdev_start(struct rte_eth_dev *eth_dev)
 		}
 	}
 
-	/* Update all slave devices MACs*/
-	if (mac_address_slaves_update(eth_dev) != 0)
-		goto out_err;
-
 	/* If bonded device is configure in promiscuous mode then re-apply config */
 	if (internals->promiscuous_en)
 		bond_ethdev_promiscuous_enable(eth_dev);
@@ -2100,6 +2096,10 @@ bond_ethdev_start(struct rte_eth_dev *eth_dev)
 			bond_ethdev_slave_link_status_change_monitor,
 			(void *)&rte_eth_devices[internals->port_id]);
 	}
+
+	/* Update all slave devices MACs*/
+	if (mac_address_slaves_update(eth_dev) != 0)
+		goto out_err;
 
 	if (internals->user_defined_primary_port)
 		bond_ethdev_primary_set(internals, internals->primary_port);
@@ -2173,7 +2173,6 @@ bond_ethdev_stop(struct rte_eth_dev *eth_dev)
 			tlb_last_obytets[internals->active_slaves[i]] = 0;
 	}
 
-	internals->active_slave_count = 0;
 	internals->link_status_polling_enabled = 0;
 	for (i = 0; i < internals->slave_count; i++)
 		internals->slaves[i].last_link_status = 0;
@@ -2664,10 +2663,8 @@ bond_ethdev_lsc_event_callback(uint16_t port_id, enum rte_eth_event_type type,
 
 	rte_eth_link_get_nowait(port_id, &link);
 	if (link.link_status) {
-		if (active_pos < internals->active_slave_count) {
-			rte_spinlock_unlock(&internals->lsc_lock);
-			return rc;
-		}
+		if (active_pos < internals->active_slave_count)
+			goto link_update;
 
 		/* if no active slave ports then set this port to be primary port */
 		if (internals->active_slave_count < 1) {
@@ -2686,10 +2683,8 @@ bond_ethdev_lsc_event_callback(uint16_t port_id, enum rte_eth_event_type type,
 				internals->primary_port == port_id)
 			bond_ethdev_primary_set(internals, port_id);
 	} else {
-		if (active_pos == internals->active_slave_count) {
-			rte_spinlock_unlock(&internals->lsc_lock);
-			return rc;
-		}
+		if (active_pos == internals->active_slave_count)
+			goto link_update;
 
 		/* Remove from active slave list */
 		deactivate_slave(bonded_eth_dev, port_id);
@@ -2708,6 +2703,7 @@ bond_ethdev_lsc_event_callback(uint16_t port_id, enum rte_eth_event_type type,
 		}
 	}
 
+link_update:
 	/**
 	 * Update bonded device link properties after any change to active
 	 * slaves
@@ -2745,7 +2741,7 @@ bond_ethdev_lsc_event_callback(uint16_t port_id, enum rte_eth_event_type type,
 
 	rte_spinlock_unlock(&internals->lsc_lock);
 
-	return 0;
+	return rc;
 }
 
 static int
@@ -3065,6 +3061,7 @@ bond_probe(struct rte_vdev_device *dev)
 		}
 		/* TODO: request info from primary to set up Rx and Tx */
 		eth_dev->dev_ops = &default_dev_ops;
+		eth_dev->device = &dev->device;
 		rte_eth_dev_probing_finish(eth_dev);
 		return 0;
 	}
@@ -3119,6 +3116,7 @@ bond_probe(struct rte_vdev_device *dev)
 	internals = rte_eth_devices[port_id].data->dev_private;
 	internals->kvlist = kvlist;
 
+	rte_eth_dev_probing_finish(&rte_eth_devices[port_id]);
 
 	if (rte_kvargs_count(kvlist, PMD_BOND_AGG_MODE_KVARG) == 1) {
 		if (rte_kvargs_process(kvlist,
@@ -3138,7 +3136,6 @@ bond_probe(struct rte_vdev_device *dev)
 		rte_eth_bond_8023ad_agg_selection_set(port_id, AGG_STABLE);
 	}
 
-	rte_eth_dev_probing_finish(&rte_eth_devices[port_id]);
 	RTE_BOND_LOG(INFO, "Create bonded device %s on port %d in mode %u on "
 			"socket %u.",	name, port_id, bonding_mode, socket_id);
 	return 0;

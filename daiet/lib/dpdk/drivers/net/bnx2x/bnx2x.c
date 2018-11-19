@@ -125,7 +125,6 @@ int bnx2x_nic_load(struct bnx2x_softc *sc);
 
 static int bnx2x_handle_sp_tq(struct bnx2x_softc *sc);
 static void bnx2x_handle_fp_tq(struct bnx2x_fastpath *fp, int scan_fp);
-static void bnx2x_periodic_stop(struct bnx2x_softc *sc);
 static void bnx2x_ack_sb(struct bnx2x_softc *sc, uint8_t igu_sb_id,
 			 uint8_t storm, uint16_t index, uint8_t op,
 			 uint8_t update);
@@ -1968,9 +1967,6 @@ bnx2x_nic_unload(struct bnx2x_softc *sc, uint32_t unload_mode, uint8_t keep_link
 	uint32_t val;
 
 	PMD_DRV_LOG(DEBUG, "Starting NIC unload...");
-
-	/* stop the periodic callout */
-	bnx2x_periodic_stop(sc);
 
 	/* mark driver as unloaded in shmem2 */
 	if (IS_PF(sc) && SHMEM2_HAS(sc, drv_capabilities_flag)) {
@@ -4490,6 +4486,8 @@ static void bnx2x_handle_fp_tq(struct bnx2x_fastpath *fp, int scan_fp)
 	struct bnx2x_softc *sc = fp->sc;
 	uint8_t more_rx = FALSE;
 
+	PMD_DRV_LOG(DEBUG, "---> FP TASK QUEUE (%d) <--", fp->index);
+
 	/* update the fastpath index */
 	bnx2x_update_fp_sb_idx(fp);
 
@@ -4506,7 +4504,7 @@ static void bnx2x_handle_fp_tq(struct bnx2x_fastpath *fp, int scan_fp)
 	}
 
 	bnx2x_ack_sb(sc, fp->igu_sb_id, USTORM_ID,
-		   le16toh(fp->fp_hc_idx), IGU_INT_DISABLE, 1);
+		   le16toh(fp->fp_hc_idx), IGU_INT_ENABLE, 1);
 }
 
 /*
@@ -6997,16 +6995,6 @@ void bnx2x_link_status_update(struct bnx2x_softc *sc)
 	}
 }
 
-static void bnx2x_periodic_start(struct bnx2x_softc *sc)
-{
-	atomic_store_rel_long(&sc->periodic_flags, PERIODIC_GO);
-}
-
-static void bnx2x_periodic_stop(struct bnx2x_softc *sc)
-{
-	atomic_store_rel_long(&sc->periodic_flags, PERIODIC_STOP);
-}
-
 static int bnx2x_initial_phy_init(struct bnx2x_softc *sc, int load_mode)
 {
 	int rc, cfg_idx = bnx2x_get_link_cfg_idx(sc);
@@ -7039,10 +7027,6 @@ static int bnx2x_initial_phy_init(struct bnx2x_softc *sc, int load_mode)
 	if (sc->link_vars.link_up) {
 		bnx2x_stats_handle(sc, STATS_EVENT_LINK_UP);
 		bnx2x_link_report(sc);
-	}
-
-	if (!CHIP_REV_IS_SLOW(sc)) {
-		bnx2x_periodic_start(sc);
 	}
 
 	sc->link_params.req_line_speed[cfg_idx] = req_line_speed;

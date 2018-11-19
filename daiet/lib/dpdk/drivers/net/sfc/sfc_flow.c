@@ -371,7 +371,8 @@ sfc_flow_parse_vlan(const struct rte_flow_item *item,
 	 * the outer tag and the next matches the inner tag.
 	 */
 	if (mask->tci == supp_mask.tci) {
-		vid = rte_bswap16(spec->tci);
+		/* Apply mask to keep VID only */
+		vid = rte_bswap16(spec->tci & mask->tci);
 
 		if (!(efx_spec->efs_match_flags &
 		      EFX_FILTER_MATCH_OUTER_VID)) {
@@ -2094,11 +2095,14 @@ sfc_flow_is_match_with_vids(efx_filter_match_flags_t match_flags,
  * Check whether the spec maps to a hardware filter which is known to be
  * ineffective despite being valid.
  *
+ * @param filter[in]
+ *   SFC filter with list of supported filters.
  * @param spec[in]
  *   SFC flow specification.
  */
 static boolean_t
-sfc_flow_is_match_flags_exception(struct sfc_flow_spec *spec)
+sfc_flow_is_match_flags_exception(struct sfc_filter *filter,
+				  struct sfc_flow_spec *spec)
 {
 	unsigned int i;
 	uint16_t ether_type;
@@ -2114,8 +2118,9 @@ sfc_flow_is_match_flags_exception(struct sfc_flow_spec *spec)
 						EFX_FILTER_MATCH_ETHER_TYPE |
 						EFX_FILTER_MATCH_LOC_MAC)) {
 			ether_type = spec->filters[i].efs_ether_type;
-			if (ether_type == EFX_ETHER_TYPE_IPV4 ||
-			    ether_type == EFX_ETHER_TYPE_IPV6)
+			if (filter->supports_ip_proto_or_addr_filter &&
+			    (ether_type == EFX_ETHER_TYPE_IPV4 ||
+			     ether_type == EFX_ETHER_TYPE_IPV6))
 				return B_TRUE;
 		} else if (sfc_flow_is_match_with_vids(match_flags,
 				EFX_FILTER_MATCH_ETHER_TYPE |
@@ -2125,8 +2130,9 @@ sfc_flow_is_match_flags_exception(struct sfc_flow_spec *spec)
 				EFX_FILTER_MATCH_IP_PROTO |
 				EFX_FILTER_MATCH_LOC_MAC)) {
 			ip_proto = spec->filters[i].efs_ip_proto;
-			if (ip_proto == EFX_IPPROTO_TCP ||
-			    ip_proto == EFX_IPPROTO_UDP)
+			if (filter->supports_rem_or_local_port_filter &&
+			    (ip_proto == EFX_IPPROTO_TCP ||
+			     ip_proto == EFX_IPPROTO_UDP))
 				return B_TRUE;
 		}
 	}
@@ -2153,7 +2159,7 @@ sfc_flow_validate_match_flags(struct sfc_adapter *sa,
 			return rc;
 	}
 
-	if (sfc_flow_is_match_flags_exception(&flow->spec)) {
+	if (sfc_flow_is_match_flags_exception(&sa->filter, &flow->spec)) {
 		rte_flow_error_set(error, ENOTSUP,
 			RTE_FLOW_ERROR_TYPE_UNSPECIFIED, NULL,
 			"The flow rule pattern is unsupported");

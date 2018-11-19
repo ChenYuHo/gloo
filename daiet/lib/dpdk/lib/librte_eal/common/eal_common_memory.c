@@ -34,7 +34,7 @@
 
 #define MEMSEG_LIST_FMT "memseg-%" PRIu64 "k-%i-%i"
 
-static uint64_t baseaddr_offset;
+static void *next_baseaddr;
 static uint64_t system_page_sz;
 
 void *
@@ -56,21 +56,27 @@ eal_get_virtual_area(void *requested_addr, size_t *size,
 	allow_shrink = (flags & EAL_VIRTUAL_AREA_ALLOW_SHRINK) > 0;
 	unmap = (flags & EAL_VIRTUAL_AREA_UNMAP) > 0;
 
-	if (requested_addr == NULL && internal_config.base_virtaddr != 0) {
-		requested_addr = (void *) (internal_config.base_virtaddr +
-				(size_t)baseaddr_offset);
+	if (next_baseaddr == NULL && internal_config.base_virtaddr != 0 &&
+			rte_eal_process_type() == RTE_PROC_PRIMARY)
+		next_baseaddr = (void *) internal_config.base_virtaddr;
+
+	if (requested_addr == NULL && next_baseaddr != NULL) {
+		requested_addr = next_baseaddr;
 		requested_addr = RTE_PTR_ALIGN(requested_addr, page_sz);
 		addr_is_hint = true;
 	}
 
-	/* if requested address is not aligned by page size, or if requested
-	 * address is NULL, add page size to requested length as we may get an
-	 * address that's aligned by system page size, which can be smaller than
-	 * our requested page size. additionally, we shouldn't try to align if
-	 * system page size is the same as requested page size.
+	/* we don't need alignment of resulting pointer in the following cases:
+	 *
+	 * 1. page size is equal to system size
+	 * 2. we have a requested address, and it is page-aligned, and we will
+	 *    be discarding the address if we get a different one.
+	 *
+	 * for all other cases, alignment is potentially necessary.
 	 */
 	no_align = (requested_addr != NULL &&
-		((uintptr_t)requested_addr & (page_sz - 1)) == 0) ||
+		requested_addr == RTE_PTR_ALIGN(requested_addr, page_sz) &&
+		!addr_is_hint) ||
 		page_sz == system_page_sz;
 
 	do {
@@ -116,6 +122,8 @@ eal_get_virtual_area(void *requested_addr, size_t *size,
 		RTE_LOG(WARNING, EAL, "WARNING! Base virtual address hint (%p != %p) not respected!\n",
 			requested_addr, aligned_addr);
 		RTE_LOG(WARNING, EAL, "   This may cause issues with mapping memory into secondary processes\n");
+	} else if (next_baseaddr != NULL) {
+		next_baseaddr = RTE_PTR_ADD(aligned_addr, *size);
 	}
 
 	RTE_LOG(DEBUG, EAL, "Virtual area found at %p (size = 0x%zx)\n",
@@ -147,8 +155,6 @@ eal_get_virtual_area(void *requested_addr, size_t *size,
 		if (after_len > 0)
 			munmap(aligned_end, after_len);
 	}
-
-	baseaddr_offset += *size;
 
 	return aligned_addr;
 }
@@ -535,6 +541,9 @@ virt2memseg(const void *addr, const struct rte_memseg_list *msl)
 	const struct rte_fbarray *arr;
 	void *start, *end;
 	int ms_idx;
+
+	if (msl == NULL)
+		return NULL;
 
 	/* a memseg list was specified, check if it's the right one */
 	start = msl->base_va;

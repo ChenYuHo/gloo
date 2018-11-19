@@ -370,6 +370,10 @@ const struct eth_dev_ops mlx5_dev_ops_isolate = {
 	.dev_set_link_down = mlx5_set_link_down,
 	.dev_set_link_up = mlx5_set_link_up,
 	.dev_close = mlx5_dev_close,
+	.promiscuous_enable = mlx5_promiscuous_enable,
+	.promiscuous_disable = mlx5_promiscuous_disable,
+	.allmulticast_enable = mlx5_allmulticast_enable,
+	.allmulticast_disable = mlx5_allmulticast_disable,
 	.link_update = mlx5_link_update,
 	.stats_get = mlx5_stats_get,
 	.stats_reset = mlx5_stats_reset,
@@ -706,7 +710,7 @@ mlx5_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 	int i;
 	struct mlx5dv_context attrs_out = {0};
 #ifdef HAVE_IBV_DEVICE_COUNTERS_SET_SUPPORT
-	struct ibv_counter_set_description cs_desc;
+	struct ibv_counter_set_description cs_desc = { .counter_type = 0 };
 #endif
 
 	/* Prepare shared data between primary and secondary process. */
@@ -1002,9 +1006,9 @@ mlx5_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 		priv->mtu = ETHER_MTU;
 		err = mlx5_args(&config, pci_dev->device.devargs);
 		if (err) {
-			DRV_LOG(ERR, "failed to process device arguments: %s",
-				strerror(err));
 			err = rte_errno;
+			DRV_LOG(ERR, "failed to process device arguments: %s",
+				strerror(rte_errno));
 			goto port_error;
 		}
 		err = mlx5_glue->query_device_ex(ctx, NULL, &device_attr_ex);
@@ -1109,7 +1113,7 @@ mlx5_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 			DRV_LOG(ERR,
 				"port %u cannot get MAC address, is mlx5_en"
 				" loaded? (errno: %s)",
-				eth_dev->data->port_id, strerror(errno));
+				eth_dev->data->port_id, strerror(rte_errno));
 			err = ENODEV;
 			goto port_error;
 		}
@@ -1192,6 +1196,7 @@ mlx5_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 		if (verb_priorities < MLX5_VERBS_FLOW_PRIO_8) {
 			DRV_LOG(ERR, "port %u wrong Verbs flow priorities: %u",
 				eth_dev->data->port_id, verb_priorities);
+			err = ENOTSUP;
 			goto port_error;
 		}
 		priv->config.max_verbs_prio = verb_priorities;
@@ -1439,6 +1444,11 @@ RTE_INIT(rte_mlx5_pmd_init);
 static void
 rte_mlx5_pmd_init(void)
 {
+	/* Initialize driver log type. */
+	mlx5_logtype = rte_log_register("pmd.net.mlx5");
+	if (mlx5_logtype >= 0)
+		rte_log_set_level(mlx5_logtype, RTE_LOG_NOTICE);
+
 	/* Build the static tables for Verbs conversion. */
 	mlx5_set_ptype_table();
 	mlx5_set_cksum_table();
@@ -1480,11 +1490,3 @@ rte_mlx5_pmd_init(void)
 RTE_PMD_EXPORT_NAME(net_mlx5, __COUNTER__);
 RTE_PMD_REGISTER_PCI_TABLE(net_mlx5, mlx5_pci_id_map);
 RTE_PMD_REGISTER_KMOD_DEP(net_mlx5, "* ib_uverbs & mlx5_core & mlx5_ib");
-
-/** Initialize driver log type. */
-RTE_INIT(vdev_netvsc_init_log)
-{
-	mlx5_logtype = rte_log_register("pmd.net.mlx5");
-	if (mlx5_logtype >= 0)
-		rte_log_set_level(mlx5_logtype, RTE_LOG_NOTICE);
-}
