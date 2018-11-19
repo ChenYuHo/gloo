@@ -9,6 +9,8 @@
 #include "utils.hpp"
 #include "params.hpp"
 
+#define TIMER_RESOLUTION_CYCLES 200000000ULL // around 100ms at 2 Ghz
+
 namespace daiet {
 
     extern rte_atomic32_t* sent_message_counters;

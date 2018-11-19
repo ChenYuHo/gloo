@@ -31,5 +31,7 @@
 #include <rte_mbuf.h>
 #include <rte_byteorder.h>
 #include <rte_rwlock.h>
+#include <rte_timer.h>
+#include <rte_bitmap.h>
 
 #define MAX_PKT_BURST 256
