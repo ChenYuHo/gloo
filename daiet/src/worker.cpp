@@ -210,6 +210,7 @@ namespace daiet {
 
         LOG_DEBUG("Timeout TSI: " + to_string(*tsi));
 
+        rte_atomic64_inc(&pkt_stats.w_timeouts);
         // Reallocate, Rebuild, Resend packet
         struct rte_mbuf* m = rte_pktmbuf_alloc(dpdk_data.pool);
         if (unlikely(m == NULL))
@@ -352,7 +353,7 @@ namespace daiet {
             if (unlikely(bitmap == NULL)) {
                 LOG_FATAL("Failed to init bitmap");
             }
-            rte_bitmap_reset (bmp);
+            rte_bitmap_reset (bitmap);
 
 #if !COLOCATED
             // Only on master core
@@ -376,8 +377,7 @@ namespace daiet {
 
                     rte_atomic32_inc(&sent_message_counters[j]);
 
-                    rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb,
-                            &(timer_tsis[j]));
+                    rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
 
 #if SAVE_LATENCIES
                     write_timestamp(j);
