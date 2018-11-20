@@ -17,6 +17,7 @@ all:
 	$(Q)$(MAKE) -C $(RTE_OUTPUT) -f $(RTE_EXTMK) \
 		S=$(RTE_SRCDIR) O=$(RTE_OUTPUT) SRCDIR=$(RTE_SRCDIR)
 	$(Q)$(MAKE) clean
+	$(RM) _postclean
 
 %::
 	$(Q)mkdir -p $(RTE_OUTPUT)
