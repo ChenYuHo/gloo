@@ -35,7 +35,10 @@ namespace daiet {
     struct pkt_statistics {
             rte_atomic64_t w_tx;
             rte_atomic64_t w_rx;
+
+#ifdef TIMERS
             rte_atomic64_t w_timeouts;
+#endif
 
             rte_atomic64_t p_tx;
             rte_atomic64_t p_rx;
@@ -43,6 +46,9 @@ namespace daiet {
             pkt_statistics() {
                 rte_atomic64_init(&w_tx);
                 rte_atomic64_init(&w_rx);
+#ifdef TIMERS
+                rte_atomic64_init(&w_timeouts);
+#endif
                 rte_atomic64_init(&p_tx);
                 rte_atomic64_init(&p_rx);
             }

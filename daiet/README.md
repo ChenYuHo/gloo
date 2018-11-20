@@ -27,6 +27,7 @@ libboost-program-options-dev
 cd lib/dpdk
 make defconfig T=x86_64-native-linuxapp-gcc
 make -j `grep -c ^processor /proc/cpuinfo`
+make install
 cd ../..
 ```
 
@@ -68,7 +69,7 @@ mount -t hugetlbfs nodev /mnt/huge
 
 - Check the CPU layout using using the DPDK cpu\_layout utility:
 ```sh
-cd dpdk
+cd lib/dpdk
 usertools/cpu_layout.py
 ```
 
@@ -87,7 +88,6 @@ Note: To get the best performance, ensure that the core and NICs are in the same
 > Note:
 > to support C++ applications, DPDK is patched with:
 > ```sh
-> cd dpdk
+> cd lib/dpdk
 > patch -p1 < cpp_support.patch
-> patch -p1 < helloworld_cpp.patch
 > ```

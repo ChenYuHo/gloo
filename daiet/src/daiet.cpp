@@ -710,7 +710,9 @@ namespace daiet {
             if (daiet_par.getMode() == "worker") {
                 LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
                 LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
+#ifdef TIMERS
                 LOG_INFO("Timeouts " + to_string(rte_atomic64_read(&pkt_stats.w_timeouts)));
+#endif
             } else if (daiet_par.getMode() == "ps") {
                 LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
                 LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
@@ -718,7 +720,9 @@ namespace daiet {
     #else
             LOG_INFO("Worker TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
             LOG_INFO("Worker RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
+#ifdef TIMERS
             LOG_INFO("Worker Timeouts " + to_string(rte_atomic64_read(&pkt_stats.w_timeouts)));
+#endif
             LOG_INFO("PS TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
             LOG_INFO("PS RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
     #endif

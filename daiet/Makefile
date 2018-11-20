@@ -28,17 +28,22 @@ CXXFLAGS += $(WERROR_FLAGS) -std=c++11 -fPIC -I ${DAIET_PATH}/.. -mavx2 -fabi-ve
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)
-$(info "Colocated")
+$(info "colocated")
 CXXFLAGS += -DCOLOCATED
 endif
 
 ifeq ($(save_latencies),y)
-$(info "Save_latencies")
+$(info "save_latencies")
 CXXFLAGS += -DSAVE_LATENCIES
 endif
 
+ifeq ($(timers),y)
+$(info "timers")
+CXXFLAGS += -DTIMERS
+endif
+
 ifeq ($(debug),y)
-$(info "Debug")
+$(info "debug")
 CXXFLAGS += -DDEBUG -g -O0
 else
 CXXFLAGS += -O3

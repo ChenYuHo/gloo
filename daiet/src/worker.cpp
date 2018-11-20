@@ -203,6 +203,7 @@ namespace daiet {
         return NULL;
     }
 
+#ifdef TIMERS
     static void timeout_cb(struct rte_timer *timer, void *arg) {
 
         int ret;
@@ -220,8 +221,9 @@ namespace daiet {
 
         ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
         if (unlikely(ret < 0))
-            LOG_FATAL("Cannot enqueue one packet");
+            LOG_FATAL("Cannot enqueue one packet in timeout callback");
     }
+#endif
 
     void worker_setup() {
 
@@ -230,8 +232,10 @@ namespace daiet {
             rte_atomic32_init(&sent_message_counters[i]);
         }
 
+#ifdef TIMERS
         // Initialize timer library
         rte_timer_subsystem_init();
+#endif
 
 #if SAVE_LATENCIES
         sent_timestamp = new rte_atomic64_t[daiet_par.getMaxNumPendingMessages()];
@@ -305,6 +309,7 @@ namespace daiet {
         worker_id = core_to_workers_ids[lcore_id];
         LOG_DEBUG("Worker core: " + to_string(lcore_id) + " worker id: " + to_string(worker_id));
 
+#ifdef TIMERS
         // Timer
         uint64_t timer_cycles = rte_get_timer_hz() / 10; // cycles for 100 ms
         uint64_t timer_prev_tsc = 0, timer_cur_tsc;
@@ -315,6 +320,7 @@ namespace daiet {
         for (int i = 0; i < max_num_pending_messages; i++) {
             rte_timer_init(&timers[i]);
         }
+#endif
 
         // Bitmap
         void* bitmap_mem;
@@ -372,12 +378,16 @@ namespace daiet {
                 for (j = 0; j < burst_size; j++) {
                     m = pkts_burst[j];
 
+#ifdef TIMERS
                     timer_tsis[j] = daiet_par.getNumUpdates() * j;
                     build_pkt(m, dpdk_par.portid, timer_tsis[j]);
 
-                    rte_atomic32_inc(&sent_message_counters[j]);
-
                     rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
+#else
+                    build_pkt(m, dpdk_par.portid, daiet_par.getNumUpdates() * j);
+#endif
+
+                    rte_atomic32_inc(&sent_message_counters[j]);
 
 #if SAVE_LATENCIES
                     write_timestamp(j);
@@ -394,12 +404,14 @@ namespace daiet {
 
             while (rx_pkts < total_num_msgs && !force_quit) {
 
+#ifdef TIMERS
                 // Check timers
                 timer_cur_tsc = rte_rdtsc();
                 if (unlikely(timer_cur_tsc - timer_prev_tsc > TIMER_RESOLUTION_CYCLES)) {
                     rte_timer_manage();
                     timer_prev_tsc = timer_cur_tsc;
                 }
+#endif
 
                 // Read packet from RX ring
                 nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
@@ -435,7 +447,11 @@ namespace daiet {
                         if (likely(rte_bitmap_get(bitmap, bitmap_idx) == 0)) {
 
                             rx_pkts++;
+
+#ifdef TIMERS
                             rte_timer_stop_sync(&timers[pool_index_monoset]);
+#endif
+
                             rte_bitmap_set(bitmap, bitmap_idx);
 #if SAVE_LATENCIES
                             // Save latency
@@ -447,7 +463,10 @@ namespace daiet {
                             store(daiet);
 
                             tsi += daiet_par.getNumUpdates() * max_num_pending_messages;
+
+#ifdef TIMERS
                             timer_tsis[pool_index_monoset] = tsi;
+#endif
 
                             if (likely(tsi < tensor_size)) {
 
@@ -458,9 +477,11 @@ namespace daiet {
                                 if (unlikely(ret < 0))
                                     LOG_FATAL("Cannot enqueue one packet");
 
+#ifdef TIMERS
                                 // Start timer
                                 rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles, PERIODICAL, lcore_id, timeout_cb,
                                         &timer_tsis[pool_index_monoset]);
+#endif
 
                                 rte_atomic64_inc(&pkt_stats.w_tx);
                                 rte_atomic32_inc(&sent_message_counters[pool_index_monoset]);
