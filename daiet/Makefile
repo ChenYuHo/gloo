@@ -54,7 +54,6 @@ include $(RTE_SDK)/mk/rte.extlib.mk
 distclean: clean
 	$(RM) -r build
 
-
 .PHONY: install
 install: all 
 	mkdir -p $(DESTDIR)$(PREFIX)/lib

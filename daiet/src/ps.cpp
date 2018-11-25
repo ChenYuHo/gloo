@@ -171,7 +171,7 @@ namespace daiet {
                 rte_prefetch0(rte_pktmbuf_mtod(m, void *));
                 eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
-#if !COLOCATED
+#ifndef COLOCATED
                 daiet = is_daiet_pkt_to_ps(eth, m->data_len);
                 if (likely(daiet!=NULL)) {
 #else
@@ -242,7 +242,7 @@ namespace daiet {
                         // Free original packet
                         rte_pktmbuf_free(m);
                     }
-#if !COLOCATED
+#ifndef COLOCATED
                 } else {
                     // Free original packet
                     rte_pktmbuf_free(m);

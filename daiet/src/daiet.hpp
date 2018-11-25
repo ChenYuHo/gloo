@@ -16,7 +16,7 @@ namespace daiet {
     int rx_loop(void*);
     int tx_loop(void*);
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
     void write_latencies(string, uint64_t);
 #endif
 

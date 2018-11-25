@@ -4,12 +4,13 @@
  */
 
 #include "worker.hpp"
+#include <assert.h>
 
 namespace daiet {
 
     TensorUpdate* tuptr;
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
     rte_atomic64_t* sent_timestamp;
 
     static __rte_always_inline void write_timestamp(uint16_t offset) {
@@ -61,6 +62,8 @@ namespace daiet {
     }
 
     static __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint64_t ol_flags) {
+
+        assert(tsi%daiet_par.getNumUpdates()==0);
 
         struct ipv4_hdr * const ip = (struct ipv4_hdr *) (eth + 1);
         struct udp_hdr * const udp = (struct udp_hdr *) (ip + 1);
@@ -237,7 +240,7 @@ namespace daiet {
         rte_timer_subsystem_init();
 #endif
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
         sent_timestamp = new rte_atomic64_t[daiet_par.getMaxNumPendingMessages()];
 
         latencies = new uint64_t[daiet_par.getMaxNumMsgs()];
@@ -253,7 +256,7 @@ namespace daiet {
     void worker_cleanup() {
         delete[] sent_message_counters;
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
         delete[] sent_timestamp;
 #endif
     }
@@ -290,7 +293,7 @@ namespace daiet {
         unsigned nb_rx = 0, j = 0;
         uint32_t worker_id;
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
         int64_t lat_indx = 0;
 #endif
 
@@ -361,7 +364,7 @@ namespace daiet {
             }
             rte_bitmap_reset (bitmap);
 
-#if !COLOCATED
+#ifndef COLOCATED
             // Only on master core
             if (lcore_id == rte_get_master_lcore())
 #endif
@@ -389,7 +392,7 @@ namespace daiet {
 
                     rte_atomic32_inc(&sent_message_counters[j]);
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
                     write_timestamp(j);
 #endif
                 }
@@ -419,6 +422,9 @@ namespace daiet {
                 for (j = 0; j < nb_rx; j++) {
 
                     m = pkts_burst[j];
+                    pkts_burst[j]=0;
+
+                    assert(m!=0);
 
                     // Checksum offload
                     // TOFIX these assignments have a ~20% performance overhead
@@ -429,13 +435,16 @@ namespace daiet {
                     rte_prefetch0(rte_pktmbuf_mtod(m, void *));
                     eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
-#if !COLOCATED
+#ifndef COLOCATED
                     daiet = is_daiet_pkt_from_ps(eth, m->data_len);
                     if (likely(daiet!=NULL)) {
 #else
                         daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
 #endif
                         tsi = daiet->tsi;
+
+                        assert(tsi%daiet_par.getNumUpdates()==0);
+
                         bitmap_idx = tsi / daiet_par.getNumUpdates();
 
                         pool_index = rte_be_to_cpu_16(daiet->pool_index);
@@ -453,7 +462,7 @@ namespace daiet {
 #endif
 
                             rte_bitmap_set(bitmap, bitmap_idx);
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
                             // Save latency
                             save_latency(pool_index_monoset, lat_indx);
 
@@ -491,7 +500,7 @@ namespace daiet {
                             // We have seen this packet before
                             rte_pktmbuf_free(m);
                         }
-#if !COLOCATED
+#ifndef COLOCATED
                     } else {
                         // Free original packet
                         rte_pktmbuf_free(m);
@@ -502,7 +511,7 @@ namespace daiet {
             // Done update
             out_queue.push(tuptr);
 
-#if !COLOCATED
+#ifndef COLOCATED
             // Only on master core
             if (lcore_id == rte_get_master_lcore())
 #endif

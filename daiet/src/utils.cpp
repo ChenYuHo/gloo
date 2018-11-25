@@ -40,7 +40,7 @@ namespace daiet {
 
     template<typename T>
     void LOG_DEBUG(T msg) {
-#if DEBUG
+#ifdef DEBUG
         unique_lock<mutex> mlock(debug_mutex_);
         daiet_log << msg << endl << flush;
 #endif

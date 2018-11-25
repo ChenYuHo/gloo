@@ -15,7 +15,7 @@ namespace daiet {
 
     extern rte_atomic32_t* sent_message_counters;
 
-#if SAVE_LATENCIES
+#ifdef SAVE_LATENCIES
     extern uint64_t* latencies;
 #endif
 
