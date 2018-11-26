@@ -104,16 +104,16 @@ namespace daiet {
 
     void ps_setup() {
         ps_aggregated_messages = new rte_atomic32_t*[daiet_par.getNumUpdates()];
-        for (int i = 0; i < daiet_par.getNumUpdates(); i++) {
+        for (uint8_t i = 0; i < daiet_par.getNumUpdates(); i++) {
             ps_aggregated_messages[i] = new rte_atomic32_t[daiet_par.getMaxNumPendingMessages()];
 
-            for (int j = 0; j < daiet_par.getMaxNumPendingMessages(); j++) {
+            for (uint32_t j = 0; j < daiet_par.getMaxNumPendingMessages(); j++) {
                 rte_atomic32_init(&ps_aggregated_messages[i][j]);
             }
         }
 
         ps_received_message_counters = new rte_atomic32_t[daiet_par.getMaxNumPendingMessages()];
-        for (int i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
+        for (uint32_t i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
             rte_atomic32_init(&ps_received_message_counters[i]);
             rte_atomic32_set(&ps_received_message_counters[i], daiet_par.getNumWorkers());
         }
@@ -133,7 +133,6 @@ namespace daiet {
     int ps(__attribute__((unused)) void*) {
 
         int ret;
-        uint ind = 0;
 
         unsigned lcore_id;
         unsigned nb_rx = 0, j = 0;

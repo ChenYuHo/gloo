@@ -231,7 +231,7 @@ namespace daiet {
     void worker_setup() {
 
         sent_message_counters = new rte_atomic32_t[daiet_par.getMaxNumPendingMessages()];
-        for (int i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
+        for (uint32_t i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
             rte_atomic32_init(&sent_message_counters[i]);
         }
 
@@ -246,7 +246,7 @@ namespace daiet {
         latencies = new uint64_t[daiet_par.getMaxNumMsgs()];
         memset(latencies, 0, (sizeof *latencies) * daiet_par.getMaxNumMsgs());
 
-        for (int i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
+        for (uint32_t i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
             rte_atomic64_init(&sent_timestamp[i]);
         }
 #endif
@@ -281,7 +281,7 @@ namespace daiet {
 
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
 
-        volatile int rx_pkts = 0;
+        volatile uint32_t rx_pkts = 0;
         uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
         uint32_t tensor_size = 0;
@@ -320,7 +320,7 @@ namespace daiet {
 
         struct rte_timer timers[max_num_pending_messages];
 
-        for (int i = 0; i < max_num_pending_messages; i++) {
+        for (uint32_t i = 0; i < max_num_pending_messages; i++) {
             rte_timer_init(&timers[i]);
         }
 #endif

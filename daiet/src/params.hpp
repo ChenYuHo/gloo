@@ -162,23 +162,23 @@ namespace daiet {
              */
             bool setWorkerIp(string);
 
-            __rte_always_inline uint32_t getWorkerIpBe() const {
+            __rte_always_inline uint32_t getWorkerIpBe() {
                 return worker_ip_be;
             }
 
-            __rte_always_inline const uint32_t* getPsIpsBe() const {
+            __rte_always_inline const uint32_t* getPsIpsBe() {
                 return ps_ips_be;
             }
 
-            __rte_always_inline const uint64_t* getPsMacsBe() const {
+            __rte_always_inline const uint64_t* getPsMacsBe() {
                 return ps_macs_be;
             }
 
-            __rte_always_inline const uint32_t getPsIpBe(int i) const {
+            __rte_always_inline uint32_t getPsIpBe(int i) {
                 return ps_ips_be[i % num_ps];
             }
 
-            __rte_always_inline const uint64_t getPsMacBe(int i) const {
+            __rte_always_inline uint64_t getPsMacBe(int i) {
                 return ps_macs_be[i % num_ps];
             }
 

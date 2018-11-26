@@ -78,6 +78,8 @@ namespace daiet {
             ring_rx = dpdk_data.w_ring_rx;
         else if (daiet_par.getMode() == "ps")
             ring_rx = dpdk_data.p_ring_rx;
+        else
+            return -1;
 #else
         int j;
         struct rte_mbuf* m;
@@ -144,6 +146,8 @@ namespace daiet {
             ring_tx = dpdk_data.w_ring_tx;
         else if (daiet_par.getMode() == "ps")
             ring_tx = dpdk_data.p_ring_tx;
+        else
+            return -1;
 #endif
 
         uint32_t n_mbufs = 0, n_pkts, sent = 0;
@@ -188,24 +192,6 @@ namespace daiet {
             }
         }
         return 0;
-    }
-
-    /* Callback for tx errors */
-    void tx_buffer_err_print_pkt(struct rte_mbuf **pkts, uint16_t unsent, void *userdata) {
-        uint64_t *count = (uint64_t *) userdata;
-        unsigned i;
-        struct ether_hdr *eth;
-
-        for (i = 0; i < unsent; i++) {
-
-            rte_prefetch0(rte_pktmbuf_mtod(pkts[i], void *));
-            eth = rte_pktmbuf_mtod(pkts[i], struct ether_hdr *);
-            print_packet(eth, pkts[i]->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe());
-
-            rte_pktmbuf_free(pkts[i]);
-        }
-
-        *count += unsent;
     }
 
 #ifdef SAVE_LATENCIES
@@ -419,19 +405,13 @@ namespace daiet {
 
     void rings_cleanup(string mode) {
 
-        struct rte_ring * ring_rx;
-        struct rte_ring * ring_tx;
-
         if (mode == "worker") {
-            ring_rx = dpdk_data.w_ring_rx;
-            ring_tx = dpdk_data.w_ring_tx;
+            rte_ring_free(dpdk_data.w_ring_rx);
+            rte_ring_free(dpdk_data.w_ring_tx);
         } else if (mode == "ps") {
-            ring_rx = dpdk_data.p_ring_rx;
-            ring_tx = dpdk_data.p_ring_tx;
+            rte_ring_free(dpdk_data.p_ring_rx);
+            rte_ring_free(dpdk_data.p_ring_tx);
         }
-
-        rte_ring_free(ring_rx);
-        rte_ring_free(ring_tx);
     }
 
     void signal_handler(int signum) {
@@ -594,7 +574,7 @@ namespace daiet {
             if (ret < 0)
                 LOG_FATAL("Invalid EAL arguments");
 
-            uint32_t n_lcores = 0, lcore_id, worker_id, wid = 0;
+            uint32_t n_lcores = 0, lcore_id, wid = 0;
 
             for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
                 if (rte_lcore_is_enabled(lcore_id) != 0) {

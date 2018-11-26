@@ -24,7 +24,7 @@ PREFIX = /usr/local
 SRCS-y := $(shell find ${DAIET_PATH}/src -maxdepth 1 -name "*.cpp")
 HDRS := $(shell find ${DAIET_PATH}/src -maxdepth 1 -name "*.hpp" -o -name "*.h")
 
-CXXFLAGS += $(WERROR_FLAGS) -std=c++11 -fPIC -I ${DAIET_PATH}/.. -mavx2 -fabi-version=0 -mfma
+CXXFLAGS += -Wall -Wextra -std=c++11 -fPIC -I ${DAIET_PATH}/.. -mavx2 -fabi-version=0 -mfma
 LDFLAGS += -lstdc++ -l boost_program_options
 
 ifeq ($(colocated),y)

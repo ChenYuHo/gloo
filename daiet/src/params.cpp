@@ -65,7 +65,7 @@ namespace daiet {
 
         LOG_INFO("Worker IP: " + ip_to_str(worker_ip_be));
 
-        for (int i = 0; i < num_ps; i++) {
+        for (uint32_t i = 0; i < num_ps; i++) {
 
             LOG_INFO("PS" + to_string(i) + ": " + mac_to_str(ps_macs_be[i]) + " " + ip_to_str(ps_ips_be[i]));
         }
@@ -129,7 +129,7 @@ namespace daiet {
 
         struct in_addr addr;
 
-        for (int i = 0; i < num_ps; i++) {
+        for (uint32_t i = 0; i < num_ps; i++) {
 
             if (inet_aton(ips[i].c_str(), &addr) == 0)
                 return false;

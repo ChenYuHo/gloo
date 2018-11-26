@@ -28,6 +28,12 @@ namespace daiet {
         }
 
         d_ctx_ptr->ret = master(args_c, args, d_ctx_ptr->in_queue, d_ctx_ptr->out_queue);
+
+        // Cleanup
+        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+            delete[] args_ptr[i];
+        }
+
         return NULL;
     }
 
