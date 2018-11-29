@@ -1,6 +1,6 @@
 #!/bin/bash
 
-declare -a intfs=("enp1s0f0")
+declare -a intfs=("eno1")
 
 cwd=$(pwd)
 

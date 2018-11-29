@@ -139,6 +139,7 @@ namespace daiet {
 
         uint32_t worker_id;
 
+        struct rte_mempool *pool;
         struct rte_mbuf **pkts_burst;
         struct rte_mbuf* m;
         struct rte_mbuf* clone;
@@ -158,6 +159,11 @@ namespace daiet {
         pkts_burst = (rte_mbuf **) rte_malloc_socket(NULL, dpdk_par.burst_size_worker * sizeof(struct rte_mbuf*), RTE_CACHE_LINE_SIZE, rte_socket_id());
         if (pkts_burst == NULL)
             LOG_FATAL("PS thread: cannot allocate pkts burst");
+
+        // Init the buffer pool
+        pool = rte_pktmbuf_pool_create("ps_pool", dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
+        if (pool == NULL)
+            LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
 
         while (!force_quit && !ps_stop) {
 
@@ -209,7 +215,7 @@ namespace daiet {
                         for (auto const& worker_addr : ps_workers_ip_to_mac) {
 
                             // Clone packet
-                            clone = rte_pktmbuf_alloc(dpdk_data.pool);
+                            clone = rte_pktmbuf_alloc(pool);
                             if (clone == NULL)
                                 LOG_FATAL("Cannot allocate clone pkt");
 

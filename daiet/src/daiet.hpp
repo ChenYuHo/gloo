@@ -21,7 +21,6 @@ namespace daiet {
 #endif
 
     int master(int argc, char *argv[], BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue);
-    void mbuf_pool_init();
     void port_init();
     void rings_init(string);
     void rings_cleanup(string);

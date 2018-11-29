@@ -22,8 +22,7 @@ namespace daiet {
             struct rte_ring *p_ring_rx;
             struct rte_ring *p_ring_tx;
 
-            // Buffer pool
-            struct rte_mempool *pool;
+            // Buffer pool size
             uint32_t pool_buffer_size;
 
             dpdk_data() {
@@ -39,8 +38,6 @@ namespace daiet {
                 p_ring_rx = NULL;
                 p_ring_tx = NULL;
 
-                // Buffer pool
-                pool = NULL;
                 pool_buffer_size = RTE_MBUF_DEFAULT_BUF_SIZE;
             }
     }__rte_cache_aligned;

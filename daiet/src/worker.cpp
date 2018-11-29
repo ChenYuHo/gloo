@@ -10,6 +10,11 @@ namespace daiet {
 
     TensorUpdate* tuptr;
 
+#ifdef TIMERS
+    // TOFIX this should be thread local
+    struct rte_mempool *pool;
+#endif
+
 #ifdef SAVE_LATENCIES
     rte_atomic64_t* sent_timestamp;
 
@@ -216,7 +221,7 @@ namespace daiet {
 
         rte_atomic64_inc(&pkt_stats.w_timeouts);
         // Reallocate, Rebuild, Resend packet
-        struct rte_mbuf* m = rte_pktmbuf_alloc(dpdk_data.pool);
+        struct rte_mbuf* m = rte_pktmbuf_alloc(pool);
         if (unlikely(m == NULL))
             LOG_FATAL("Cannot allocate one packet");
 
@@ -297,6 +302,9 @@ namespace daiet {
         int64_t lat_indx = 0;
 #endif
 
+#ifndef TIMERS
+        struct rte_mempool *pool;
+#endif
         struct rte_mbuf **pkts_burst;
         struct rte_mbuf* m;
 
@@ -324,6 +332,11 @@ namespace daiet {
             rte_timer_init(&timers[i]);
         }
 #endif
+
+        // Init the buffer pool
+        pool = rte_pktmbuf_pool_create("worker_pool", dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
+        if (pool == NULL)
+            LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
 
         // Bitmap
         void* bitmap_mem;
@@ -374,7 +387,7 @@ namespace daiet {
                 burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
 
                 // Allocate pkt burst
-                ret = rte_pktmbuf_alloc_bulk(dpdk_data.pool, pkts_burst, burst_size);
+                ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
                 if (unlikely(ret < 0))
                     LOG_FATAL("Cannot allocate pkts burst");
 

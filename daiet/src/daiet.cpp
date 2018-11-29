@@ -212,20 +212,15 @@ namespace daiet {
     }
 #endif
 
-    void mbuf_pool_init() {
-        /* Init the buffer pool */
-        //LOG_DEBUG("Creating the mbuf pool...");
-        dpdk_data.pool = rte_pktmbuf_pool_create("mbuf_pool", dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
-        if (dpdk_data.pool == NULL)
-            LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
-    }
-
     void port_init() {
 
         int ret;
 
         uint16_t nb_ports, tmp_portid;
         bool found_portid = false;
+
+        struct rte_mempool *pool;
+
         struct rte_eth_dev_info dev_info;
 
         // Port configuration
@@ -317,6 +312,11 @@ namespace daiet {
         //Get the port address
         rte_eth_macaddr_get(dpdk_par.portid, &port_eth_addr);
 
+        // Init the buffer pool
+        pool = rte_pktmbuf_pool_create("rx_pool", dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
+        if (pool == NULL)
+            LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
+
         // init RX queue
         rx_conf = dev_info.default_rxconf;
         rx_conf.offloads = port_conf.rxmode.offloads;
@@ -326,7 +326,7 @@ namespace daiet {
         //rx_conf.rx_free_thresh = 64;
         //rx_conf.rx_drop_en = 0;
 
-        ret = rte_eth_rx_queue_setup(dpdk_par.portid, 0, dpdk_par.port_rx_ring_size, rte_eth_dev_socket_id(dpdk_par.portid), &rx_conf, dpdk_data.pool);
+        ret = rte_eth_rx_queue_setup(dpdk_par.portid, 0, dpdk_par.port_rx_ring_size, rte_eth_dev_socket_id(dpdk_par.portid), &rx_conf, pool);
         if (ret < 0)
             LOG_FATAL("RX queue setup error: " + string(rte_strerror(ret)));
 
@@ -608,9 +608,6 @@ namespace daiet {
             hz = rte_get_timer_hz();
             hz_str << setprecision(3) << (double) hz / 1000000000;
             LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
-
-            // Create the mbuf pool
-            mbuf_pool_init();
 
             // Initialize rings
 #ifndef COLOCATED
