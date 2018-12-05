@@ -187,7 +187,7 @@ namespace daiet {
                     ip = (struct ipv4_hdr *) (eth + 1);
                     udp = (struct udp_hdr *) (ip + 1);
 
-                    pool_index = rte_be_to_cpu_16(daiet->pool_index);
+                    pool_index = rte_be_to_cpu_16(daiet->pool_index) & 0x7FFF;
                     tsi = daiet->tsi;
 
                     if (ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index)) {
