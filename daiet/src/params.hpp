@@ -63,27 +63,36 @@ namespace daiet {
             uint32_t burst_size_tx_read;
             uint32_t burst_drain_tx_us;
 
+            // Process prefix
+            string prefix;
+
+            // Cores string
+            string corestr;
+
             dpdk_params() {
                 // Defaults
 
-                // Ports
                 portid = 0;
                 port_rx_ring_size = 1024;
                 port_tx_ring_size = 1024;
 
-                // Rings
                 ring_rx_size = 65536;
                 ring_tx_size = 65536;
 
-                // Buffer pool
                 pool_size = 8192 * 32;
                 pool_cache_size = 256 * 2;
 
-                // Burst sizes
                 burst_size_rx_read = 64;
                 burst_size_worker = 64;
                 burst_size_tx_read = 64;
                 burst_drain_tx_us = 100;
+
+                prefix = "daiet";
+#ifndef COLOCATED
+                corestr = "0-2";
+#else
+                corestr = "0-3";
+#endif
             }
     }__rte_cache_aligned;
 

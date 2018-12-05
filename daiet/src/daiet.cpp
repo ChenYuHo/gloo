@@ -423,7 +423,7 @@ namespace daiet {
         }
     }
 
-    void parse_parameters(int argc, char *argv[], string& corestr) {
+    void parse_parameters(int argc, char *argv[]) {
 
         string config_file;
         float max_float;
@@ -446,7 +446,8 @@ namespace daiet {
                 ("num_workers, nw", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(2), "Number of workers (only for PS mode)");
 
         dpdk_options.add_options()
-                ("dpdk.cores", po::value<string>(&corestr)->default_value("0-2"), "List of cores")
+                ("dpdk.cores", po::value<string>(&dpdk_par.corestr)->default_value("0-2"), "List of cores")
+                ("dpdk.prefix", po::value<string>(&dpdk_par.prefix)->default_value("daiet"), "Process prefix")
                 ("dpdk.port_id", po::value<uint16_t>(&dpdk_par.portid)->default_value(0), "Port ID")
                 ("dpdk.ring_rx_size", po::value<uint32_t>(&dpdk_par.ring_rx_size)->default_value(65536), "RX ring size")
                 ("dpdk.ring_tx_size", po::value<uint32_t>(&dpdk_par.ring_tx_size)->default_value(65536), "TX ring size")
@@ -531,7 +532,7 @@ namespace daiet {
             ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
 
             uint32_t num_workers_threads;
-            string corestr;
+            string eal_cmdline;
 
             force_quit = false;
             ps_stop = false;
@@ -541,7 +542,7 @@ namespace daiet {
             signal(SIGINT, signal_handler);
             signal(SIGTERM, signal_handler);
 
-            parse_parameters(argc, argv, corestr);
+            parse_parameters(argc, argv);
 
             // Set EAL log file
             FILE * dpdk_log_file;
@@ -557,9 +558,9 @@ namespace daiet {
 
             daiet_log = std::ofstream("daiet.log", std::ios::out);
 
-            // Set core list
-            corestr = string(argv[0]) + " -l " + corestr;
-            vector<string> par_vec = split(corestr);
+            // EAL cmd line
+            eal_cmdline = string(argv[0]) + " -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix;
+            vector<string> par_vec = split(eal_cmdline);
 
             int args_c = par_vec.size();
             char* args[args_c];

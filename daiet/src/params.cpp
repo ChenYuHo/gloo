@@ -11,16 +11,18 @@ namespace daiet {
 
         LOG_INFO("** DPDK parameters **");
         LOG_INFO("Port ID: " + to_string(dpdk_par.portid));
-        LOG_INFO("Port rx ring size: " + to_string(dpdk_par.port_rx_ring_size));
-        LOG_INFO("Port tx ring size: " + to_string(dpdk_par.port_tx_ring_size));
-        LOG_INFO("Ring rx size: " + to_string(dpdk_par.ring_rx_size));
-        LOG_INFO("Ring tx size: " + to_string(dpdk_par.ring_tx_size));
+        LOG_INFO("Port RX ring size: " + to_string(dpdk_par.port_rx_ring_size));
+        LOG_INFO("Port TX ring size: " + to_string(dpdk_par.port_tx_ring_size));
+        LOG_INFO("Ring RX size: " + to_string(dpdk_par.ring_rx_size));
+        LOG_INFO("Ring TX size: " + to_string(dpdk_par.ring_tx_size));
         LOG_INFO("Pool size: " + to_string(dpdk_par.pool_size));
         LOG_INFO("Pool cache size: " + to_string(dpdk_par.pool_cache_size));
-        LOG_INFO("Burst size rx read: " + to_string(dpdk_par.burst_size_rx_read));
+        LOG_INFO("Burst size RX read: " + to_string(dpdk_par.burst_size_rx_read));
         LOG_INFO("Burst size worker: " + to_string(dpdk_par.burst_size_worker));
-        LOG_INFO("Burst size tx read: " + to_string(dpdk_par.burst_size_tx_read));
-        LOG_INFO("Burst drain tx us: " + to_string(dpdk_par.burst_drain_tx_us));
+        LOG_INFO("Burst size TX read: " + to_string(dpdk_par.burst_size_tx_read));
+        LOG_INFO("Burst drain TX us: " + to_string(dpdk_par.burst_drain_tx_us));
+        LOG_INFO("Prefix: " + dpdk_par.prefix);
+        LOG_INFO("Cores: " + dpdk_par.corestr);
     }
 
     daiet_params::daiet_params() {

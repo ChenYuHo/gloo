@@ -25,6 +25,6 @@ namespace daiet {
     void rings_init(string);
     void rings_cleanup(string);
     void signal_handler(int);
-    void parse_parameters(int, char *[], string&);
+    void parse_parameters(int, char *[]);
     void usage(const char*);
 }
