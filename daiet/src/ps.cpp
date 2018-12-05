@@ -44,7 +44,7 @@ namespace daiet {
 
         struct entry_hdr *entry;
 
-        daiet->tsi = rte_cpu_to_be_32(tsi);
+        daiet->tsi = tsi;
         //daiet->pool_index = rte_cpu_to_be_16(pool_index);
 
         entry = (struct entry_hdr *) (daiet + 1);
@@ -188,7 +188,7 @@ namespace daiet {
                     udp = (struct udp_hdr *) (ip + 1);
 
                     pool_index = rte_be_to_cpu_16(daiet->pool_index);
-                    tsi = rte_be_to_cpu_32(daiet->tsi);
+                    tsi = daiet->tsi;
 
                     if (ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index)) {
 
