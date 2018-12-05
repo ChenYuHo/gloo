@@ -26,8 +26,8 @@ libboost-program-options-dev
 ```sh
 cd lib/dpdk
 make defconfig T=x86_64-native-linuxapp-gcc
-make -j `grep -c ^processor /proc/cpuinfo`
-make install
+make -j
+sudo make install
 cd ../..
 ```
 
@@ -35,10 +35,11 @@ cd ../..
 - Set the name of the interface to bind with DPDK in `dpdk-config.sh`
 - Run: `. ./dpdk-config.sh`
 
-### Compile the library
+### Compile the DAIET library
 - Run:
 ```sh
-make -j `grep -c ^processor /proc/cpuinfo`
+make -j
+sudo make libinstall
 ```
 
 ### Configuration

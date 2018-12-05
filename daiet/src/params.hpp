@@ -68,8 +68,8 @@ namespace daiet {
 
                 // Ports
                 portid = 0;
-                port_rx_ring_size = 128;
-                port_tx_ring_size = 512;
+                port_rx_ring_size = 1024;
+                port_tx_ring_size = 1024;
 
                 // Rings
                 ring_rx_size = 65536;

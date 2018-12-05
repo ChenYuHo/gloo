@@ -27,23 +27,23 @@ HDRS := $(shell find ${DAIET_PATH}/src -maxdepth 1 -name "*.hpp" -o -name "*.h")
 CXXFLAGS += -Wall -Wextra -std=c++11 -fPIC -I ${DAIET_PATH}/.. -mavx2 -fabi-version=0 -mfma
 LDFLAGS += -lstdc++ -l boost_program_options
 
-ifeq ($(colocated),y)
-$(info "colocated")
+ifeq ($(COLOCATED),ON)
+$(info "COLOCATED ON")
 CXXFLAGS += -DCOLOCATED
 endif
 
-ifeq ($(save_latencies),y)
-$(info "save_latencies")
+ifeq ($(SAVE_LATENCIES),ON)
+$(info "SAVE_LATENCIES ON")
 CXXFLAGS += -DSAVE_LATENCIES
 endif
 
-ifeq ($(timers),y)
-$(info "timers")
+ifeq ($(TIMERS),ON)
+$(info "TIMERS ON")
 CXXFLAGS += -DTIMERS
 endif
 
-ifeq ($(debug),y)
-$(info "debug")
+ifeq ($(DEBUG),ON)
+$(info "DEBUG ON")
 CXXFLAGS += -DDEBUG -g -O0
 else
 CXXFLAGS += -O3
@@ -54,14 +54,14 @@ include $(RTE_SDK)/mk/rte.extlib.mk
 distclean: clean
 	$(RM) -r build
 
-.PHONY: install
-install: all 
+.PHONY: libinstall
+libinstall:
 	mkdir -p $(DESTDIR)$(PREFIX)/lib
 	mkdir -p $(DESTDIR)$(PREFIX)/include/$(APPNAME)
 	cp $(RTE_OUTPUT)/lib/$(LIB) $(DESTDIR)$(PREFIX)/lib/$(LIB)
 	cp $(HDRS) $(DESTDIR)$(PREFIX)/include/$(APPNAME)
 
-.PHONY: uninstall
-uninstall:
+.PHONY: libuninstall
+libuninstall:
 	$(RM) $(DESTDIR)$(PREFIX)/lib/$(LIB)
 	$(RM) -r $(DESTDIR)$(PREFIX)/include/$(APPNAME)

@@ -4,9 +4,8 @@ declare -a intfs=("eno1")
 
 cwd=$(pwd)
 
-export RTE_SDK=$cwd/lib/dpdk
-#export RTE_TARGET=x86_64-native-linuxapp-gcc
-export RTE_TARGET=build
+RTE_SDK=$cwd/lib/dpdk
+RTE_TARGET=build
 
 cd $RTE_SDK/$RTE_TARGET
 

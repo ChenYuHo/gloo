@@ -1,4 +1,4 @@
-# Gloo
+# Gloo - SwitchML
 
 [![Build Status](https://travis-ci.org/facebookincubator/gloo.svg?branch=master)](https://travis-ci.org/facebookincubator/gloo)
 
@@ -46,6 +46,18 @@ You can build Gloo using CMake.
 
 Since it is a library, it is most convenient to vendor it in your own
 project and include the project root in your own CMake configuration.
+
+
+### Compile the GLOO-SwitchML library
+- Compile and install DAIET
+- Run:
+```sh
+mkdir -p build
+cd build
+cmake [OPTIONS] ..
+make -j
+sudo make install
+```
 
 ### Test
 

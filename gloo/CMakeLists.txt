@@ -28,7 +28,6 @@ list(APPEND GLOO_HDRS
   "${CMAKE_CURRENT_SOURCE_DIR}/math.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/pairwise_exchange.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/types.h"
-#  "/home/asapio/Documents/workspace/gloo/daiet/DaietContext.hpp"
   )
 
 if(USE_CUDA)
@@ -64,7 +63,6 @@ add_subdirectory(transport)
 
 # Depend on pthreads for transport device threads
 list(APPEND gloo_DEPENDENCY_LIBS pthread)
-#list(APPEND gloo_DEPENDENCY_LIBS -L ../gloo/daiet/build/lib/libdaiet.a)
 
 # Enable the following to get a list of source files
 if(FALSE)

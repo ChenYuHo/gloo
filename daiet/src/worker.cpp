@@ -4,7 +4,6 @@
  */
 
 #include "worker.hpp"
-#include <assert.h>
 
 namespace daiet {
 
@@ -67,8 +66,6 @@ namespace daiet {
     }
 
     static __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint64_t ol_flags) {
-
-        assert(tsi%daiet_par.getNumUpdates()==0);
 
         struct ipv4_hdr * const ip = (struct ipv4_hdr *) (eth + 1);
         struct udp_hdr * const udp = (struct udp_hdr *) (ip + 1);
@@ -322,7 +319,7 @@ namespace daiet {
 
 #ifdef TIMERS
         // Timer
-        uint64_t timer_cycles = rte_get_timer_hz() / 10; // cycles for 100 ms
+        uint64_t timer_cycles = rte_get_timer_hz() / 1000; // cycles for 1 ms
         uint64_t timer_prev_tsc = 0, timer_cur_tsc;
         uint32_t timer_tsis[max_num_pending_messages];
 
@@ -423,7 +420,7 @@ namespace daiet {
 #ifdef TIMERS
                 // Check timers
                 timer_cur_tsc = rte_rdtsc();
-                if (unlikely(timer_cur_tsc - timer_prev_tsc > TIMER_RESOLUTION_CYCLES)) {
+                if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
                     rte_timer_manage();
                     timer_prev_tsc = timer_cur_tsc;
                 }
@@ -436,8 +433,6 @@ namespace daiet {
 
                     m = pkts_burst[j];
                     pkts_burst[j]=0;
-
-                    assert(m!=0);
 
                     // Checksum offload
                     // TOFIX these assignments have a ~20% performance overhead
@@ -455,8 +450,6 @@ namespace daiet {
                         daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
 #endif
                         tsi = daiet->tsi;
-
-                        assert(tsi%daiet_par.getNumUpdates()==0);
 
                         bitmap_idx = tsi / daiet_par.getNumUpdates();
 

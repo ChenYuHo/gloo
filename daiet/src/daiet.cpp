@@ -32,6 +32,7 @@ namespace daiet {
     uint64_t* latencies;
 #endif
 
+#ifdef COLOCATED
     static __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, bool& to_ps) {
 
         int idx;
@@ -66,6 +67,7 @@ namespace daiet {
         }
         return false;
     }
+#endif
 
     int rx_loop(__attribute__((unused)) void*) {
         // Get core ID
