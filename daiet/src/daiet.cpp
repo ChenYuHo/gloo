@@ -439,11 +439,7 @@ namespace daiet {
         cmdline_options.add_options()
                 ("version,v", "print version string")
                 ("help,h", "produce help message")
-                ("config,c", po::value<string>(&config_file)->default_value("daiet.cfg"), "Configuration file name")
-#ifndef COLOCATED
-                ("mode,m", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
-#endif
-                ("num_workers, nw", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(2), "Number of workers (only for PS mode)");
+                ("config,c", po::value<string>(&config_file)->default_value("daiet.cfg"), "Configuration file name");
 
         dpdk_options.add_options()
                 ("dpdk.cores", po::value<string>(&dpdk_par.corestr)->default_value("0-2"), "List of cores")
@@ -466,7 +462,12 @@ namespace daiet {
                 ("daiet.ps_macs", po::value<string>(&ps_macs_str)->required(), "Comma-separated list of PS MAC addresses")
                 ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
                 ("daiet.num_updates", po::value<int>(&num_updates)->default_value(32), "Number of updates per packet")
-                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value");
+                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value")
+#ifndef COLOCATED
+                ("mode,m", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
+#endif
+                ("num_workers, nw", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers (only for PS mode)");
+
 
         config_file_options.add(daiet_options).add(dpdk_options);
 
@@ -515,6 +516,12 @@ namespace daiet {
         if (num_updates < 0 || num_updates > 255)
             LOG_FATAL("Invalid number of updates: " + to_string(num_updates) + " (must be within [0,255])");
 
+#ifndef COLOCATED
+        if (daiet_par.getNumWorkers()<=0 && daiet_par.getMode()=="ps")
+#else
+        if (daiet_par.getNumWorkers()<=0)
+#endif
+            LOG_FATAL("PS mode requires a positive number of workers.");
     }
 
     int master(int argc, char *argv[], BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue) {
@@ -657,25 +664,31 @@ namespace daiet {
 
                 if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
 
+#ifndef COLOCATED
                     if (daiet_par.getMode() == "worker") {
 
                         // rte_eal_remote_launch(worker, NULL, lcore_id);
-                        LOG_FATAL("Slave worker thread");
-#ifdef COLOCATED
-                        // One worker and as many PSs as needed
-                        daiet_par.getMode() = "ps";
-#endif
+                        LOG_FATAL("Slave worker thread"); //TOFIX multithread support
+
                     } else if (daiet_par.getMode() == "ps") {
                         rte_eal_remote_launch(ps, NULL, lcore_id);
                     }
+#else
+                    // One worker and as many PSs as needed
+                    rte_eal_remote_launch(ps, NULL, lcore_id);
+#endif
                 }
             }
 
+#ifndef COLOCATED
             // Launch function on master cores
             if (daiet_par.getMode() == "worker")
                 worker(in_queue, out_queue);
             else if (daiet_par.getMode() == "ps")
                 ps(NULL);
+#else
+            worker(in_queue, out_queue);
+#endif
 
             // Join worker/ps threads
             RTE_LCORE_FOREACH_SLAVE(lcore_id)

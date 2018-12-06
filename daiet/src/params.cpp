@@ -30,6 +30,8 @@ namespace daiet {
 
         mode = "worker";
 
+        num_workers = 0;
+
         num_updates = 32;
 
         max_num_pending_messages = 40960;
