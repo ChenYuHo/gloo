@@ -464,9 +464,9 @@ namespace daiet {
                 ("daiet.num_updates", po::value<int>(&num_updates)->default_value(32), "Number of updates per packet")
                 ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value")
 #ifndef COLOCATED
-                ("mode,m", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
+                ("daiet.mode", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
 #endif
-                ("num_workers, nw", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers (only for PS mode)");
+                ("daiet.num_workers", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers (only for PS mode)");
 
 
         config_file_options.add(daiet_options).add(dpdk_options);

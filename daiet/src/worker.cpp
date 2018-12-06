@@ -302,6 +302,7 @@ namespace daiet {
 #ifndef TIMERS
         struct rte_mempool *pool;
 #endif
+        string pool_name = "worker_pool";
         struct rte_mbuf **pkts_burst;
         struct rte_mbuf* m;
 
@@ -331,7 +332,8 @@ namespace daiet {
 #endif
 
         // Init the buffer pool
-        pool = rte_pktmbuf_pool_create("worker_pool", dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
+        pool_name = pool_name + to_string(worker_id);
+        pool = rte_pktmbuf_pool_create(pool_name.c_str(), dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
         if (pool == NULL)
             LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
 
