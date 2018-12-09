@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.5)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+add_definitions("-DHIREDIS_NESTED_INCLUDE")
+add_executable(test1 test1.cc)
+target_link_libraries(test1 gloo hiredis pthread -Wl,--whole-archive daiet dpdk -Wl,--no-whole-archive dl numa boost_chrono boost_system boost_thread boost_program_options)

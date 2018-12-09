@@ -38,6 +38,15 @@ namespace daiet {
     }
 
     DaietContext::DaietContext() {
+        StartMaster();
+    }
+
+    DaietContext::~DaietContext() {
+
+        StopMaster();
+    }
+
+    void DaietContext::StartMaster() {
 
         /* Launch dpdk master thread */
         if (pthread_create(&masterThread, NULL, DaietMaster, this))
@@ -54,11 +63,6 @@ namespace daiet {
 
         if (this->ret < 0)
             GLOO_THROW("Master dpdk thread returned ", this->ret);
-    }
-
-    DaietContext::~DaietContext() {
-
-        StopMaster();
     }
 
     void DaietContext::AllReduceFloat(float* ptr, int count) {

@@ -47,6 +47,7 @@ namespace daiet {
             DaietContext();
             virtual ~DaietContext();
 
+            void StartMaster();
             void StopMaster();
 
             void AllReduceFloat(float*, int);
