@@ -4,7 +4,7 @@ declare -a intfs=("eno1")
 
 cwd=$(pwd)
 
-RTE_SDK=$cwd/lib/dpdk
+RTE_SDK=$cwd/../lib/dpdk
 RTE_TARGET=build
 
 cd $RTE_SDK/$RTE_TARGET

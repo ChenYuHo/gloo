@@ -21,6 +21,7 @@ namespace daiet {
                 T pop();
 
             private:
+                boost::chrono::microseconds one_usec;
                 boost::mutex _mutex;
                 boost::condition_variable _push_event, _pop_event;
                 std::deque<T> _buffer;
@@ -28,6 +29,7 @@ namespace daiet {
         };
 
         enum TensorUpdateType {
+            NONE = 0,
             INT = 1,
             FLOAT = 2
         };

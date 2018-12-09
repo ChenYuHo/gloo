@@ -37,7 +37,7 @@ namespace daiet {
         return NULL;
     }
 
-    DaietContext::DaietContext() {
+    DaietContext::DaietContext() : in_queue(1), out_queue(1) {
         StartMaster();
     }
 
@@ -63,6 +63,14 @@ namespace daiet {
 
         if (this->ret < 0)
             GLOO_THROW("Master dpdk thread returned ", this->ret);
+
+        // Release out_queue
+        TensorUpdate tu;
+        tu.ptr.float_ptr = NULL;
+        tu.count = 0;
+        tu.type = NONE;
+        out_queue.push(&tu);
+
     }
 
     void DaietContext::AllReduceFloat(float* ptr, int count) {
@@ -125,7 +133,7 @@ namespace daiet {
 
     template<typename T>
     BlockingQueue<T>::BlockingQueue(size_t capacity) :
-            _buffer(), _capacity(capacity) {
+            _buffer(), _capacity(capacity), one_usec(1) {
         assert(capacity > 0);
     }
 
@@ -139,7 +147,6 @@ namespace daiet {
 
     template<typename T>
     T BlockingQueue<T>::pop() {
-        boost::chrono::microseconds one_usec(1);
 
         boost::unique_lock<boost::mutex> lock(_mutex);
         if (_push_event.wait_for(lock, one_usec, [&] {return _buffer.size() > 0;}) == false)

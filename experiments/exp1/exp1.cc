@@ -15,28 +15,35 @@ using namespace std;
 shared_ptr<gloo::rendezvous::Context> context;
 vector<int> data;
 int roundnum;
+volatile int wait=false;
 
 void signal_handler(int signum) {
 
     if (signum == SIGINT || signum == SIGTERM) {
-        cerr << " Signal " + to_string(signum) + " received!";
 
-        context->daietContext.StopMaster();
+        if (!wait){
 
-        cerr << "Press Enter when ready "<<flush;
-        cin.ignore();
+            wait=true;
+            cerr << " Signal " << signum << " received!";
 
-        // Init data
-        cerr << "-- Tensor Re-initialization - index " << roundnum << endl;
+            context->daietContext.StopMaster();
 
-        for (int i = 0; i < data.size(); i++) {
-            data[i] = 1;
+            // Init data
+            cerr << "-- Tensor Re-initialization - round " << roundnum << endl;
+
+            for (int i = 0; i < data.size(); i++) {
+                data[i] = 1;
+            }
+
+            roundnum--;
+            cerr << "---- ended" << endl << flush;
         }
+        else {
+            context->daietContext.StartMaster();
 
-        roundnum--;
-        cerr << "---- ended" << endl << flush;
-
-        context->daietContext.StartMaster();
+            cerr << " Restarting from round " << roundnum;
+            wait=false;
+        }
     }
 }
 
@@ -97,7 +104,12 @@ int main(int argc, char* argv[]) {
 
         auto end = chrono::high_resolution_clock::now();
 
-        cout << "---- ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+        if (wait)
+            cout << "---- Round " << roundnum << " aborted!";
+        else
+            cout << "---- Ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+
+        while (wait);
     }
 
     return 0;
