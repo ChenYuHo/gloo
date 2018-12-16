@@ -7,13 +7,18 @@
 #include "gloo/rendezvous/redis_store.h"
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
+#include "gloo/barrier_all_to_one.h"
 
 #include <signal.h>
+
+#include "common.h"
 
 using namespace std;
 
 shared_ptr<gloo::rendezvous::Context> context;
-vector<int> data;
+shared_ptr<gloo::rendezvous::ContextFactory> contextfactory;
+
+vector<int, aligned_allocator<int, kBufferAlignment>> data;
 int roundnum;
 volatile int wait=false;
 
@@ -61,7 +66,6 @@ int main(int argc, char* argv[]) {
     // GLOO transport
     gloo::transport::tcp::attr attr;
     attr.iface = argv[1];
-    attr.ai_family = AF_UNSPEC;
     auto dev = gloo::transport::tcp::CreateDevice(attr);
 
     // Rendezvous
@@ -90,6 +94,11 @@ int main(int argc, char* argv[]) {
     // Context
     context = make_shared<gloo::rendezvous::Context>(rank, size);
     context->connectFullMesh(prefixStore, dev);
+    contextfactory = std::make_shared<gloo::rendezvous::ContextFactory>(context);
+    auto new_context = contextfactory->makeContext(dev);
+
+    std::unique_ptr<gloo::Barrier> barrier = new gloo::BarrierAllToOne(new_context);
+    barrier->run();
 
     // Start rounds
     for (roundnum = 0; roundnum < num_rounds; roundnum++) {
