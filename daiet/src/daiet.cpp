@@ -7,6 +7,7 @@
 
 #include <signal.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 #include "dpdk.h"
 #include "common.hpp"
@@ -577,6 +578,11 @@ namespace daiet {
                 args[i] = new char[par_vec[i].size() + 1];
                 args_ptr[i] = args[i];
                 strcpy(args[i], par_vec[i].c_str());
+            }
+
+            // Lock pages
+            if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
+                LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
             }
 
             // init EAL
