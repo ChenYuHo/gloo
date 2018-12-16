@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
     contextfactory = std::make_shared<gloo::rendezvous::ContextFactory>(context);
     auto new_context = contextfactory->makeContext(dev);
 
-    std::unique_ptr<gloo::Barrier> barrier = new gloo::BarrierAllToOne(new_context);
+    std::unique_ptr<gloo::Barrier> barrier(new gloo::BarrierAllToOne(new_context));
     barrier->run();
 
     // Start rounds
