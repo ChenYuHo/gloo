@@ -39,10 +39,12 @@ namespace daiet {
     template void LOG_INFO<po::options_description>(po::options_description);
 
     template<typename T>
-    void LOG_DEBUG(T msg) {
 #ifdef DEBUG
+    void LOG_DEBUG(T msg) {
         unique_lock<mutex> mlock(debug_mutex_);
         daiet_log << msg << endl << flush;
+#else
+    void LOG_DEBUG(__attribute__((unused)) T msg) {
 #endif
     }
     template void LOG_DEBUG<string>(string);

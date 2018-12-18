@@ -7,7 +7,6 @@
 #include "gloo/rendezvous/redis_store.h"
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
-#include "gloo/barrier_all_to_one.h"
 
 #include <signal.h>
 
@@ -16,7 +15,6 @@
 using namespace std;
 
 shared_ptr<gloo::rendezvous::Context> context;
-shared_ptr<gloo::rendezvous::ContextFactory> contextfactory;
 
 vector<int, aligned_allocator<int, kBufferAlignment>> data;
 int roundnum;
@@ -94,21 +92,20 @@ int main(int argc, char* argv[]) {
     // Context
     context = make_shared<gloo::rendezvous::Context>(rank, size);
     context->connectFullMesh(prefixStore, dev);
-    contextfactory = std::make_shared<gloo::rendezvous::ContextFactory>(context);
-    auto new_context = contextfactory->makeContext(dev);
 
-    std::unique_ptr<gloo::Barrier> barrier(new gloo::BarrierAllToOne(new_context));
-    barrier->run();
+    //Warm up round
+    auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);
+    allreduce->run();
 
     // Start rounds
     for (roundnum = 0; roundnum < num_rounds; roundnum++) {
-        // Instantiate the collective algorithm.
+        // Instantiate the collective algorithm
         auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);
 
         cout << "-- Allreduce Round " << roundnum << endl;
 
         auto begin = chrono::high_resolution_clock::now();
-        // Run the algorithm.
+        // Run the algorithm
         allreduce->run();
 
         auto end = chrono::high_resolution_clock::now();

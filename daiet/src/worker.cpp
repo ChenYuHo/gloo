@@ -15,20 +15,37 @@ namespace daiet {
 #endif
 
 #ifdef SAVE_LATENCIES
-    rte_atomic64_t* sent_timestamp;
 
-    static __rte_always_inline void write_timestamp(uint16_t offset) {
+    static __rte_always_inline void write_timestamp(uint64_t* sent_timestamp, uint16_t offset) {
 
-        uint64_t ts = rte_get_timer_cycles();
-
-        rte_atomic64_set(&sent_timestamp[offset], ts);
+        sent_timestamp[offset] = rte_get_timer_cycles();
     }
 
-    static __rte_always_inline void save_latency(uint16_t offset, int64_t num_recv) {
+    static __rte_always_inline void save_latency(uint64_t* sent_timestamp, uint16_t offset, int64_t num_recv) {
 
         uint64_t ts = rte_get_timer_cycles();
+        latencies[num_recv] = ts - sent_timestamp[offset];
+        sent_timestamp[offset] = ts;
+    }
 
-        latencies[num_recv] = ts - rte_atomic64_exchange(reinterpret_cast<volatile uint64_t*>(&(sent_timestamp[offset].cnt)), ts);
+    void write_latencies(uint64_t* latencies, uint32_t total_num_msgs, string file_name) {
+
+        // Write latency file
+        LOG_INFO("Writing latency file...");
+
+        uint64_t hz = rte_get_timer_hz();
+
+        ofstream latency_file(file_name);
+
+        if (latency_file.is_open()) {
+            for (uint32_t i = 0; i < total_num_msgs && !force_quit; i++) {
+                latency_file << ((double) (latencies[i])) * 1000000 / hz << endl;
+            }
+
+            latency_file.close();
+        } else {
+            LOG_ERROR("Unable to open latency file");
+        }
     }
 #endif
 
@@ -216,7 +233,8 @@ namespace daiet {
 
         LOG_DEBUG("Timeout TSI: " + to_string(*tsi));
 
-        rte_atomic64_inc(&pkt_stats.w_timeouts);
+        pkt_stats.w_timeouts++;
+
         // Reallocate, Rebuild, Resend packet
         struct rte_mbuf* m = rte_pktmbuf_alloc(pool);
         if (unlikely(m == NULL))
@@ -232,35 +250,13 @@ namespace daiet {
 
     void worker_setup() {
 
-        sent_message_counters = new rte_atomic32_t[daiet_par.getMaxNumPendingMessages()];
-        for (uint32_t i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
-            rte_atomic32_init(&sent_message_counters[i]);
-        }
-
 #ifdef TIMERS
         // Initialize timer library
         rte_timer_subsystem_init();
 #endif
-
-#ifdef SAVE_LATENCIES
-        sent_timestamp = new rte_atomic64_t[daiet_par.getMaxNumPendingMessages()];
-
-        latencies = new uint64_t[daiet_par.getMaxNumMsgs()];
-        memset(latencies, 0, (sizeof *latencies) * daiet_par.getMaxNumMsgs());
-
-        for (uint32_t i = 0; i < daiet_par.getMaxNumPendingMessages(); i++) {
-            rte_atomic64_init(&sent_timestamp[i]);
-        }
-#endif
-
     }
 
     void worker_cleanup() {
-        delete[] sent_message_counters;
-
-#ifdef SAVE_LATENCIES
-        delete[] sent_timestamp;
-#endif
     }
 
     /**
@@ -287,6 +283,11 @@ namespace daiet {
         uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
         uint32_t tensor_size = 0;
+        uint32_t sent_message_counters[max_num_pending_messages];
+
+#ifdef SAVE_LATENCIES
+        uint64_t sent_timestamp[max_num_pending_messages];
+#endif
 
         int ret;
 
@@ -320,7 +321,7 @@ namespace daiet {
 
 #ifdef TIMERS
         // Timer
-        uint64_t timer_cycles = rte_get_timer_hz() / 1000; // cycles for 1 ms
+        uint64_t timer_cycles = rte_get_timer_hz() / 1000;// cycles for 1 ms
         uint64_t timer_prev_tsc = 0, timer_cur_tsc;
         uint32_t timer_tsis[max_num_pending_messages];
 
@@ -353,11 +354,20 @@ namespace daiet {
             if (tuptr == NULL)
                 continue;
 
-            memset(sent_message_counters, 0, daiet_par.getMaxNumPendingMessages() * sizeof(*sent_message_counters));
+            memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
 
             rx_pkts = 0;
             tensor_size = tuptr->count;
             total_num_msgs = tensor_size / daiet_par.getNumUpdates();
+
+#ifdef SAVE_LATENCIES
+
+            uint64_t latencies[total_num_msgs];
+            memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
+
+            memset(sent_timestamp, 0, max_num_pending_messages * (sizeof(*sent_timestamp)));
+#endif
+
 
             // Initialize bitmap
             bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
@@ -374,48 +384,42 @@ namespace daiet {
             if (unlikely(bitmap == NULL)) {
                 LOG_FATAL("Failed to init bitmap");
             }
-            rte_bitmap_reset (bitmap);
+            rte_bitmap_reset(bitmap);
 
-#ifndef COLOCATED
-            // Only on master core
-            if (lcore_id == rte_get_master_lcore())
-#endif
-                    {
-                // Send first pkt burst
+            // Send first pkt burst
 
-                burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
+            burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
 
-                // Allocate pkt burst
-                ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
-                if (unlikely(ret < 0))
-                    LOG_FATAL("Cannot allocate pkts burst");
+            // Allocate pkt burst
+            ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
+            if (unlikely(ret < 0))
+                LOG_FATAL("Cannot allocate pkts burst");
 
-                for (j = 0; j < burst_size; j++) {
-                    m = pkts_burst[j];
+            for (j = 0; j < burst_size; j++) {
+                m = pkts_burst[j];
 
 #ifdef TIMERS
-                    timer_tsis[j] = daiet_par.getNumUpdates() * j;
-                    build_pkt(m, dpdk_par.portid, timer_tsis[j]);
+                timer_tsis[j] = daiet_par.getNumUpdates() * j;
+                build_pkt(m, dpdk_par.portid, timer_tsis[j]);
 
-                    rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
+                rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
 #else
-                    build_pkt(m, dpdk_par.portid, daiet_par.getNumUpdates() * j);
+                build_pkt(m, dpdk_par.portid, daiet_par.getNumUpdates() * j);
 #endif
 
-                    rte_atomic32_inc(&sent_message_counters[j]);
+                sent_message_counters[j]++;
 
 #ifdef SAVE_LATENCIES
-                    write_timestamp(j);
+                write_timestamp(sent_timestamp,j);
 #endif
-                }
-
-                // Transmit the packet burst
-                do {
-                    ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
-                } while (ret == 0);
-
-                rte_atomic64_add(&pkt_stats.w_tx, max_num_pending_messages);
             }
+
+            // Transmit the packet burst
+            do {
+                ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
+            } while (ret == 0);
+
+            pkt_stats.w_tx += max_num_pending_messages;
 
             while (rx_pkts < total_num_msgs && !force_quit) {
 
@@ -434,7 +438,7 @@ namespace daiet {
                 for (j = 0; j < nb_rx; j++) {
 
                     m = pkts_burst[j];
-                    pkts_burst[j]=0;
+                    pkts_burst[j] = 0;
 
                     // Checksum offload
                     // TOFIX these assignments have a ~20% performance overhead
@@ -459,7 +463,7 @@ namespace daiet {
                         // Clear msb
                         pool_index_monoset = pool_index & 0x7FFF;
 
-                        rte_atomic64_inc(&pkt_stats.w_rx);
+                        pkt_stats.w_rx++;
 
                         if (likely(rte_bitmap_get(bitmap, bitmap_idx) == 0)) {
 
@@ -472,7 +476,7 @@ namespace daiet {
                             rte_bitmap_set(bitmap, bitmap_idx);
 #ifdef SAVE_LATENCIES
                             // Save latency
-                            save_latency(pool_index_monoset, lat_indx);
+                            save_latency(sent_timestamp, pool_index_monoset, lat_indx);
 
                             lat_indx += 1;
 #endif
@@ -500,8 +504,8 @@ namespace daiet {
                                         &timer_tsis[pool_index_monoset]);
 #endif
 
-                                rte_atomic64_inc(&pkt_stats.w_tx);
-                                rte_atomic32_inc(&sent_message_counters[pool_index_monoset]);
+                                pkt_stats.w_tx++;
+                                sent_message_counters[pool_index_monoset]++;
                             }
 
                         } else {
@@ -519,15 +523,15 @@ namespace daiet {
             // Done update
             out_queue.push(tuptr);
 
-#ifndef COLOCATED
-            // Only on master core
-            if (lcore_id == rte_get_master_lcore())
-#endif
-                    {
-                rte_pktmbuf_free_bulk(pkts_burst, burst_size);
-            }
+            rte_pktmbuf_free_bulk(pkts_burst, burst_size);
+
             rte_bitmap_free(bitmap);
             rte_free(bitmap_mem);
+
+
+#ifdef SAVE_LATENCIES
+            write_latencies(latencies, total_num_msgs, "latency_usec.dat");
+#endif
         }
 
         // Cleanup

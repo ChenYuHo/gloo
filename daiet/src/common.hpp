@@ -33,24 +33,24 @@ using namespace std;
 namespace daiet {
     // Statistics
     struct pkt_statistics {
-            rte_atomic64_t w_tx;
-            rte_atomic64_t w_rx;
+            uint64_t w_tx;
+            uint64_t w_rx;
 
 #ifdef TIMERS
-            rte_atomic64_t w_timeouts;
+            uint64_t w_timeouts;
 #endif
 
-            rte_atomic64_t p_tx;
-            rte_atomic64_t p_rx;
+            uint64_t p_tx;
+            uint64_t p_rx;
 
             pkt_statistics() {
-                rte_atomic64_init(&w_tx);
-                rte_atomic64_init(&w_rx);
+                w_tx = 0;
+                w_rx = 0;
 #ifdef TIMERS
-                rte_atomic64_init(&w_timeouts);
+                w_timeouts = 0;
 #endif
-                rte_atomic64_init(&p_tx);
-                rte_atomic64_init(&p_rx);
+                p_tx = 0;
+                p_rx = 0;
             }
     }__rte_cache_aligned;
 

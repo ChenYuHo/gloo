@@ -21,17 +21,13 @@ using namespace daiet;
 namespace po = boost::program_options;
 
 namespace daiet {
-    rte_atomic32_t* sent_message_counters;
+
     uint32_t core_to_workers_ids[RTE_MAX_LCORE];
     struct dpdk_data dpdk_data;
     struct dpdk_params dpdk_par;
     daiet_params daiet_par;
 
     volatile bool tx_rx_stop = false;
-
-#ifdef SAVE_LATENCIES
-    uint64_t* latencies;
-#endif
 
 #ifdef COLOCATED
     static __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, bool& to_ps) {
@@ -196,24 +192,6 @@ namespace daiet {
         }
         return 0;
     }
-
-#ifdef SAVE_LATENCIES
-    void write_latencies(string file_name, uint64_t hz) {
-        // Write latency file
-        LOG_INFO("Writing latency file...");
-        ofstream latency_file(file_name);
-
-        if (latency_file.is_open()) {
-            for (int i = 0; i < daiet_par.getMaxNumMsgs() && !force_quit; i++) {
-                latency_file << ((double) (latencies[i])) * 1000000 / hz << endl;
-            }
-
-            latency_file.close();
-        } else {
-            LOG_ERROR("Unable to open latency file");
-        }
-    }
-#endif
 
     void port_init() {
 
@@ -729,36 +707,29 @@ namespace daiet {
 
 #ifndef COLOCATED
             if (daiet_par.getMode() == "worker") {
-                LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
-                LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
+                LOG_INFO("TX " + to_string(pkt_stats.w_tx));
+                LOG_INFO("RX " + to_string(pkt_stats.w_rx));
 #ifdef TIMERS
-                LOG_INFO("Timeouts " + to_string(rte_atomic64_read(&pkt_stats.w_timeouts)));
+                LOG_INFO("Timeouts " + to_string(pkt_stats.w_timeouts));
 #endif
             } else if (daiet_par.getMode() == "ps") {
-                LOG_INFO("TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
-                LOG_INFO("RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
+                LOG_INFO("TX " + to_string(pkt_stats.p_tx));
+                LOG_INFO("RX " + to_string(pkt_stats.p_rx));
             }
 #else
-            LOG_INFO("Worker TX " + to_string(rte_atomic64_read(&pkt_stats.w_tx)));
-            LOG_INFO("Worker RX " + to_string(rte_atomic64_read(&pkt_stats.w_rx)));
+            LOG_INFO("Worker TX " + to_string(pkt_stats.w_tx));
+            LOG_INFO("Worker RX " + to_string(pkt_stats.w_rx));
 #ifdef TIMERS
-            LOG_INFO("Worker Timeouts " + to_string(rte_atomic64_read(&pkt_stats.w_timeouts)));
+            LOG_INFO("Worker Timeouts " + to_string(pkt_stats.w_timeouts));
 #endif
-            LOG_INFO("PS TX " + to_string(rte_atomic64_read(&pkt_stats.p_tx)));
-            LOG_INFO("PS RX " + to_string(rte_atomic64_read(&pkt_stats.p_rx)));
+            LOG_INFO("PS TX " + to_string(pkt_stats.p_tx));
+            LOG_INFO("PS RX " + to_string(pkt_stats.p_rx));
 #endif
 
             elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
             elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
 
             LOG_INFO("Time elapsed: " + elapsed_secs_str.str() + " seconds (CPU time: " + elapsed_secs_cpu_str.str() + " seconds)");
-
-#ifdef SAVE_LATENCIES
-#ifndef COLOCATED
-            if (daiet_par.getMode() == "worker")
-#endif
-            write_latencies("latency_usec.dat", hz);
-#endif
 
             // Cleanup
 

@@ -10,6 +10,34 @@
 
 namespace daiet {
 
+
+    template<typename T>
+    BlockingQueue<T>::BlockingQueue(size_t capacity) :
+            _buffer(), _capacity(capacity), one_usec(1) {
+        assert(capacity > 0);
+    }
+
+    template<typename T>
+    void BlockingQueue<T>::push(T elem) {
+        boost::unique_lock<boost::mutex> lock(_mutex);
+        _pop_event.wait(lock, [&] {return _buffer.size() < _capacity;});
+        _buffer.push_back(elem);
+        _push_event.notify_one();
+    }
+
+    template<typename T>
+    T BlockingQueue<T>::pop() {
+
+        boost::unique_lock<boost::mutex> lock(_mutex);
+        if (_push_event.wait_for(lock, one_usec, [&] {return _buffer.size() > 0;}) == false)
+            return NULL;
+
+        T elem = _buffer.front();
+        _buffer.pop_front();
+        _pop_event.notify_one();
+        return elem;
+    }
+
     void* DaietMaster(void *ctx) {
 
         DaietContext* d_ctx_ptr = (DaietContext *) ctx;
@@ -126,35 +154,8 @@ namespace daiet {
         return false;
     }
 
-    bool DaietContext::try_daiet(void* ptr, int count, int fn_) {
+    bool DaietContext::try_daiet(__attribute__((unused)) void* ptr, __attribute__((unused)) int count, __attribute__((unused)) int fn_) {
 
         return false;
-    }
-
-    template<typename T>
-    BlockingQueue<T>::BlockingQueue(size_t capacity) :
-            _buffer(), _capacity(capacity), one_usec(1) {
-        assert(capacity > 0);
-    }
-
-    template<typename T>
-    void BlockingQueue<T>::push(T elem) {
-        boost::unique_lock<boost::mutex> lock(_mutex);
-        _pop_event.wait(lock, [&] {return _buffer.size() < _capacity;});
-        _buffer.push_back(elem);
-        _push_event.notify_one();
-    }
-
-    template<typename T>
-    T BlockingQueue<T>::pop() {
-
-        boost::unique_lock<boost::mutex> lock(_mutex);
-        if (_push_event.wait_for(lock, one_usec, [&] {return _buffer.size() > 0;}) == false)
-            return NULL;
-
-        T elem = _buffer.front();
-        _buffer.pop_front();
-        _pop_event.notify_one();
-        return elem;
     }
 }

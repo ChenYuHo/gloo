@@ -21,11 +21,11 @@ namespace daiet {
                 T pop();
 
             private:
-                boost::chrono::microseconds one_usec;
                 boost::mutex _mutex;
                 boost::condition_variable _push_event, _pop_event;
                 std::deque<T> _buffer;
                 size_t _capacity;
+                boost::chrono::microseconds one_usec;
         };
 
         enum TensorUpdateType {
