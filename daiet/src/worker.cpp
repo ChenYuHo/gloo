@@ -5,6 +5,8 @@
 
 #include "worker.hpp"
 
+using namespace std;
+
 namespace daiet {
 
     TensorUpdate* tuptr;
@@ -14,21 +16,21 @@ namespace daiet {
     struct rte_mempool *pool;
 #endif
 
-#ifdef SAVE_LATENCIES
+#ifdef LATENCIES
 
-    static __rte_always_inline void write_timestamp(uint64_t* sent_timestamp, uint16_t offset) {
+    __rte_always_inline void write_timestamp(uint64_t* sent_timestamps, uint16_t offset) {
 
-        sent_timestamp[offset] = rte_get_timer_cycles();
+        sent_timestamps[offset] = rte_get_timer_cycles();
     }
 
-    static __rte_always_inline void save_latency(uint64_t* sent_timestamp, uint16_t offset, int64_t num_recv) {
+    __rte_always_inline void save_latency(uint64_t* latencies, uint64_t* sent_timestamps, uint16_t offset, uint64_t num_recv) {
 
         uint64_t ts = rte_get_timer_cycles();
-        latencies[num_recv] = ts - sent_timestamp[offset];
-        sent_timestamp[offset] = ts;
+        latencies[num_recv] = ts - sent_timestamps[offset];
+        sent_timestamps[offset] = ts;
     }
 
-    void write_latencies(uint64_t* latencies, uint32_t total_num_msgs, string file_name) {
+    void dump_latencies(uint64_t* latencies, uint32_t total_num_msgs, string file_name) {
 
         // Write latency file
         LOG_INFO("Writing latency file...");
@@ -49,7 +51,37 @@ namespace daiet {
     }
 #endif
 
-    static __rte_always_inline uint16_t tsi_to_pool_index(const uint32_t& tsi) {
+#ifdef TIMESTAMPS
+
+    __rte_always_inline void write_global_timestamp(uint64_t* sent_timestamps, uint64_t idx) {
+
+        sent_timestamps[idx] = rte_get_timer_cycles();
+    }
+
+    void dump_timestamps(uint64_t* sent_timestamps, uint32_t total_num_msgs, string file_name) {
+
+        // Write latency file
+        LOG_INFO("Writing timestamps file...");
+
+        uint64_t hz = rte_get_timer_hz();
+
+        ofstream timestamps_file(file_name);
+
+        if (timestamps_file.is_open()) {
+
+            uint64_t first = sent_timestamps[0];
+            for (uint32_t i = 1; i < total_num_msgs && !force_quit; i++) {
+                timestamps_file << ((double) (sent_timestamps[i])-first) * 1000000 / hz << endl;
+            }
+
+            timestamps_file.close();
+        } else {
+            LOG_ERROR("Unable to open timestamps file");
+        }
+    }
+#endif
+
+    __rte_always_inline uint16_t tsi_to_pool_index(const uint32_t& tsi) {
 
         uint32_t i = (tsi / daiet_par.getNumUpdates()) % (2 * daiet_par.getMaxNumPendingMessages());
         if (i < daiet_par.getMaxNumPendingMessages())
@@ -60,7 +92,7 @@ namespace daiet {
             return (i - daiet_par.getMaxNumPendingMessages()) | 0x8000;
     }
 
-    static __rte_always_inline void store(daiet_hdr* daiet) {
+    __rte_always_inline void store(daiet_hdr* daiet) {
 
         uint32_t tsi = daiet->tsi;
         struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
@@ -82,7 +114,7 @@ namespace daiet {
         }
     }
 
-    static __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint64_t ol_flags) {
+    __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint64_t ol_flags) {
 
         struct ipv4_hdr * const ip = (struct ipv4_hdr *) (eth + 1);
         struct udp_hdr * const udp = (struct udp_hdr *) (ip + 1);
@@ -125,7 +157,7 @@ namespace daiet {
         }
     }
 
-    static __rte_always_inline void build_pkt(rte_mbuf* m, unsigned portid, uint32_t tsi) {
+    __rte_always_inline void build_pkt(rte_mbuf* m, unsigned portid, uint32_t tsi) {
 
         uint16_t pool_index = tsi_to_pool_index(tsi);
 
@@ -197,7 +229,7 @@ namespace daiet {
         }
     }
 
-    static __rte_always_inline struct daiet_hdr * is_daiet_pkt_from_ps(struct ether_hdr* eth_hdr, uint16_t size) {
+    __rte_always_inline struct daiet_hdr * is_daiet_pkt_from_ps(struct ether_hdr* eth_hdr, uint16_t size) {
 
         int idx;
         uint16_t etherType;
@@ -226,7 +258,7 @@ namespace daiet {
     }
 
 #ifdef TIMERS
-    static void timeout_cb(struct rte_timer *timer, void *arg) {
+    void timeout_cb(struct rte_timer *timer, void *arg) {
 
         int ret;
         uint32_t* tsi = (uint32_t*) arg;
@@ -269,7 +301,7 @@ namespace daiet {
      * @param npkts
      *   Number of packets to free in m_list.
      */
-    static inline void __attribute__((always_inline))
+    __rte_always_inline void __attribute__((always_inline))
     rte_pktmbuf_free_bulk(struct rte_mbuf *m_list[], int16_t npkts) {
         while (npkts--)
             rte_pktmbuf_free(*m_list++);
@@ -285,8 +317,13 @@ namespace daiet {
         uint32_t tensor_size = 0;
         uint32_t sent_message_counters[max_num_pending_messages];
 
-#ifdef SAVE_LATENCIES
-        uint64_t sent_timestamp[max_num_pending_messages];
+#ifdef LATENCIES
+        uint64_t sent_timestamps[max_num_pending_messages];
+        uint64_t lat_idx = 0;
+#endif
+
+#ifdef TIMESTAMPS
+        uint32_t round_ts= 0;
 #endif
 
         int ret;
@@ -295,10 +332,6 @@ namespace daiet {
         unsigned socket_id = rte_socket_id();
         unsigned nb_rx = 0, j = 0;
         uint32_t worker_id;
-
-#ifdef SAVE_LATENCIES
-        int64_t lat_indx = 0;
-#endif
 
 #ifndef TIMERS
         struct rte_mempool *pool;
@@ -360,14 +393,19 @@ namespace daiet {
             tensor_size = tuptr->count;
             total_num_msgs = tensor_size / daiet_par.getNumUpdates();
 
-#ifdef SAVE_LATENCIES
+#ifdef LATENCIES
 
             uint64_t latencies[total_num_msgs];
             memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
 
-            memset(sent_timestamp, 0, max_num_pending_messages * (sizeof(*sent_timestamp)));
+            memset(sent_timestamps, 0, max_num_pending_messages * (sizeof(*sent_timestamps)));
 #endif
 
+#ifdef TIMESTAMPS
+            uint64_t global_sent_timestamps[total_num_msgs];
+            memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
+            uint64_t ts_idx = 0;
+#endif
 
             // Initialize bitmap
             bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
@@ -409,8 +447,12 @@ namespace daiet {
 
                 sent_message_counters[j]++;
 
-#ifdef SAVE_LATENCIES
-                write_timestamp(sent_timestamp,j);
+#ifdef LATENCIES
+                write_timestamp(sent_timestamps,j);
+#endif
+
+#ifdef TIMESTAMPS
+                write_global_timestamp(global_sent_timestamps,j);
 #endif
             }
 
@@ -474,12 +516,20 @@ namespace daiet {
 #endif
 
                             rte_bitmap_set(bitmap, bitmap_idx);
-#ifdef SAVE_LATENCIES
+#ifdef LATENCIES
                             // Save latency
-                            save_latency(sent_timestamp, pool_index_monoset, lat_indx);
+                            save_latency(latencies, sent_timestamps, pool_index_monoset, lat_idx);
 
-                            lat_indx += 1;
+                            lat_idx += 1;
 #endif
+
+#ifdef TIMESTAMPS
+                            // Save latency
+                            write_global_timestamp(global_sent_timestamps,j);
+
+                            ts_idx += 1;
+#endif
+
                             // Store result
                             store(daiet);
 
@@ -529,8 +579,13 @@ namespace daiet {
             rte_free(bitmap_mem);
 
 
-#ifdef SAVE_LATENCIES
-            write_latencies(latencies, total_num_msgs, "latency_usec.dat");
+#ifdef LATENCIES
+            dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
+#endif
+
+#ifdef TIMESTAMPS
+            dump_timestamps(global_sent_timestamps, total_num_msgs, "timestamps_" + to_string(round_ts) + "_usec.dat");
+            round_ts++;
 #endif
         }
 

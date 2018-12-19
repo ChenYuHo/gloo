@@ -30,7 +30,7 @@ namespace daiet {
     volatile bool tx_rx_stop = false;
 
 #ifdef COLOCATED
-    static __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, bool& to_ps) {
+    __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, bool& to_ps) {
 
         int idx;
         uint16_t etherType;

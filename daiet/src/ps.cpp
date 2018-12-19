@@ -5,10 +5,6 @@
 
 #include "ps.hpp"
 
-#include "utils.hpp"
-#include "params.hpp"
-
-
 namespace daiet {
 
     rte_rwlock_t ps_workers_ip_to_mac_lock;

@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include "utils.hpp"
+#include "params.hpp"
+
 namespace daiet {
 
     struct mac_ip_pair {

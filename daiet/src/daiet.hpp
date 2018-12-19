@@ -16,10 +16,6 @@ namespace daiet {
     int rx_loop(void*);
     int tx_loop(void*);
 
-#ifdef SAVE_LATENCIES
-    void write_latencies(string, uint64_t);
-#endif
-
     int master(int argc, char *argv[], BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue);
     void port_init();
     void rings_init(string);
