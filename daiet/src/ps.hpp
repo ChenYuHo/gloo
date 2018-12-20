@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "dpdk.h"
 #include "utils.hpp"
 #include "params.hpp"
 

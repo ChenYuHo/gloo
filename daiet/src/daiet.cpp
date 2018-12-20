@@ -558,11 +558,15 @@ namespace daiet {
                 strcpy(args[i], par_vec[i].c_str());
             }
 
-            // Lock pages
-            if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
-                LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
+#ifndef COLOCATED
+            // This is causing some issue with the PS
+            if (daiet_par.getMode() == "worker"){
+                // Lock pages
+                if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
+                    LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
+                }
             }
-
+#endif
             // init EAL
             ret = rte_eal_init(args_c, args);
             if (ret < 0)
