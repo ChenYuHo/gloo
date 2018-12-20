@@ -560,10 +560,21 @@ namespace daiet {
 
                         } else {
                             // We have seen this packet before
+#ifdef DEBUG
+                            LOG_DEBUG("Duplicated packet");
+                            print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
+#endif
+
                             rte_pktmbuf_free(m);
                         }
 #ifndef COLOCATED
                     } else {
+
+#ifdef DEBUG
+                        LOG_DEBUG("Wrong packet");
+                        print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
+#endif
+
                         // Free original packet
                         rte_pktmbuf_free(m);
                     }
