@@ -70,8 +70,9 @@ namespace daiet {
         if (timestamps_file.is_open()) {
 
             uint64_t first = sent_timestamps[0];
+            timestamps_file << (double)(0) << endl;
             for (uint32_t i = 1; i < total_num_msgs && !force_quit; i++) {
-                timestamps_file << ((double) (sent_timestamps[i])-first) * 1000000 / hz << endl;
+                timestamps_file << ((double) (sent_timestamps[i]-first)) * 1000000 / hz << endl;
             }
 
             timestamps_file.close();
@@ -270,13 +271,13 @@ namespace daiet {
         // Reallocate, Rebuild, Resend packet
         struct rte_mbuf* m = rte_pktmbuf_alloc(pool);
         if (unlikely(m == NULL))
-            LOG_FATAL("Cannot allocate one packet");
+        LOG_FATAL("Cannot allocate one packet");
 
         build_pkt(m, dpdk_par.portid, *tsi);
 
         ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
         if (unlikely(ret < 0))
-            LOG_FATAL("Cannot enqueue one packet in timeout callback");
+        LOG_FATAL("Cannot enqueue one packet in timeout callback");
     }
 #endif
 
@@ -324,6 +325,7 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
         uint32_t round_ts= 0;
+        uint64_t ts_idx = 0;
 #endif
 
         int ret;
@@ -397,6 +399,7 @@ namespace daiet {
 
             uint64_t latencies[total_num_msgs];
             memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
+            lat_idx = 0;
 
             memset(sent_timestamps, 0, max_num_pending_messages * (sizeof(*sent_timestamps)));
 #endif
@@ -404,7 +407,7 @@ namespace daiet {
 #ifdef TIMESTAMPS
             uint64_t global_sent_timestamps[total_num_msgs];
             memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
-            uint64_t ts_idx = 0;
+            ts_idx = 0;
 #endif
 
             // Initialize bitmap
@@ -461,7 +464,15 @@ namespace daiet {
                 ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
             } while (ret == 0);
 
-            pkt_stats.w_tx += max_num_pending_messages;
+            pkt_stats.w_tx += burst_size;
+
+#ifdef LATENCIES
+            lat_idx += burst_size;
+#endif
+
+#ifdef TIMESTAMPS
+            ts_idx += burst_size;
+#endif
 
             while (rx_pkts < total_num_msgs && !force_quit) {
 
@@ -525,7 +536,7 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
                             // Save latency
-                            write_global_timestamp(global_sent_timestamps,j);
+                            write_global_timestamp(global_sent_timestamps, ts_idx);
 
                             ts_idx += 1;
 #endif
@@ -588,7 +599,6 @@ namespace daiet {
 
             rte_bitmap_free(bitmap);
             rte_free(bitmap_mem);
-
 
 #ifdef LATENCIES
             dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
