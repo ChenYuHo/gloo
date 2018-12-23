@@ -18,35 +18,14 @@ shared_ptr<gloo::rendezvous::Context> context;
 
 vector<int, aligned_allocator<int, kBufferAlignment>> data;
 int roundnum;
-volatile int wait=false;
 
 void signal_handler(int signum) {
 
     if (signum == SIGINT || signum == SIGTERM) {
 
-        if (!wait){
+        cerr << " Signal " << signum << " received!";
 
-            wait=true;
-            cerr << " Signal " << signum << " received!";
-
-            context->daietContext.StopMaster();
-
-            // Init data
-            cerr << "-- Tensor Re-initialization - round " << roundnum << endl;
-
-            for (int i = 0; i < data.size(); i++) {
-                data[i] = 1;
-            }
-
-            roundnum--;
-            cerr << "---- ended" << endl << flush;
-        }
-        else {
-            context->daietContext.StartMaster();
-
-            cerr << " Restarting from round " << roundnum;
-            wait=false;
-        }
+        context->daietContext.StopMaster();
     }
 }
 
@@ -93,6 +72,8 @@ int main(int argc, char* argv[]) {
     context = make_shared<gloo::rendezvous::Context>(rank, size);
     context->connectFullMesh(prefixStore, dev);
 
+    sleep(2);
+
     //Warm up round
     auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);
     allreduce->run();
@@ -110,12 +91,8 @@ int main(int argc, char* argv[]) {
 
         auto end = chrono::high_resolution_clock::now();
 
-        if (wait)
-            cout << "---- Round " << roundnum << " aborted!";
-        else
-            cout << "---- Ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+        cout << "---- Ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
 
-        while (wait);
     }
 
     return 0;
