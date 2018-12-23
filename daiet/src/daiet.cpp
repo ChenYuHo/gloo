@@ -530,6 +530,9 @@ namespace daiet {
 
             parse_parameters(argc, argv);
 
+            const char *buildString = "Compiled at " __DATE__ ", " __TIME__ ".";
+            LOG_INFO (string(buildString));
+
             // Set EAL log file
             FILE * dpdk_log_file;
             dpdk_log_file = fopen("dpdk.log", "w");
