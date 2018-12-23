@@ -270,14 +270,16 @@ namespace daiet {
 
         // Reallocate, Rebuild, Resend packet
         struct rte_mbuf* m = rte_pktmbuf_alloc(pool);
-        if (unlikely(m == NULL))
-        LOG_FATAL("Cannot allocate one packet");
+        if (unlikely(m == NULL)) {
+            LOG_FATAL("Cannot allocate one packet");
+        }
 
         build_pkt(m, dpdk_par.portid, *tsi);
 
         ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
-        if (unlikely(ret < 0))
-        LOG_FATAL("Cannot enqueue one packet in timeout callback");
+        if (unlikely(ret < 0)) {
+            LOG_FATAL("Cannot enqueue one packet in timeout callback");
+        }
     }
 #endif
 

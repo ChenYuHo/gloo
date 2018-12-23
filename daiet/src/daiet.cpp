@@ -567,10 +567,10 @@ namespace daiet {
                 }
             }
 #endif
-            // init EAL
+            // EAL init
             ret = rte_eal_init(args_c, args);
             if (ret < 0)
-                LOG_FATAL("Invalid EAL arguments");
+                LOG_FATAL("EAL init failed: " + string(rte_strerror(rte_errno)));
 
             uint32_t n_lcores = 0, lcore_id, wid = 0;
 
@@ -753,19 +753,23 @@ namespace daiet {
             ps_cleanup();
 #endif
 
-            fclose(dpdk_log_file);
-            daiet_log.close();
-
-            for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-                delete[] args_ptr[i];
-            }
-
 #ifndef COLOCATED
             rings_cleanup(daiet_par.getMode());
 #else
             rings_cleanup("worker");
             rings_cleanup("ps");
 #endif
+            // EAL cleanup
+            ret = rte_eal_cleanup();
+            if (ret < 0)
+                LOG_FATAL("EAL cleanup failed!");
+
+            fclose(dpdk_log_file);
+            daiet_log.close();
+
+            for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+                delete[] args_ptr[i];
+            }
 
             return 0;
 
