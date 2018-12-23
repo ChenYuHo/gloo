@@ -72,8 +72,6 @@ int main(int argc, char* argv[]) {
     context = make_shared<gloo::rendezvous::Context>(rank, size);
     context->connectFullMesh(prefixStore, dev);
 
-    sleep(2);
-
     //Warm up round
     auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);
     allreduce->run();

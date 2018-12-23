@@ -530,6 +530,8 @@ namespace daiet {
 
             parse_parameters(argc, argv);
 
+            daiet_log = std::ofstream("daiet.log", std::ios::out);
+
             const char *buildString = "Compiled at " __DATE__ ", " __TIME__ ".";
             LOG_INFO (string(buildString));
 
@@ -544,8 +546,6 @@ namespace daiet {
                 if (ret < 0)
                     LOG_ERROR("Failed to open dpdk log stream");
             }
-
-            daiet_log = std::ofstream("daiet.log", std::ios::out);
 
             // EAL cmd line
             eal_cmdline = string(argv[0]) + " -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix;
