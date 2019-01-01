@@ -16,7 +16,7 @@ namespace daiet {
     int rx_loop(void*);
     int tx_loop(void*);
 
-    int master(int argc, char *argv[], BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue);
+    int master(int argc, char *argv[], DaietContext* dctx);
     void port_init();
     void rings_init(string);
     void rings_cleanup(string);

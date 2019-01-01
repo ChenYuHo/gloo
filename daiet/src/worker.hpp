@@ -15,5 +15,5 @@ namespace daiet {
 
     void worker_setup();
     void worker_cleanup();
-    int worker(BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue);
+    int worker(DaietContext*);
 }

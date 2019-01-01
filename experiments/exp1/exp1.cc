@@ -7,6 +7,7 @@
 #include "gloo/rendezvous/redis_store.h"
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
+#include "gloo/barrier_all_to_one.h"
 
 #include <signal.h>
 
@@ -15,9 +16,6 @@
 using namespace std;
 
 shared_ptr<gloo::rendezvous::Context> context;
-
-vector<int, aligned_allocator<int, kBufferAlignment>> data;
-int roundnum;
 
 void signal_handler(int signum) {
 
@@ -39,6 +37,9 @@ int main(int argc, char* argv[]) {
     /* Set signal handler */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+
+    vector<int, aligned_allocator<int, kBufferAlignment>> data;
+    int roundnum = 0;
 
     // GLOO transport
     gloo::transport::tcp::attr attr;
@@ -71,6 +72,10 @@ int main(int argc, char* argv[]) {
     // Context
     context = make_shared<gloo::rendezvous::Context>(rank, size);
     context->connectFullMesh(prefixStore, dev);
+
+    auto barrier = make_shared<gloo::BarrierAllToOne>(context);
+
+    barrier->run();
 
     //Warm up round
     auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);

@@ -131,7 +131,7 @@ void CudaAllreduceBcube<T, W>::run() {
 
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
-      if (Context::daietContext.try_daiet(*scratch_,totalNumElems_,fn_->type())){
+      if (this->context_->daietContext.try_daiet(*scratch_,totalNumElems_,fn_->type())){
 
           // Asynchronously copy result buffer to all device buffers
           if (localBroadcastOp_) {

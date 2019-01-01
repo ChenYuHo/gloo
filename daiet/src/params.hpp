@@ -12,15 +12,21 @@ using namespace std;
 namespace daiet {
 
     struct dpdk_data {
+
             // CPU cores
             uint32_t core_rx;
             uint32_t core_tx;
+            uint32_t core_converter;
 
             // Rings
             struct rte_ring *w_ring_rx;
             struct rte_ring *w_ring_tx;
             struct rte_ring *p_ring_rx;
             struct rte_ring *p_ring_tx;
+            struct rte_ring* converter_ring_ptr;
+
+            // Converter index
+            rte_atomic32_t top_index;
 
             // Buffer pool size
             uint32_t pool_buffer_size;
@@ -31,12 +37,14 @@ namespace daiet {
                 // CPU cores
                 core_rx = 0;
                 core_tx = 0;
+                core_converter = 0;
 
                 // Rings
                 w_ring_rx = NULL;
                 w_ring_tx = NULL;
                 p_ring_rx = NULL;
                 p_ring_tx = NULL;
+                converter_ring_ptr = NULL;
 
                 pool_buffer_size = RTE_MBUF_DEFAULT_BUF_SIZE;
             }
@@ -52,6 +60,7 @@ namespace daiet {
             // Rings
             uint32_t ring_rx_size;
             uint32_t ring_tx_size;
+            uint32_t converter_ring_size;
 
             // Buffer pool
             uint32_t pool_size;
@@ -60,6 +69,7 @@ namespace daiet {
             // Burst sizes
             uint32_t burst_size_rx_read;
             uint32_t burst_size_worker;
+            uint32_t burst_size_converter_read;
             uint32_t burst_size_tx_read;
             uint32_t burst_drain_tx_us;
 
@@ -78,12 +88,14 @@ namespace daiet {
 
                 ring_rx_size = 65536;
                 ring_tx_size = 65536;
+                converter_ring_size = 65536;
 
                 pool_size = 8192 * 32;
                 pool_cache_size = 256 * 2;
 
                 burst_size_rx_read = 64;
                 burst_size_worker = 64;
+                burst_size_converter_read = 64;
                 burst_size_tx_read = 64;
                 burst_drain_tx_us = 100;
 
@@ -104,7 +116,7 @@ namespace daiet {
             string mode;
             uint32_t num_workers;
 
-            uint8_t num_updates;
+            uint32_t num_updates;
 
             uint32_t max_num_pending_messages;
 
@@ -131,7 +143,7 @@ namespace daiet {
             string& getMode();
             uint32_t& getNumWorkers();
 
-            __rte_always_inline uint8_t getNumUpdates() const {
+            __rte_always_inline uint32_t getNumUpdates() const {
                 return num_updates;
             }
 
@@ -139,7 +151,7 @@ namespace daiet {
                 return max_num_pending_messages;
             }
 
-            void setNumUpdates(uint8_t);
+            void setNumUpdates(uint32_t);
 
             void setMaxFloat(float);
 

@@ -16,8 +16,6 @@ namespace gloo {
 
 static const std::chrono::seconds kTimeoutDefault = std::chrono::seconds(30);
 
-daiet::DaietContext Context::daietContext;
-
 Context::Context(int rank, int size, int base)
     : rank(rank),
       size(size),

@@ -15,10 +15,12 @@ namespace daiet {
         LOG_INFO("Port TX ring size: " + to_string(dpdk_par.port_tx_ring_size));
         LOG_INFO("Ring RX size: " + to_string(dpdk_par.ring_rx_size));
         LOG_INFO("Ring TX size: " + to_string(dpdk_par.ring_tx_size));
+        LOG_INFO("Converter ring size: " + to_string(dpdk_par.converter_ring_size));
         LOG_INFO("Pool size: " + to_string(dpdk_par.pool_size));
         LOG_INFO("Pool cache size: " + to_string(dpdk_par.pool_cache_size));
         LOG_INFO("Burst size RX read: " + to_string(dpdk_par.burst_size_rx_read));
         LOG_INFO("Burst size worker: " + to_string(dpdk_par.burst_size_worker));
+        LOG_INFO("Burst size converter read: " + to_string(dpdk_par.burst_size_converter_read));
         LOG_INFO("Burst size TX read: " + to_string(dpdk_par.burst_size_tx_read));
         LOG_INFO("Burst drain TX us: " + to_string(dpdk_par.burst_drain_tx_us));
         LOG_INFO("Prefix: " + dpdk_par.prefix);
@@ -83,7 +85,7 @@ namespace daiet {
         return num_workers;
     }
 
-    void daiet_params::setNumUpdates(uint8_t numUpdates) {
+    void daiet_params::setNumUpdates(uint32_t numUpdates) {
         num_updates = numUpdates;
     }
 

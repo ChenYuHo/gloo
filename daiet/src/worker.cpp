@@ -10,6 +10,7 @@ using namespace std;
 namespace daiet {
 
     TensorUpdate* tuptr;
+    size_t entries_size;
 
 #ifdef TIMERS
     // TOFIX this should be thread local
@@ -98,21 +99,7 @@ namespace daiet {
         uint32_t tsi = daiet->tsi;
         struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
 
-        if (tuptr->type == INT) {
-
-            for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
-                tuptr->ptr.int_ptr[tsi] = int32_t(rte_be_to_cpu_32(entry->upd));
-                entry++;
-                tsi++;
-            }
-        } else if (tuptr->type == FLOAT) {
-
-            for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
-                tuptr->ptr.float_ptr[tsi] = (int32_t(rte_be_to_cpu_32(entry->upd))) / daiet_par.getScalingFactor();
-                entry++;
-                tsi++;
-            }
-        }
+        rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, entries_size);
     }
 
     __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint64_t ol_flags) {
@@ -141,21 +128,8 @@ namespace daiet {
         // Swap msb
         daiet->pool_index = rte_cpu_to_be_16(tsi_to_pool_index(tsi));
 
-        if (tuptr->type == INT) {
+        rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
 
-            for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
-                entry->upd = rte_cpu_to_be_32(tuptr->ptr.int_ptr[tsi]);
-                entry++;
-                tsi++;
-            }
-        } else if (tuptr->type == FLOAT) {
-
-            for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
-                entry->upd = rte_cpu_to_be_32(round((tuptr->ptr.float_ptr[tsi]) * daiet_par.getScalingFactor()));
-                entry++;
-                tsi++;
-            }
-        }
     }
 
     __rte_always_inline void build_pkt(rte_mbuf* m, unsigned portid, uint32_t tsi) {
@@ -170,7 +144,7 @@ namespace daiet {
         void *tmp;
 
         m->data_len = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + sizeof(struct daiet_hdr)
-                + sizeof(struct entry_hdr) * daiet_par.getNumUpdates();
+                + entries_size;
         m->pkt_len = m->data_len;
 
         // Checksum offload
@@ -213,21 +187,7 @@ namespace daiet {
 
         entry = (struct entry_hdr *) (daiet + 1);
 
-        if (tuptr->type == INT) {
-
-            for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
-                entry->upd = rte_cpu_to_be_32(tuptr->ptr.int_ptr[tsi]);
-                entry++;
-                tsi++;
-            }
-        } else if (tuptr->type == FLOAT) {
-
-            for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
-                entry->upd = rte_cpu_to_be_32(round((tuptr->ptr.float_ptr[tsi]) * daiet_par.getScalingFactor()));
-                entry++;
-                tsi++;
-            }
-        }
+        rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
     }
 
     __rte_always_inline struct daiet_hdr * is_daiet_pkt_from_ps(struct ether_hdr* eth_hdr, uint16_t size) {
@@ -274,7 +234,7 @@ namespace daiet {
             LOG_FATAL("Cannot allocate one packet");
         }
 
-        build_pkt(m, dpdk_par.portid, *tsi);
+        build_pkt(m, dpdk_par.portid, *tsi, sizeof(struct entry_hdr) * daiet_par.getNumUpdates());
 
         ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
         if (unlikely(ret < 0)) {
@@ -304,15 +264,16 @@ namespace daiet {
      * @param npkts
      *   Number of packets to free in m_list.
      */
-    __rte_always_inline void __attribute__((always_inline))
-    rte_pktmbuf_free_bulk(struct rte_mbuf *m_list[], int16_t npkts) {
+    __rte_always_inline void rte_pktmbuf_free_bulk(struct rte_mbuf *m_list[], int16_t npkts) {
         while (npkts--)
             rte_pktmbuf_free(*m_list++);
     }
 
-    int worker(BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue) {
+    int worker(DaietContext* dctx_ptr) {
 
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
+        const uint32_t num_updates = daiet_par.getNumUpdates();
+        entries_size = sizeof(struct entry_hdr) * daiet_par.getNumUpdates();
 
         volatile uint32_t rx_pkts = 0;
         uint32_t total_num_msgs = 0;
@@ -347,6 +308,9 @@ namespace daiet {
         struct ether_hdr* eth;
         struct daiet_hdr* daiet;
 
+        rte_atomic32_t* top_index_ptr;
+        rte_ring* converter_ring_ptr;
+
         uint32_t tsi = 0;
         uint16_t pool_index = 0;
         uint16_t pool_index_monoset = 0;
@@ -379,238 +343,285 @@ namespace daiet {
         void* bitmap_mem;
         uint32_t bitmap_size;
         struct rte_bitmap *bitmap;
-        uint32_t bitmap_idx = 0;
+        uint32_t pkt_idx = 0;
+
+        // Conversion
+        uint32_t* tsis_for_conversion;
+        top_index_ptr = &dpdk_data.top_index;
+        converter_ring_ptr = dpdk_data.converter_ring_ptr;
 
         pkts_burst = (rte_mbuf **) rte_malloc_socket(NULL, max_num_pending_messages * sizeof(struct rte_mbuf*), RTE_CACHE_LINE_SIZE, socket_id);
         if (unlikely(pkts_burst == NULL))
             LOG_FATAL("Worker thread: cannot allocate pkts burst");
 
+        dctx_ptr->set_master_ready();
+
         while (!force_quit) {
-            tuptr = in_queue.pop();
 
-            if (tuptr == NULL)
-                continue;
+            tuptr = dctx_ptr->receive_tensor();
 
-            memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
+            if (tuptr != NULL) {
 
-            rx_pkts = 0;
-            tensor_size = tuptr->count;
-            total_num_msgs = tensor_size / daiet_par.getNumUpdates();
+                rte_atomic32_clear(top_index_ptr);
+
+                while (!dctx_ptr->send_conversion_job(tuptr) && !force_quit)
+                    ;
+
+                if (!force_quit) {
+
+                    memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
+
+                    rx_pkts = 0;
+                    tensor_size = tuptr->count;
+                    total_num_msgs = tensor_size / num_updates;
+                    tsi = 0;
 
 #ifdef LATENCIES
 
-            uint64_t latencies[total_num_msgs];
-            memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
-            lat_idx = 0;
+                    uint64_t latencies[total_num_msgs];
+                    memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
+                    lat_idx = 0;
 
-            memset(sent_timestamps, 0, max_num_pending_messages * (sizeof(*sent_timestamps)));
+                    memset(sent_timestamps, 0, max_num_pending_messages * (sizeof(*sent_timestamps)));
 #endif
 
 #ifdef TIMESTAMPS
-            uint64_t global_sent_timestamps[total_num_msgs];
-            memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
-            ts_idx = 0;
+                    uint64_t global_sent_timestamps[total_num_msgs];
+                    memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
+                    ts_idx = 0;
 #endif
 
-            // Initialize bitmap
-            bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
-            if (unlikely(bitmap_size == 0)) {
-                LOG_FATAL("Worker thread: bitmap failed");
-            }
-
-            bitmap_mem = rte_zmalloc_socket(NULL, bitmap_size, RTE_CACHE_LINE_SIZE, socket_id);
-            if (unlikely(bitmap_mem == NULL)) {
-                LOG_FATAL("Worker thread: cannot allocate bitmap");
-            }
-
-            bitmap = rte_bitmap_init(total_num_msgs, (uint8_t*) bitmap_mem, bitmap_size);
-            if (unlikely(bitmap == NULL)) {
-                LOG_FATAL("Failed to init bitmap");
-            }
-            rte_bitmap_reset(bitmap);
-
-            // Send first pkt burst
-
-            burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
-
-            // Allocate pkt burst
-            ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
-            if (unlikely(ret < 0))
-                LOG_FATAL("Cannot allocate pkts burst");
-
-            for (j = 0; j < burst_size; j++) {
-                m = pkts_burst[j];
-
-#ifdef TIMERS
-                timer_tsis[j] = daiet_par.getNumUpdates() * j;
-                build_pkt(m, dpdk_par.portid, timer_tsis[j]);
-
-                rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
-#else
-                build_pkt(m, dpdk_par.portid, daiet_par.getNumUpdates() * j);
-#endif
-
-                sent_message_counters[j]++;
-
-#ifdef LATENCIES
-                write_timestamp(sent_timestamps,j);
-#endif
-
-#ifdef TIMESTAMPS
-                write_global_timestamp(global_sent_timestamps,j);
-#endif
-            }
-
-            // Transmit the packet burst
-            do {
-                ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
-            } while (ret == 0);
-
-            pkt_stats.w_tx += burst_size;
-
-#ifdef LATENCIES
-            lat_idx += burst_size;
-#endif
-
-#ifdef TIMESTAMPS
-            ts_idx += burst_size;
-#endif
-
-            while (rx_pkts < total_num_msgs && !force_quit) {
-
-#ifdef TIMERS
-                // Check timers
-                timer_cur_tsc = rte_rdtsc();
-                if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
-                    rte_timer_manage();
-                    timer_prev_tsc = timer_cur_tsc;
-                }
-#endif
-
-                // Read packet from RX ring
-                nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
-
-                for (j = 0; j < nb_rx; j++) {
-
-                    m = pkts_burst[j];
-                    pkts_burst[j] = 0;
-
-                    // Checksum offload
-                    // TOFIX these assignments have a ~20% performance overhead
-                    //m->l2_len = sizeof(struct ether_hdr);
-                    //m->l3_len = sizeof(struct ipv4_hdr);
-                    //m->ol_flags |= daiet_par.getTxFlags();
-
-                    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-                    eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
-
-#ifndef COLOCATED
-                    daiet = is_daiet_pkt_from_ps(eth, m->data_len);
-                    if (likely(daiet!=NULL)) {
-#else
-                        daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
-#endif
-                        tsi = daiet->tsi;
-
-                        bitmap_idx = tsi / daiet_par.getNumUpdates();
-
-                        pool_index = rte_be_to_cpu_16(daiet->pool_index);
-                        // Clear msb
-                        pool_index_monoset = pool_index & 0x7FFF;
-
-                        pkt_stats.w_rx++;
-
-                        if (likely(rte_bitmap_get(bitmap, bitmap_idx) == 0)) {
-
-                            rx_pkts++;
-
-#ifdef TIMERS
-                            rte_timer_stop_sync(&timers[pool_index_monoset]);
-#endif
-
-                            rte_bitmap_set(bitmap, bitmap_idx);
-#ifdef LATENCIES
-                            // Save latency
-                            save_latency(latencies, sent_timestamps, pool_index_monoset, lat_idx);
-
-                            lat_idx += 1;
-#endif
-
-#ifdef TIMESTAMPS
-                            // Save latency
-                            write_global_timestamp(global_sent_timestamps, ts_idx);
-
-                            ts_idx += 1;
-#endif
-
-                            // Store result
-                            store(daiet);
-
-                            tsi += daiet_par.getNumUpdates() * max_num_pending_messages;
-
-#ifdef TIMERS
-                            timer_tsis[pool_index_monoset] = tsi;
-#endif
-
-                            if (likely(tsi < tensor_size)) {
-
-                                //Resend the packet
-                                reset_pkt(eth, dpdk_par.portid, tsi, m->ol_flags);
-
-                                ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
-                                if (unlikely(ret < 0))
-                                    LOG_FATAL("Cannot enqueue one packet");
-
-#ifdef TIMERS
-                                // Start timer
-                                rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles, PERIODICAL, lcore_id, timeout_cb,
-                                        &timer_tsis[pool_index_monoset]);
-#endif
-
-                                pkt_stats.w_tx++;
-                                sent_message_counters[pool_index_monoset]++;
-                            }
-
-                        } else {
-                            // We have seen this packet before
-#ifdef DEBUG
-                            LOG_DEBUG("Duplicated packet");
-                            print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
-#endif
-
-                            rte_pktmbuf_free(m);
-                        }
-#ifndef COLOCATED
-                    } else {
-
-#ifdef DEBUG
-                        LOG_DEBUG("Wrong packet");
-                        print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
-#endif
-
-                        // Free original packet
-                        rte_pktmbuf_free(m);
+                    // Initialize bitmap
+                    bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
+                    if (unlikely(bitmap_size == 0)) {
+                        LOG_FATAL("Worker thread: bitmap failed");
                     }
+
+                    bitmap_mem = rte_zmalloc_socket(NULL, bitmap_size, RTE_CACHE_LINE_SIZE, socket_id);
+                    if (unlikely(bitmap_mem == NULL)) {
+                        LOG_FATAL("Worker thread: cannot allocate bitmap");
+                    }
+
+                    bitmap = rte_bitmap_init(total_num_msgs, (uint8_t*) bitmap_mem, bitmap_size);
+                    if (unlikely(bitmap == NULL)) {
+                        LOG_FATAL("Failed to init bitmap");
+                    }
+                    rte_bitmap_reset(bitmap);
+
+                    // Init TSIs for conversion
+                    tsis_for_conversion = (uint32_t*)rte_zmalloc_socket(NULL, total_num_msgs*sizeof(uint32_t), RTE_CACHE_LINE_SIZE, socket_id);
+                    if (unlikely(tsis_for_conversion == NULL)) {
+                        LOG_FATAL("Worker thread: cannot allocate TSIs for conversion");
+                    }
+
+                    // Send first pkt burst
+                    burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
+
+                    // Allocate pkt burst
+                    ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
+                    if (unlikely(ret < 0))
+                        LOG_FATAL("Cannot allocate pkts burst");
+
+                    for (j = 0; j < burst_size; j++) {
+                        m = pkts_burst[j];
+
+                        // Wait for conversion
+                        while ((uint32_t)rte_atomic32_read(top_index_ptr) < tsi + num_updates)
+                            ;
+
+                        build_pkt(m, dpdk_par.portid, tsi);
+
+#ifdef TIMERS
+                        timer_tsis[j] = tsi;
+                        rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
 #endif
-                }
-            }
-            // Done update
-            out_queue.push(tuptr);
 
-            rte_pktmbuf_free_bulk(pkts_burst, burst_size);
+                        tsi += num_updates;
 
-            rte_bitmap_free(bitmap);
-            rte_free(bitmap_mem);
+                        sent_message_counters[j]++;
 
 #ifdef LATENCIES
-            dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
+                        write_timestamp(sent_timestamps,j);
 #endif
 
 #ifdef TIMESTAMPS
-            dump_timestamps(global_sent_timestamps, total_num_msgs, "timestamps_" + to_string(round_ts) + "_usec.dat");
-            round_ts++;
+                        write_global_timestamp(global_sent_timestamps,j);
 #endif
-        }
+                    }
+
+                    // Transmit the packet burst
+                    do {
+                        ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
+                    } while (ret == 0);
+
+                    pkt_stats.w_tx += burst_size;
+
+#ifdef LATENCIES
+                    lat_idx += burst_size;
+#endif
+
+#ifdef TIMESTAMPS
+                    ts_idx += burst_size;
+#endif
+
+                    while (rx_pkts < total_num_msgs && !force_quit) {
+
+#ifdef TIMERS
+                        // Check timers
+                        timer_cur_tsc = rte_rdtsc();
+                        if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
+                            rte_timer_manage();
+                            timer_prev_tsc = timer_cur_tsc;
+                        }
+#endif
+
+                        // Read packet from RX ring
+                        nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
+
+                        for (j = 0; j < nb_rx; j++) {
+
+                            m = pkts_burst[j];
+                            pkts_burst[j] = NULL;
+
+                            // Checksum offload
+                            // TOFIX these assignments have a ~20% performance overhead
+                            //m->l2_len = sizeof(struct ether_hdr);
+                            //m->l3_len = sizeof(struct ipv4_hdr);
+                            //m->ol_flags |= daiet_par.getTxFlags();
+
+                            rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+                            eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+
+#ifndef COLOCATED
+                            daiet = is_daiet_pkt_from_ps(eth, m->data_len);
+                            if (likely(daiet!=NULL)) {
+#else
+                                daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
+#endif
+                                tsi = daiet->tsi;
+
+                                pkt_idx = tsi / num_updates;
+
+                                pool_index = rte_be_to_cpu_16(daiet->pool_index);
+                                // Clear msb
+                                pool_index_monoset = pool_index & 0x7FFF;
+
+                                pkt_stats.w_rx++;
+
+                                if (likely(rte_bitmap_get(bitmap, pkt_idx) == 0)) {
+
+                                    rx_pkts++;
+
+#ifdef TIMERS
+                                    rte_timer_stop_sync(&timers[pool_index_monoset]);
+#endif
+
+                                    rte_bitmap_set(bitmap, pkt_idx);
+#ifdef LATENCIES
+                                    // Save latency
+                                    save_latency(latencies, sent_timestamps, pool_index_monoset, lat_idx);
+
+                                    lat_idx += 1;
+#endif
+
+#ifdef TIMESTAMPS
+                                    // Save latency
+                                    write_global_timestamp(global_sent_timestamps, ts_idx);
+
+                                    ts_idx += 1;
+#endif
+
+                                    // Store result
+                                    store(daiet);
+
+                                    // Send for conversion
+                                    tsis_for_conversion[pkt_idx] = tsi;
+                                    ret = rte_ring_enqueue(converter_ring_ptr, &tsis_for_conversion[pkt_idx]);
+                                    if (unlikely(ret < 0))
+                                        LOG_FATAL("Cannot enqueue one tsi for conversion");
+
+                                    tsi += num_updates * max_num_pending_messages;
+
+#ifdef TIMERS
+                                    timer_tsis[pool_index_monoset] = tsi;
+#endif
+
+                                    if (likely(tsi < tensor_size)) {
+
+                                        // Wait for conversion
+                                        while ((uint32_t)rte_atomic32_read(top_index_ptr) < tsi + num_updates)
+                                            ;
+
+                                        //Resend the packet
+                                        reset_pkt(eth, dpdk_par.portid, tsi, m->ol_flags);
+
+                                        ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
+                                        if (unlikely(ret < 0))
+                                            LOG_FATAL("Cannot enqueue one packet");
+
+#ifdef TIMERS
+                                        // Start timer
+                                        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles, PERIODICAL, lcore_id, timeout_cb,
+                                                &timer_tsis[pool_index_monoset]);
+#endif
+
+                                        pkt_stats.w_tx++;
+                                        sent_message_counters[pool_index_monoset]++;
+                                    }
+
+                                } else {
+                                    // We have seen this packet before
+#ifdef DEBUG
+                                    LOG_DEBUG("Duplicated packet");
+                                    print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
+#endif
+
+                                    rte_pktmbuf_free(m);
+                                }
+#ifndef COLOCATED
+                            } else {
+
+#ifdef DEBUG
+                                LOG_DEBUG("Wrong packet");
+                                print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
+#endif
+
+                                // Free original packet
+                                rte_pktmbuf_free(m);
+                            }
+#endif
+                        }
+                    }
+                    // Done update
+
+                    // End conversion job
+                    ret = rte_ring_enqueue(converter_ring_ptr, nullptr);
+                    if (unlikely(ret < 0))
+                        LOG_FATAL("Cannot enqueue one NULL for conversion");
+
+                    // Wait for conversion to end
+                    while (rte_atomic32_read(top_index_ptr) != 0)
+                        ;
+                    while (!dctx_ptr->send_result(tuptr->id) && !force_quit)
+                        ;
+
+                    rte_pktmbuf_free_bulk(pkts_burst, burst_size);
+
+                    rte_free(tsis_for_conversion);
+                    rte_bitmap_free(bitmap);
+                    rte_free(bitmap_mem);
+
+#ifdef LATENCIES
+                    dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
+#endif
+
+#ifdef TIMESTAMPS
+                    dump_timestamps(global_sent_timestamps, total_num_msgs, "timestamps_" + to_string(round_ts) + "_usec.dat");
+                    round_ts++;
+#endif
+                }
+            }
+        } // force quit
 
         // Cleanup
         rte_free(pkts_burst);

@@ -121,7 +121,7 @@ namespace daiet {
         num_workers = daiet_par.getNumWorkers();
 
         ps_aggregated_messages = (rte_atomic32_t**) rte_malloc_socket(NULL, daiet_par.getNumUpdates() * sizeof(rte_atomic32_t*), RTE_CACHE_LINE_SIZE, rte_socket_id());
-        for (uint8_t i = 0; i < daiet_par.getNumUpdates(); i++) {
+        for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
             ps_aggregated_messages[i] = (rte_atomic32_t*) rte_zmalloc_socket(NULL, daiet_par.getMaxNumPendingMessages() * sizeof(rte_atomic32_t), RTE_CACHE_LINE_SIZE, rte_socket_id());
 
             for (uint32_t j = 0; j < daiet_par.getMaxNumPendingMessages(); j++) {
@@ -148,7 +148,7 @@ namespace daiet {
 
         rte_free(ps_received_message_counters);
 
-        for (int i = 0; i < daiet_par.getNumUpdates(); i++) {
+        for (uint32_t i = 0; i < daiet_par.getNumUpdates(); i++) {
             rte_free(ps_aggregated_messages[i]);
         }
 

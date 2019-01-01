@@ -33,5 +33,3 @@
 #include <rte_rwlock.h>
 #include <rte_timer.h>
 #include <rte_bitmap.h>
-
-#define MAX_PKT_BURST 256

@@ -213,7 +213,7 @@ namespace daiet {
 
                     struct entry_hdr* entry = (struct entry_hdr *) (daiet + 1);
 
-                    for (int i = 0; i < daiet_par.getNumUpdates() && size >= idx + sizeof(struct entry_hdr); i++) {
+                    for (uint32_t i = 0; i < daiet_par.getNumUpdates() && size >= idx + sizeof(struct entry_hdr); i++) {
 
                         idx += sizeof(struct entry_hdr);
                         LOG_INFO("Entry " + to_string(i) + ": " + to_string((int32_t) rte_be_to_cpu_32(entry->upd)));

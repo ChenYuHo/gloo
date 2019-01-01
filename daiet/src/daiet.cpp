@@ -15,6 +15,7 @@
 #include "params.hpp"
 #include "worker.hpp"
 #include "ps.hpp"
+#include "converter.hpp"
 
 using namespace std;
 using namespace daiet;
@@ -89,7 +90,7 @@ namespace daiet {
         int ret;
 
         uint16_t n_mbufs;
-        struct rte_mbuf *rx_pkts_burst[MAX_PKT_BURST];
+        struct rte_mbuf *rx_pkts_burst[dpdk_par.burst_size_rx_read];
 
         LOG_DEBUG("RX core: " + to_string(lcore_id));
 
@@ -150,7 +151,7 @@ namespace daiet {
 #endif
 
         uint32_t n_mbufs = 0, n_pkts, sent = 0;
-        struct rte_mbuf *tx_pkts_burst[MAX_PKT_BURST];
+        struct rte_mbuf *tx_pkts_burst[dpdk_par.burst_size_tx_read];
 
         uint64_t prev_tsc = 0, diff_tsc, cur_tsc;
         const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * dpdk_par.burst_drain_tx_us;
@@ -407,7 +408,7 @@ namespace daiet {
         string config_file;
         float max_float;
         uint16_t worker_port, ps_port;
-        int num_updates;
+        uint32_t num_updates;
         string worker_ip_str, ps_ips_str, ps_macs_str;
 
         po::options_description cmdline_options("Options");
@@ -426,10 +427,12 @@ namespace daiet {
                 ("dpdk.port_id", po::value<uint16_t>(&dpdk_par.portid)->default_value(0), "Port ID")
                 ("dpdk.ring_rx_size", po::value<uint32_t>(&dpdk_par.ring_rx_size)->default_value(65536), "RX ring size")
                 ("dpdk.ring_tx_size", po::value<uint32_t>(&dpdk_par.ring_tx_size)->default_value(65536), "TX ring size")
+                ("dpdk.converter_ring_size", po::value<uint32_t>(&dpdk_par.converter_ring_size)->default_value(65536), "Converter ring size")
                 ("dpdk.pool_size", po::value<uint32_t>(&dpdk_par.pool_size)->default_value(8192 * 32), "Pool size")
                 ("dpdk.pool_cache_size", po::value<uint32_t>(&dpdk_par.pool_cache_size)->default_value(256 * 2), "Pool cache size")
                 ("dpdk.burst_size_rx_read", po::value<uint32_t>(&dpdk_par.burst_size_rx_read)->default_value(64), "RX read burst size")
                 ("dpdk.burst_size_worker", po::value<uint32_t>(&dpdk_par.burst_size_worker)->default_value(64), "Worker burst size")
+                ("dpdk.burst_size_converter_read", po::value<uint32_t>(&dpdk_par.burst_size_converter_read)->default_value(64), "Converter read burst size")
                 ("dpdk.burst_size_tx_read", po::value<uint32_t>(&dpdk_par.burst_size_tx_read)->default_value(64), "TX read burst size")
                 ("dpdk.burst_drain_tx_us", po::value<uint32_t>(&dpdk_par.burst_drain_tx_us)->default_value(100), "TX burst drain timer (us)");
 
@@ -440,7 +443,7 @@ namespace daiet {
                 ("daiet.ps_ips", po::value<string>(&ps_ips_str)->required(), "Comma-separated list of PS IP addresses")
                 ("daiet.ps_macs", po::value<string>(&ps_macs_str)->required(), "Comma-separated list of PS MAC addresses")
                 ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
-                ("daiet.num_updates", po::value<int>(&num_updates)->default_value(32), "Number of updates per packet")
+                ("daiet.num_updates", po::value<uint32_t>(&num_updates)->default_value(32), "Number of updates per packet")
                 ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value")
 #ifndef COLOCATED
                 ("daiet.mode", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
@@ -464,9 +467,6 @@ namespace daiet {
             exit(EXIT_SUCCESS);
         }
 
-        if (daiet_par.getMode() != "worker" && daiet_par.getMode() != "ps")
-            LOG_FATAL("Wrong mode: " + daiet_par.getMode());
-
         ifstream ifs(config_file.c_str());
 
         if (!ifs)
@@ -475,10 +475,10 @@ namespace daiet {
         po::store(po::parse_config_file(ifs, config_file_options), vm);
         po::notify(vm);
 
-        if (dpdk_par.burst_size_rx_read > MAX_PKT_BURST / 2)
-            LOG_FATAL("Burst size rx read must be less than: " + to_string(MAX_PKT_BURST / 2));
-        if (dpdk_par.burst_size_tx_read > MAX_PKT_BURST / 2)
-            LOG_FATAL("Burst size tx read must be less than: " + to_string(MAX_PKT_BURST / 2));
+#ifndef COLOCATED
+        if (daiet_par.getMode() != "worker" && daiet_par.getMode() != "ps")
+            LOG_FATAL("Wrong mode: " + daiet_par.getMode());
+#endif
 
         if (!daiet_par.setWorkerIp(worker_ip_str))
             LOG_FATAL("Invalid worker IP: " + worker_ip_str);
@@ -492,9 +492,6 @@ namespace daiet {
         daiet_par.setMaxFloat(max_float);
         daiet_par.setNumUpdates(num_updates);
 
-        if (num_updates < 0 || num_updates > 255)
-            LOG_FATAL("Invalid number of updates: " + to_string(num_updates) + " (must be within [0,255])");
-
 #ifndef COLOCATED
         if (daiet_par.getNumWorkers()<=0 && daiet_par.getMode()=="ps")
 #else
@@ -503,7 +500,7 @@ namespace daiet {
             LOG_FATAL("PS mode requires a positive number of workers.");
     }
 
-    int master(int argc, char *argv[], BlockingQueue<TensorUpdate*> &in_queue, BlockingQueue<TensorUpdate*> &out_queue) {
+    int master(int argc, char *argv[], DaietContext* dctx_ptr) {
 
         try {
 
@@ -528,9 +525,9 @@ namespace daiet {
             signal(SIGINT, signal_handler);
             signal(SIGTERM, signal_handler);
 
-            parse_parameters(argc, argv);
-
             daiet_log = std::ofstream("daiet.log", std::ios::out);
+
+            parse_parameters(argc, argv);
 
             const char *buildString = "Compiled at " __DATE__ ", " __TIME__ ".";
             LOG_INFO (string(buildString));
@@ -585,6 +582,8 @@ namespace daiet {
                         dpdk_data.core_rx = lcore_id;
                     else if (n_lcores == 2)
                         dpdk_data.core_tx = lcore_id;
+                    else if (n_lcores == 3)
+                        dpdk_data.core_converter = lcore_id;
                     else {
                         core_to_workers_ids[lcore_id] = wid;
                         wid++;
@@ -595,11 +594,11 @@ namespace daiet {
             }
 
 #ifndef COLOCATED
-            if (n_lcores < 3)
-                LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 3");
-#else
             if (n_lcores < 4)
-            LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 4");
+                LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 4");
+#else
+            if (n_lcores < 5)
+            LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 5");
 #endif
 
             num_workers_threads = wid;
@@ -617,6 +616,13 @@ namespace daiet {
             rings_init("worker");
             rings_init("ps");
 #endif
+
+            dpdk_data.converter_ring_ptr= rte_ring_create(string("converter").c_str(), dpdk_par.converter_ring_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+            if (dpdk_data.converter_ring_ptr == NULL)
+                LOG_FATAL("Cannot create converter ring");
+
+            rte_atomic32_init(&dpdk_data.top_index);
 
             // Initialize port
             port_init();
@@ -643,6 +649,7 @@ namespace daiet {
             // Launch RX and TX loops
             rte_eal_remote_launch(rx_loop, NULL, dpdk_data.core_rx);
             rte_eal_remote_launch(tx_loop, NULL, dpdk_data.core_tx);
+            rte_eal_remote_launch(converter, dctx_ptr, dpdk_data.core_converter);
 
             sleep(1);
 
@@ -653,7 +660,7 @@ namespace daiet {
             RTE_LCORE_FOREACH_SLAVE(lcore_id)
             {
 
-                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
+                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx && lcore_id != dpdk_data.core_converter) {
 
 #ifndef COLOCATED
                     if (daiet_par.getMode() == "worker") {
@@ -674,17 +681,17 @@ namespace daiet {
 #ifndef COLOCATED
             // Launch function on master cores
             if (daiet_par.getMode() == "worker")
-                worker(in_queue, out_queue);
+                worker(dctx_ptr);
             else if (daiet_par.getMode() == "ps")
                 ps(NULL);
 #else
-            worker(in_queue, out_queue);
+            worker(dctx_ptr);
 #endif
 
             // Join worker/ps threads
             RTE_LCORE_FOREACH_SLAVE(lcore_id)
             {
-                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx) {
+                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx && lcore_id != dpdk_data.core_converter) {
                     ret = rte_eal_wait_lcore(lcore_id);
                     if (unlikely(ret < 0)) {
                         LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
@@ -696,6 +703,7 @@ namespace daiet {
             elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
 
             tx_rx_stop = true;
+            converter_stop = true;
 
             // Wait RX/TX cores
             ret = rte_eal_wait_lcore(dpdk_data.core_rx);
@@ -706,6 +714,11 @@ namespace daiet {
             ret = rte_eal_wait_lcore(dpdk_data.core_tx);
             if (unlikely(ret < 0)) {
                 LOG_DEBUG("Core " + to_string(dpdk_data.core_tx) + " returned " + to_string(ret));
+            }
+
+            ret = rte_eal_wait_lcore(dpdk_data.core_converter);
+            if (unlikely(ret < 0)) {
+                LOG_DEBUG("Core " + to_string(dpdk_data.core_converter) + " returned " + to_string(ret));
             }
 
             // Print stats
@@ -755,6 +768,8 @@ namespace daiet {
             worker_cleanup();
             ps_cleanup();
 #endif
+
+            rte_ring_free(dpdk_data.converter_ring_ptr);
 
 #ifndef COLOCATED
             rings_cleanup(daiet_par.getMode());

@@ -351,7 +351,7 @@ class AllreduceBcube : public Algorithm {
       return;
     }
 
-    if (Context::daietContext.try_daiet(ptrs_[0],totalNumElems_,fn_->type())){
+    if (this->context_->daietContext.try_daiet(ptrs_[0],totalNumElems_,fn_->type())){
 
         // Broadcast ptrs_[0]
         for (int i = 1; i < ptrs_.size(); i++) {
