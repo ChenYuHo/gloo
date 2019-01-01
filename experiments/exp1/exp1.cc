@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    vector<int, aligned_allocator<int, kBufferAlignment>> data;
+    vector<int32_t, aligned_allocator<int32_t, kBufferAlignment>> data;
     int roundnum = 0;
 
     // GLOO transport
@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
     }
     cout << "---- ended" << endl;
 
-    vector<int*> ptrs;
+    vector<int32_t*> ptrs;
     ptrs.push_back(&data[0]);
 
     int count = data.size();
@@ -77,14 +77,16 @@ int main(int argc, char* argv[]) {
 
     barrier->run();
 
-    //Warm up round
-    auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);
-    allreduce->run();
+    //Warm up rounds
+    for (int i=0; i<10; i++){
+        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int32_t>>(context, ptrs, count);
+        allreduce->run();
+    }
 
     // Start rounds
     for (roundnum = 0; roundnum < num_rounds; roundnum++) {
         // Instantiate the collective algorithm
-        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int>>(context, ptrs, count);
+        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int32_t>>(context, ptrs, count);
 
         cout << "-- Allreduce Round " << roundnum << endl;
 
