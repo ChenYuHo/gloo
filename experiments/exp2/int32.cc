@@ -1,6 +1,7 @@
 #include <iostream>
 #include <memory>
 #include <chrono>
+#include <cmath>
 
 #include "gloo/allreduce_halving_doubling.h"
 #include "gloo/rendezvous/context.h"
@@ -41,8 +42,11 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
+    vector<int32_t, aligned_allocator<int32_t, kBufferAlignment>> base_data;
     vector<int32_t, aligned_allocator<int32_t, kBufferAlignment>> data;
     int roundnum = 0;
+
+    int32_t elem = 0.01;
 
     // GLOO transport
     gloo::transport::tcp::attr attr;
@@ -58,13 +62,16 @@ int main(int argc, char* argv[]) {
     const int rank = atoi(argv[5]);
     const int tensor_size = atoi(argv[6]);
     const int num_rounds = atoi(argv[7]);
+    int num_last_rounds = 0;
 
     // Init data
-    data.reserve(tensor_size);
+    base_data.reserve(tensor_size);
+    data.resize(tensor_size);
     cout << "-- Tensor initialization" << endl;
     for (int i = 0; i < tensor_size; i++) {
-        data.insert(data.begin()+i, 1);
+        base_data.insert(base_data.begin() + i, elem);
     }
+    copy(base_data.begin(), base_data.end(), data.begin());
     cout << "---- Ended" << endl;
 
     vector<int32_t*> ptrs;
@@ -81,13 +88,20 @@ int main(int argc, char* argv[]) {
     barrier->run();
 
     //Warm up rounds
-    for (int i=0; i<10; i++){
+    for (int i = 0; i < 10; i++) {
         auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int32_t>>(context, ptrs, count);
         allreduce->run();
     }
+    copy(base_data.begin(), base_data.end(), data.begin());
 
     // Start rounds
     for (roundnum = 0; roundnum < num_rounds; roundnum++) {
+
+        if (roundnum % 10 == 0) {
+            copy(base_data.begin(), base_data.end(), data.begin());
+            num_last_rounds = 0;
+        }
+
         // Instantiate the collective algorithm
         auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int32_t>>(context, ptrs, count);
 
@@ -100,8 +114,18 @@ int main(int argc, char* argv[]) {
         auto end = chrono::high_resolution_clock::now();
 
         cout << "---- Ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+        num_last_rounds++;
 
     }
+
+    cout << "-- Final check" << endl;
+    for (int i = 0; i < tensor_size; i++) {
+        if (data[i] != elem * powf(size, num_last_rounds)) {
+            cout << "---- Failed: index: " << i << " -> received " << data[i] << " instead of " << elem * powf(size, num_last_rounds) << endl;
+            break;
+        }
+    }
+    cout << "---- Ended" << endl;
 
     return 0;
 }

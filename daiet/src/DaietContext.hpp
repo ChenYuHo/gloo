@@ -5,6 +5,8 @@
 
 #pragma once
 
+#define DAIET
+
 #include <boost/thread.hpp>
 #include <atomic>
 

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <memory>
 #include <chrono>
+#include <cmath>
 
 #include "gloo/allreduce_halving_doubling.h"
 #include "gloo/rendezvous/context.h"
@@ -8,6 +9,7 @@
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
 #include "gloo/barrier_all_to_one.h"
+#include "gloo/types.h"
 
 #include <signal.h>
 
@@ -27,6 +29,7 @@ void signal_handler(int signum) {
         context->daietContext.StopMaster();
 #endif
         exit(1);
+
     }
 }
 
@@ -41,8 +44,11 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    vector<int32_t, aligned_allocator<int32_t, kBufferAlignment>> data;
+    vector<gloo::float16, aligned_allocator<gloo::float16, kBufferAlignment>> base_data;
+    vector<gloo::float16, aligned_allocator<gloo::float16, kBufferAlignment>> data;
     int roundnum = 0;
+
+    gloo::float16 elem = gloo::cpu_float2half_rn(0.01);
 
     // GLOO transport
     gloo::transport::tcp::attr attr;
@@ -58,16 +64,19 @@ int main(int argc, char* argv[]) {
     const int rank = atoi(argv[5]);
     const int tensor_size = atoi(argv[6]);
     const int num_rounds = atoi(argv[7]);
+    int num_last_rounds = 0;
 
     // Init data
-    data.reserve(tensor_size);
+    base_data.reserve(tensor_size);
+    data.resize(tensor_size);
     cout << "-- Tensor initialization" << endl;
     for (int i = 0; i < tensor_size; i++) {
-        data.insert(data.begin()+i, 1);
+        base_data.insert(base_data.begin() + i, elem);
     }
+    copy(base_data.begin(), base_data.end(), data.begin());
     cout << "---- Ended" << endl;
 
-    vector<int32_t*> ptrs;
+    vector<gloo::float16*> ptrs;
     ptrs.push_back(&data[0]);
 
     int count = data.size();
@@ -81,15 +90,22 @@ int main(int argc, char* argv[]) {
     barrier->run();
 
     //Warm up rounds
-    for (int i=0; i<10; i++){
-        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int32_t>>(context, ptrs, count);
+    for (int i = 0; i < 10; i++) {
+        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<gloo::float16>>(context, ptrs, count);
         allreduce->run();
     }
+    copy(base_data.begin(), base_data.end(), data.begin());
 
     // Start rounds
     for (roundnum = 0; roundnum < num_rounds; roundnum++) {
+
+        if (roundnum % 10 == 0) {
+            copy(base_data.begin(), base_data.end(), data.begin());
+            num_last_rounds = 0;
+        }
+
         // Instantiate the collective algorithm
-        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<int32_t>>(context, ptrs, count);
+        auto allreduce = make_shared<gloo::AllreduceHalvingDoubling<gloo::float16>>(context, ptrs, count);
 
         cout << "-- Allreduce Round " << roundnum << endl;
 
@@ -100,8 +116,19 @@ int main(int argc, char* argv[]) {
         auto end = chrono::high_resolution_clock::now();
 
         cout << "---- Ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+        num_last_rounds++;
 
     }
 
+    cout << "-- Final check" << endl;
+    for (int i = 0; i < tensor_size; i++) {
+        if (gloo::cpu_half2float(data[i]) != gloo::cpu_half2float(elem) * powf(size, num_last_rounds)) {
+            cout << "---- Failed: index: " << i << " -> received " << data[i] << " instead of " << gloo::cpu_half2float(elem) * powf(size, num_last_rounds) << endl;
+            break;
+        }
+    }
+    cout << "---- Ended" << endl;
+
     return 0;
 }
+
