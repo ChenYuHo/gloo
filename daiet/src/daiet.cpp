@@ -427,7 +427,7 @@ namespace daiet {
                 ("dpdk.port_id", po::value<uint16_t>(&dpdk_par.portid)->default_value(0), "Port ID")
                 ("dpdk.ring_rx_size", po::value<uint32_t>(&dpdk_par.ring_rx_size)->default_value(65536), "RX ring size, must be a power of 2")
                 ("dpdk.ring_tx_size", po::value<uint32_t>(&dpdk_par.ring_tx_size)->default_value(65536), "TX ring size, must be a power of 2")
-                ("dpdk.converter_ring_size", po::value<uint32_t>(&dpdk_par.converter_ring_size)->default_value(134217728), "Converter ring size, must be a power of 2 greater than the max tensor size / num_updates")
+                ("dpdk.converter_ring_size", po::value<uint32_t>(&dpdk_par.converter_ring_size)->default_value(4194304), "Converter ring size, must be a power of 2 greater than the max tensor size / num_updates")
                 ("dpdk.pool_size", po::value<uint32_t>(&dpdk_par.pool_size)->default_value(8192 * 32), "Pool size")
                 ("dpdk.pool_cache_size", po::value<uint32_t>(&dpdk_par.pool_cache_size)->default_value(256 * 2), "Pool cache size")
                 ("dpdk.burst_size_rx_read", po::value<uint32_t>(&dpdk_par.burst_size_rx_read)->default_value(64), "RX read burst size")

@@ -6,6 +6,11 @@
 #include "common.hpp"
 #include "dpdk.h"
 
+#if defined ( __AVX512F__ ) || defined ( __AVX512__ )
+#define MAX_VECTOR_SIZE 512
+#endif
+#include "vcl/vectorclass.h"
+
 namespace daiet {
 
     int converter(void* dctx_ptr) {
@@ -19,7 +24,19 @@ namespace daiet {
         TensorUpdate* tuptr;
 
         uint32_t tensor_size = 0;
-        uint32_t num_updates = daiet_par.getNumUpdates();
+        const uint32_t num_updates = daiet_par.getNumUpdates();
+        const float scalingfactor = daiet_par.getScalingFactor();
+
+#if MAX_VECTOR_SIZE >= 512
+        Vec16f vec_f;
+        Vec16i vec_i;
+        const Vec16f scalingfactor_vec(scalingfactor);
+#else
+        Vec8f vec_f;
+        Vec8i vec_i;
+        const Vec8f scalingfactor_vec(scalingfactor);
+#endif
+
         uint32_t tsi = 0, final_tsi = 0;
         uint32_t* recv_tsi_ptr = 0;
         float* cur_float_ptr = NULL;
@@ -43,18 +60,32 @@ namespace daiet {
 
                 if (tuptr->type == FLOAT) {
 
+                    // First pass
                     while (tsi < tensor_size) {
 
-                        for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++) {
+                        cur_float_ptr = &(static_cast<float*>(tuptr->ptr)[tsi]);
 
-                            cur_float_ptr = &(static_cast<float*>(tuptr->ptr)[tsi]);
-
-                            *(static_cast<uint32_t*>((void*) cur_float_ptr)) = rte_cpu_to_be_32(round(*cur_float_ptr * daiet_par.getScalingFactor()));
+#if MAX_VECTOR_SIZE >= 512
+                        for (uint32_t i = 0; i < num_updates; i += 16) {
+#else
+                        for (uint32_t i = 0; i < num_updates; i += 8) {
+#endif
+                            vec_f.load(cur_float_ptr + i);
+                            round_to_int(vec_f * scalingfactor_vec).store(cur_float_ptr + i);
                         }
+
+                        for (uint32_t i = 0; i < num_updates; i++) {
+
+                            cur_int_ptr = static_cast<uint32_t*>((void*) (cur_float_ptr + i));
+                            *(cur_int_ptr) = rte_cpu_to_be_32(*(cur_int_ptr));
+                        }
+
+                        tsi += num_updates;
 
                         rte_atomic32_set(top_idx_ptr, tsi);
                     }
 
+                    // Second pass
                     while (!end_job && !force_quit && !converter_stop) {
 
                         // Read tsi from RX ring
@@ -69,12 +100,37 @@ namespace daiet {
                                 end_job = true;
                             } else {
 
+                                if (j == 0)
+                                    rte_prefetch0(cur_int_ptr);
+
+                                /* This SIMD code does not improve performance */
+                                /*
+                                cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
+
+                                for (uint32_t i = 0; i < num_updates; i++) {
+
+                                    *(cur_int_ptr + i) = rte_be_to_cpu_32(*(cur_int_ptr + i));
+                                }
+
+#if MAX_VECTOR_SIZE >= 512
+                                for (uint32_t i = 0; i < num_updates; i += 16) {
+#else
+                                for (uint32_t i = 0; i < num_updates; i += 8) {
+#endif
+                                    vec_i.load(cur_int_ptr + i);
+                                    vec_f = to_float(vec_i) / scalingfactor_vec;
+                                    vec_f.store(static_cast<float*>((void*) (cur_int_ptr + i)));
+                                }
+                                */
+
                                 for (final_tsi = (*recv_tsi_ptr) + num_updates; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
 
                                     cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
 
-                                    *(static_cast<float*>((void*) cur_int_ptr)) = (float(rte_be_to_cpu_32(*cur_int_ptr))) / daiet_par.getScalingFactor();
+                                    *(static_cast<float*>((void*) cur_int_ptr)) = (float(rte_be_to_cpu_32(*cur_int_ptr))) / scalingfactor;
+
                                 }
+
                             }
                         }
                     }
@@ -83,6 +139,7 @@ namespace daiet {
 
                 } else if (tuptr->type == INT) {
 
+                    // First pass
                     while (tsi < tensor_size) {
 
                         for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++) {
@@ -95,6 +152,7 @@ namespace daiet {
                         rte_atomic32_set(top_idx_ptr, tsi);
                     }
 
+                    // Second pass
                     while (!end_job && !force_quit && !converter_stop) {
 
                         // Read tsi from RX ring

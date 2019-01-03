@@ -21,7 +21,13 @@ make -j
 cd ../experiments/exp1/
 mkdir -p build
 cd build
-rm CMakeCache.txt  CMakeFiles  cmake_install.cmake Makefile  exp1 -rf
+rm CMakeCache.txt CMakeFiles cmake_install.cmake Makefile exp1 -rf
+cmake ..
+make -j
+cd ../../exp2
+mkdir -p build
+cd build
+rm CMakeCache.txt CMakeFiles cmake_install.cmake Makefile exp2 -rf
 cmake ..
 make -j
 

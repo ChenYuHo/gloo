@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < tensor_size; i++) {
         data.insert(data.begin()+i, 1);
     }
-    cout << "---- ended" << endl;
+    cout << "---- Ended" << endl;
 
     vector<int32_t*> ptrs;
     ptrs.push_back(&data[0]);
