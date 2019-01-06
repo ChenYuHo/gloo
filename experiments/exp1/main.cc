@@ -1,6 +1,7 @@
 #include <iostream>
 #include <memory>
 #include <chrono>
+#include <cmath>
 
 #include "gloo/allreduce_halving_doubling.h"
 #include "gloo/rendezvous/context.h"
@@ -13,6 +14,7 @@
 #include <signal.h>
 
 #include <string.h>
+#include <unistd.h>
 
 #include "common.h"
 
@@ -50,8 +52,9 @@ int main(int argc, char* argv[]) {
     // GLOO transport
     std::shared_ptr<gloo::transport::Device> dev;
     if (strncmp("rdma:", argv[1], 5) == 0) {
+	string name(argv[1] + 5);
         gloo::transport::ibverbs::attr attr = {
-            .name = argv[1] + 5,
+            .name = name,
             .port = 1,
            .index = 0,
         };
@@ -60,9 +63,9 @@ int main(int argc, char* argv[]) {
         if (strncmp("tcp:", argv[1], 4) == 0) {
             argv[1] += 4;
         }
-        gloo::transport::tcp::attr attr = {
-            .iface = argv[1],
-        };
+	string iface(argv[1]);
+        gloo::transport::tcp::attr attr;
+        attr.iface = iface;
         dev = gloo::transport::tcp::CreateDevice(attr);
     }
 
@@ -118,7 +121,17 @@ int main(int argc, char* argv[]) {
 
         cout << "---- Ended" << endl << "#ms " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
 
+	usleep(100000);
     }
+
+    cout << "-- Final check" << endl;
+    for (int i = 0; i < tensor_size; i++) {
+        if (data[i] != powf(size, num_rounds+10)) {
+            cout << "---- Failed: index: " << i << " -> received " << data[i] << " instead of " << powf(size, num_rounds+10) << endl;
+            break;
+        }
+    }
+    cout << "---- Ended" << endl;
 
     return 0;
 }
