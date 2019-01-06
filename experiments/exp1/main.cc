@@ -7,9 +7,12 @@
 #include "gloo/rendezvous/redis_store.h"
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
+#include "gloo/transport/ibverbs/device.h"
 #include "gloo/barrier_all_to_one.h"
 
 #include <signal.h>
+
+#include <string.h>
 
 #include "common.h"
 
@@ -33,7 +36,7 @@ void signal_handler(int signum) {
 int main(int argc, char* argv[]) {
 
     if (argc != 8) {
-        cout << " Usage: " << argv[0] << " INTERFACE REDIS_SERVER_IP PREFIX NUM_WORKERS RANK TENSOR_SIZE NUM_ROUNDS" << endl;
+        cout << " Usage: " << argv[0] << " [rdma:|tcp:]INTERFACE REDIS_SERVER_IP PREFIX NUM_WORKERS RANK TENSOR_SIZE NUM_ROUNDS" << endl;
         return 0;
     }
 
@@ -45,9 +48,23 @@ int main(int argc, char* argv[]) {
     int roundnum = 0;
 
     // GLOO transport
-    gloo::transport::tcp::attr attr;
-    attr.iface = argv[1];
-    auto dev = gloo::transport::tcp::CreateDevice(attr);
+    std::shared_ptr<gloo::transport::Device> dev;
+    if (strncmp("rdma:", argv[1], 5) == 0) {
+        gloo::transport::ibverbs::attr attr = {
+            .name = argv[1] + 5,
+            .port = 1,
+           .index = 0,
+        };
+        dev = gloo::transport::ibverbs::CreateDevice(attr);
+    } else {
+        if (strncmp("tcp:", argv[1], 4) == 0) {
+            argv[1] += 4;
+        }
+        gloo::transport::tcp::attr attr = {
+            .iface = argv[1],
+        };
+        dev = gloo::transport::tcp::CreateDevice(attr);
+    }
 
     // Rendezvous
     auto redisStore = gloo::rendezvous::RedisStore(argv[2]);
