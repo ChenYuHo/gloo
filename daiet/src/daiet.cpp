@@ -403,23 +403,18 @@ namespace daiet {
         }
     }
 
-    void parse_parameters(int argc, char *argv[]) {
+    void parse_parameters() {
 
         string config_file;
+        ifstream ifs;
         float max_float;
         uint16_t worker_port, ps_port;
         uint32_t num_updates;
         string worker_ip_str, ps_ips_str, ps_macs_str;
 
-        po::options_description cmdline_options("Options");
         po::options_description dpdk_options("DPDK options");
         po::options_description daiet_options("DAIET options");
         po::options_description config_file_options;
-
-        cmdline_options.add_options()
-                ("version,v", "print version string")
-                ("help,h", "produce help message")
-                ("config,c", po::value<string>(&config_file)->default_value("daiet.cfg"), "Configuration file name");
 
         dpdk_options.add_options()
                 ("dpdk.cores", po::value<string>(&dpdk_par.corestr)->default_value("0-2"), "List of cores")
@@ -453,25 +448,31 @@ namespace daiet {
 
         config_file_options.add(daiet_options).add(dpdk_options);
 
+        config_file = "/etc/daiet.cfg";
+        ifs.open(config_file.c_str());
+        if(!ifs.good()){
+            ifs.close();
+
+            char hostname[500];
+            if (gethostname(hostname,sizeof(hostname))!=0)
+                LOG_FATAL("gethostname failed: "+ string(strerror(errno)));
+
+            config_file = "daiet-"+string(hostname)+".cfg";
+            ifs.open(config_file.c_str());
+            if(!ifs.good()){
+                ifs.close();
+
+                config_file = "daiet.cfg";
+                ifs.open(config_file.c_str());
+                if(!ifs.good()){
+                    ifs.close();
+                    LOG_FATAL("No config file found! (/etc/daiet.cfg, daiet-"+string(hostname)+".cfg, daiet.cfg)");
+                }
+            }
+        }
+        LOG_INFO("Configuration file "+config_file);
+
         po::variables_map vm;
-        po::store(po::command_line_parser(argc, argv).options(cmdline_options).run(), vm);
-        po::notify(vm);
-
-        if (vm.count("help")) {
-            LOG_INFO(cmdline_options);
-            exit(EXIT_SUCCESS);
-        }
-
-        if (vm.count("version")) {
-            LOG_INFO(string(argv[0]) + " version " + string(__DAIET_VERSION__));
-            exit(EXIT_SUCCESS);
-        }
-
-        ifstream ifs(config_file.c_str());
-
-        if (!ifs)
-            LOG_FATAL("Cannot open config file: " + config_file);
-
         po::store(po::parse_config_file(ifs, config_file_options), vm);
         po::notify(vm);
 
@@ -500,7 +501,7 @@ namespace daiet {
             LOG_FATAL("PS mode requires a positive number of workers.");
     }
 
-    int master(int argc, char *argv[], DaietContext* dctx_ptr) {
+    int master(DaietContext* dctx_ptr) {
 
         try {
 
@@ -527,17 +528,16 @@ namespace daiet {
 
             daiet_log = std::ofstream("daiet.log", std::ios::out);
 
-            parse_parameters(argc, argv);
-
             const char *buildString = "Compiled at " __DATE__ ", " __TIME__ ".";
             LOG_INFO (string(buildString));
+
+            parse_parameters();
 
             // Set EAL log file
             FILE * dpdk_log_file;
             dpdk_log_file = fopen("dpdk.log", "w");
             if (dpdk_log_file == NULL) {
-                string serror(strerror(errno));
-                LOG_ERROR("Failed to open log file: " + serror);
+                LOG_ERROR("Failed to open log file: " + string(strerror(errno)));
             } else {
                 ret = rte_openlog_stream(dpdk_log_file);
                 if (ret < 0)
@@ -545,7 +545,7 @@ namespace daiet {
             }
 
             // EAL cmd line
-            eal_cmdline = string(argv[0]) + " -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix;
+            eal_cmdline = "daiet -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix;
             vector<string> par_vec = split(eal_cmdline);
 
             int args_c = par_vec.size();
@@ -778,7 +778,7 @@ namespace daiet {
             rings_cleanup("ps");
 #endif
             // EAL cleanup
-            ret = rte_eal_cleanup();
+            ret = rte_eal_cleanup(); // Ignore warning
             if (ret < 0)
                 LOG_FATAL("EAL cleanup failed!");
 

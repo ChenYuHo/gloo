@@ -14,25 +14,7 @@ namespace daiet {
 
         DaietContext* d_ctx_ptr = (DaietContext *) ctx;
 
-        string corestr = "daiet -c daiet.cfg";
-
-        vector<string> par_vec = split(corestr);
-        int args_c = par_vec.size();
-        char* args[args_c];
-        char* args_ptr[args_c];
-
-        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-            args[i] = new char[par_vec[i].size() + 1];
-            args_ptr[i] = args[i];
-            strcpy(args[i], par_vec[i].c_str());
-        }
-
-        d_ctx_ptr->ret = master(args_c, args, d_ctx_ptr);
-
-        // Cleanup
-        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-            delete[] args_ptr[i];
-        }
+        d_ctx_ptr->ret = master(d_ctx_ptr);
 
         return NULL;
     }
