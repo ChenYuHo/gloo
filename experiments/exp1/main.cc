@@ -2,19 +2,19 @@
 #include <memory>
 #include <chrono>
 #include <cmath>
+#include <signal.h>
+#include <string.h>
+#include <unistd.h>
 
+#include "gloo/barrier_all_to_one.h"
 #include "gloo/allreduce_halving_doubling.h"
 #include "gloo/rendezvous/context.h"
 #include "gloo/rendezvous/redis_store.h"
 #include "gloo/rendezvous/prefix_store.h"
 #include "gloo/transport/tcp/device.h"
+#if GLOO_USE_IBVERBS
 #include "gloo/transport/ibverbs/device.h"
-#include "gloo/barrier_all_to_one.h"
-
-#include <signal.h>
-
-#include <string.h>
-#include <unistd.h>
+#endif
 
 #include "common.h"
 
@@ -38,7 +38,11 @@ void signal_handler(int signum) {
 int main(int argc, char* argv[]) {
 
     if (argc != 8) {
+#if GLOO_USE_IBVERBS
         cout << " Usage: " << argv[0] << " [rdma:|tcp:]INTERFACE REDIS_SERVER_IP PREFIX NUM_WORKERS RANK TENSOR_SIZE NUM_ROUNDS" << endl;
+#else
+        cout << " Usage: " << argv[0] << " INTERFACE REDIS_SERVER_IP PREFIX NUM_WORKERS RANK TENSOR_SIZE NUM_ROUNDS" << endl;
+#endif
         return 0;
     }
 
@@ -51,6 +55,8 @@ int main(int argc, char* argv[]) {
 
     // GLOO transport
     std::shared_ptr<gloo::transport::Device> dev;
+
+#if GLOO_USE_IBVERBS
     if (strncmp("rdma:", argv[1], 5) == 0) {
 	string name(argv[1] + 5);
         gloo::transport::ibverbs::attr attr = {
@@ -68,6 +74,12 @@ int main(int argc, char* argv[]) {
         attr.iface = iface;
         dev = gloo::transport::tcp::CreateDevice(attr);
     }
+#else
+    gloo::transport::tcp::attr attr;
+    string iface(argv[1]);
+    attr.iface = iface;
+    dev = gloo::transport::tcp::CreateDevice(attr);
+#endif
 
     // Rendezvous
     auto redisStore = gloo::rendezvous::RedisStore(argv[2]);
