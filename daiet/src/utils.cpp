@@ -116,7 +116,7 @@ namespace daiet {
     int64_t str_to_mac(string const& s, bool change_endianess) {
 
         uint8_t mac[6];
-        uint last = -1;
+        uint last;
         int rc;
 
         if (change_endianess)
