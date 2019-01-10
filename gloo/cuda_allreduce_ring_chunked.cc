@@ -167,15 +167,7 @@ void CudaAllreduceRingChunked<T, W>::run() {
     return;
   }
 
-  // Wait for the local reduction to complete
-  for (auto i = 0; i < chunks_; i++) {
-    const auto chunkOffset = getChunkOffset(i);
-    if (chunkOffset < chunkContext_.size()) {
-      auto& context = chunkContext_[chunkOffset];
-      context.reduceOp->wait();
-    }
-  }
-
+#if !GLOO_USE_VANILLA
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
       if (this->context_->daietContext.try_daiet(*scratch_,count_,fn_->type())){
@@ -195,6 +187,7 @@ void CudaAllreduceRingChunked<T, W>::run() {
   }
 
   // Fallback
+#endif
 
   // First pass reduces a chunk in each round
   for (auto round = 0; round < chunks_; round++) {

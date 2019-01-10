@@ -55,6 +55,14 @@ else
 CXXFLAGS += -O3
 endif
 
+.PHONY: local_install
+local_install: _postbuild
+	$(Q)$(MAKE) clean
+	$(RM) build/_postbuild
+	$(RM) _postclean
+	mkdir -p build/include/$(APPNAME)
+	cp $(HDRS) build/include/$(APPNAME)
+
 include $(RTE_SDK)/mk/rte.extlib.mk
 
 distclean: clean

@@ -239,6 +239,7 @@ class AllreduceHalvingDoubling : public Algorithm {
       return;
     }
 
+#if !GLOO_USE_VANILLA
     if (this->context_->daietContext.try_daiet(ptrs_[0],count_,fn_->type())){
 
         // Broadcast ptrs_[0]
@@ -250,6 +251,7 @@ class AllreduceHalvingDoubling : public Algorithm {
     }
 
     // Fallback
+#endif
 
     // Reduce-scatter
     for (int i = 0; i < stepsWithinBlock_; i++) {

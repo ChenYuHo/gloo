@@ -80,6 +80,7 @@ set(GLOO_USE_REDIS ${USE_REDIS})
 set(GLOO_USE_IBVERBS ${USE_IBVERBS})
 set(GLOO_USE_MPI ${USE_MPI})
 set(GLOO_USE_AVX ${USE_AVX})
+set(GLOO_USE_VANILLA ${USE_VANILLA})
 configure_file(config.h.in config.h)
 
 add_library(gloo ${GLOO_STATIC_OR_SHARED} ${GLOO_SRCS})

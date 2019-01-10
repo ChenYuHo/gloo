@@ -79,6 +79,7 @@ void CudaAllreduceRing<T, W>::run() {
     localReduceOp_->run();
   }
 
+#if !GLOO_USE_VANILLA
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
       if (this->context_->daietContext.try_daiet(*scratch_,count_,fn_->type())){
@@ -95,6 +96,7 @@ void CudaAllreduceRing<T, W>::run() {
   }
 
   // Fallback
+#endif
 
   // Initialize outbox with locally reduced values
   stream.copyAsync(outbox_, scratch_);

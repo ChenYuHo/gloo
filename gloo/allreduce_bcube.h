@@ -351,6 +351,7 @@ class AllreduceBcube : public Algorithm {
       return;
     }
 
+#if !GLOO_USE_VANILLA
     if (this->context_->daietContext.try_daiet(ptrs_[0],totalNumElems_,fn_->type())){
 
         // Broadcast ptrs_[0]
@@ -362,6 +363,7 @@ class AllreduceBcube : public Algorithm {
     }
 
     // Fallback
+#endif
 
     if (nodes_ == 1) {
       // Broadcast ptrs_[0]

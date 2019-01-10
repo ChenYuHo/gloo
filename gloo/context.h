@@ -15,7 +15,10 @@
 #include "gloo/transport/device.h"
 #include "gloo/transport/pair.h"
 
+#include "gloo/config.h"
+#if !GLOO_USE_VANILLA
 #include "daiet/DaietContext.hpp"
+#endif
 
 namespace gloo {
 
@@ -27,7 +30,10 @@ class Context {
   const int rank;
   const int size;
   int base;
+
+#if !GLOO_USE_VANILLA
   daiet::DaietContext& daietContext = daiet::DaietContext::getInstance();
+#endif
 
   std::shared_ptr<transport::Device>& getDevice();
 

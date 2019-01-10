@@ -129,6 +129,7 @@ void CudaAllreduceBcube<T, W>::run() {
     return;
   }
 
+#if !GLOO_USE_VANILLA
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
       if (this->context_->daietContext.try_daiet(*scratch_,totalNumElems_,fn_->type())){
@@ -143,6 +144,7 @@ void CudaAllreduceBcube<T, W>::run() {
   }
 
   // Fallback
+#endif
 
   // Reduce-scatter
   DEBUG_PRINT_STAGE("start");

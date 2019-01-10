@@ -81,6 +81,7 @@ class AllreduceRing : public Algorithm {
       return;
     }
 
+#if !GLOO_USE_VANILLA
     if (this->context_->daietContext.try_daiet(ptrs_[0],count_,fn_->type())){
 
         // Broadcast ptrs_[0]
@@ -92,6 +93,7 @@ class AllreduceRing : public Algorithm {
     }
 
     // Fallback
+#endif
 
     // Intialize outbox with locally reduced values
     memcpy(outbox_, ptrs_[0], bytes_);

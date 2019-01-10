@@ -263,6 +263,7 @@ void CudaAllreduceHalvingDoubling<T, W>::run() {
     return;
   }
 
+#if !GLOO_USE_VANILLA
   if (std::is_same<W, CudaHostWorkspace<T>>::value){
       // scratch is a CudaHostPointer
       if (this->context_->daietContext.try_daiet(*scratch_,count_,fn_->type())){
@@ -277,6 +278,7 @@ void CudaAllreduceHalvingDoubling<T, W>::run() {
   }
 
   // Fallback
+#endif
 
   // Reduce-scatter
   for (int i = 0; i < stepsWithinBlock_; i++) {

@@ -91,6 +91,7 @@ class AllreduceRingChunked : public Algorithm {
       return;
     }
 
+#if !GLOO_USE_VANILLA
     if (this->context_->daietContext.try_daiet(ptrs_[0],count_,fn_->type())){
 
         // Broadcast ptrs_[0]
@@ -100,6 +101,9 @@ class AllreduceRingChunked : public Algorithm {
 
         return;
     }
+
+    // Fallback
+#endif
 
     // Kick off copying initial chunks
     copyChunkAtOffset(2 * this->contextRank_);

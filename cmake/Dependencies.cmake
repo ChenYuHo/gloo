@@ -48,6 +48,12 @@ if(USE_CUDA)
   endif()
 endif()
 
+if(NOT USE_VANILLA)
+    include_directories(${CMAKE_SOURCE_DIR}/daiet/build/include)
+else()
+    message(WARNING "Compiling vanilla gloo")
+endif()
+
 if(USE_CUDA AND USE_NCCL)
   # NCCL_EXTERNAL is set if using the Caffe2 bundled version of NCCL
   if(NCCL_EXTERNAL)

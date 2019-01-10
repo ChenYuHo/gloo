@@ -14,7 +14,6 @@
 
 #include "gloo/common/error.h"
 #include "gloo/context.h"
-
 #include "gloo/rendezvous/store.h"
 #include "gloo/transport/device.h"
 
