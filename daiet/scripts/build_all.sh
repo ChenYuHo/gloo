@@ -5,7 +5,7 @@ set -x
 cd ../lib/dpdk/
 rm -rf build
 make defconfig T=x86_64-native-linuxapp-gcc
-make -j
+make EXTRA_CFLAGS="-fPIC" -j
 cd ../..
 make clean
 rm -rf build
@@ -19,12 +19,12 @@ make -j
 cd ../experiments/exp1/
 mkdir -p build
 cd build
-rm CMakeCache.txt CMakeFiles cmake_install.cmake Makefile exp1 -rf
+find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -type f,d -exec rm -rf {} +
 cmake ..
 make -j
 cd ../../exp2
 mkdir -p build
 cd build
-rm CMakeCache.txt CMakeFiles cmake_install.cmake Makefile exp2 -rf
+find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -type f,d -exec rm -rf {} +
 cmake ..
 make -j
