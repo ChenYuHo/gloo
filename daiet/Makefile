@@ -72,7 +72,7 @@ distclean: clean
 libinstall:
 	mkdir -p $(DESTDIR)$(PREFIX)/lib
 	mkdir -p $(DESTDIR)$(PREFIX)/include/$(APPNAME)
-	cp $(RTE_OUTPUT)/lib/$(LIB) $(DESTDIR)$(PREFIX)/lib/$(LIB)
+	cp $(RTE_OUTPUT)/$(LIB) $(DESTDIR)$(PREFIX)/lib/$(LIB)
 	cp $(HDRS) $(DESTDIR)$(PREFIX)/include/$(APPNAME)
 
 .PHONY: libuninstall
