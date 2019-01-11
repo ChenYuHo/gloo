@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
     vector<int32_t, aligned_allocator<int32_t, kBufferAlignment>> data;
     int roundnum = 0;
 
-    int32_t elem = 0.01;
+    int32_t elem = 1;
 
     // GLOO transport
     gloo::transport::tcp::attr attr;

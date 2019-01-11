@@ -23,7 +23,7 @@ namespace daiet {
         rte_ring* converter_ring = dpdk_data.converter_ring_ptr;
         TensorUpdate* tuptr;
 
-        uint32_t tensor_size = 0;
+        uint32_t tensor_size = 0, last_entries = 0;
         const uint32_t num_updates = daiet_par.getNumUpdates();
         const float scalingfactor = daiet_par.getScalingFactor();
 
@@ -58,6 +58,10 @@ namespace daiet {
                 tsi = 0;
                 end_job = false;
 
+                last_entries = tensor_size % num_updates;
+                if (last_entries!=0)
+                    tensor_size -= last_entries;
+
                 if (tuptr->type == FLOAT) {
 
                     // First pass
@@ -85,6 +89,17 @@ namespace daiet {
                         rte_atomic32_set(top_idx_ptr, tsi);
                     }
 
+                    // Last packet
+                    cur_float_ptr = &(static_cast<float*>(tuptr->ptr)[tsi]);
+
+                    for (uint32_t i = 0; i < last_entries; i++) {
+
+                        cur_int_ptr = static_cast<uint32_t*>((void*) (cur_float_ptr + i));
+                        *(cur_int_ptr) = rte_cpu_to_be_32(round(*(cur_float_ptr + i) * scalingfactor));
+                    }
+
+                    rte_atomic32_set(top_idx_ptr, tsi+num_updates);
+
                     // Second pass
                     while (!end_job && !force_quit && !converter_stop) {
 
@@ -99,9 +114,6 @@ namespace daiet {
                             if (unlikely(recv_tsi_ptr == nullptr)) {
                                 end_job = true;
                             } else {
-
-                                if (j == 0)
-                                    rte_prefetch0(cur_int_ptr);
 
                                 /* This SIMD code does not improve performance */
                                 /*
@@ -123,12 +135,20 @@ namespace daiet {
                                 }
                                 */
 
-                                for (final_tsi = (*recv_tsi_ptr) + num_updates; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
+                                if (likely(*recv_tsi_ptr!=tensor_size)) {
+                                    for (final_tsi = (*recv_tsi_ptr) + num_updates; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
 
-                                    cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
+                                        cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
 
-                                    *(static_cast<float*>((void*) cur_int_ptr)) = (float(rte_be_to_cpu_32(*cur_int_ptr))) / scalingfactor;
+                                        *(static_cast<float*>((void*) cur_int_ptr)) = (float(rte_be_to_cpu_32(*cur_int_ptr))) / scalingfactor;
+                                    }
+                                } else {
+                                    for (final_tsi = (*recv_tsi_ptr) + last_entries; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
 
+                                        cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
+
+                                        *(static_cast<float*>((void*) cur_int_ptr)) = (float(rte_be_to_cpu_32(*cur_int_ptr))) / scalingfactor;
+                                    }
                                 }
 
                             }
@@ -152,6 +172,16 @@ namespace daiet {
                         rte_atomic32_set(top_idx_ptr, tsi);
                     }
 
+                    // Last packet
+                    for (final_tsi = tsi + last_entries; tsi < final_tsi; tsi++) {
+
+                        cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[tsi]);
+
+                        *cur_int_ptr = rte_cpu_to_be_32(*cur_int_ptr);
+                    }
+
+                    rte_atomic32_set(top_idx_ptr, tensor_size+num_updates);
+
                     // Second pass
                     while (!end_job && !force_quit && !converter_stop) {
 
@@ -167,10 +197,18 @@ namespace daiet {
                                 end_job = true;
                             } else {
 
-                                for (final_tsi = (*recv_tsi_ptr) + num_updates; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
-                                    cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
+                                if (likely(*recv_tsi_ptr!=tensor_size)) {
+                                    for (final_tsi = (*recv_tsi_ptr) + num_updates; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
+                                        cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
 
-                                    *cur_int_ptr = rte_be_to_cpu_32(*cur_int_ptr);
+                                        *cur_int_ptr = rte_be_to_cpu_32(*cur_int_ptr);
+                                    }
+                                } else {
+                                    for (final_tsi = (*recv_tsi_ptr) + last_entries; (*recv_tsi_ptr) < final_tsi; (*recv_tsi_ptr)++) {
+                                        cur_int_ptr = &(static_cast<uint32_t*>(tuptr->ptr)[*recv_tsi_ptr]);
+
+                                        *cur_int_ptr = rte_be_to_cpu_32(*cur_int_ptr);
+                                    }
                                 }
                             }
                         }

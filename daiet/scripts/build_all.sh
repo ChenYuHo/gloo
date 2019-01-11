@@ -14,7 +14,7 @@ cd ..
 rm -rf build
 mkdir build
 cd build
-cmake -DUSE_REDIS=ON -DUSE_AVX=ON ..
+cmake -DUSE_REDIS=ON ..
 make -j
 cd ../experiments/exp1/
 mkdir -p build

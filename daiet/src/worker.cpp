@@ -11,6 +11,8 @@ namespace daiet {
 
     TensorUpdate* tuptr;
     size_t entries_size;
+    uint32_t num_updates;
+    uint16_t shift;
 
 #ifdef TIMERS
     // TOFIX this should be thread local
@@ -85,7 +87,7 @@ namespace daiet {
 
     __rte_always_inline uint16_t tsi_to_pool_index(const uint32_t& tsi) {
 
-        uint32_t i = (tsi / daiet_par.getNumUpdates()) % (2 * daiet_par.getMaxNumPendingMessages());
+        uint32_t i = ((tsi / num_updates) + shift) % (2 * daiet_par.getMaxNumPendingMessages());
         if (i < daiet_par.getMaxNumPendingMessages())
             // Set 0
             return i;
@@ -94,15 +96,20 @@ namespace daiet {
             return (i - daiet_par.getMaxNumPendingMessages()) | 0x8000;
     }
 
-    __rte_always_inline void store(daiet_hdr* daiet) {
+    __rte_always_inline void store(daiet_hdr* daiet, uint32_t tensor_size) {
 
         uint32_t tsi = daiet->tsi;
         struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
 
-        rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, entries_size);
+        if (likely(tsi+num_updates<=tensor_size))
+            rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, entries_size);
+        else {
+            rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, sizeof(struct entry_hdr) * (tensor_size-tsi));
+        }
+
     }
 
-    __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint64_t ol_flags) {
+    __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint32_t tensor_size, uint64_t ol_flags) {
 
         struct ipv4_hdr * const ip = (struct ipv4_hdr *) (eth + 1);
         struct udp_hdr * const udp = (struct udp_hdr *) (ip + 1);
@@ -128,11 +135,17 @@ namespace daiet {
         // Swap msb
         daiet->pool_index = rte_cpu_to_be_16(tsi_to_pool_index(tsi));
 
-        rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
-
+        if (likely(tsi+num_updates<=tensor_size))
+            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
+        else {
+            uint32_t num_valid = tensor_size-tsi;
+            uint32_t zeros = num_updates - num_valid;
+            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
+            memset(entry+num_valid, 0, sizeof(struct entry_hdr) * zeros);
+        }
     }
 
-    __rte_always_inline void build_pkt(rte_mbuf* m, unsigned portid, uint32_t tsi) {
+    __rte_always_inline uint16_t build_pkt(rte_mbuf* m, unsigned portid, uint32_t tsi, uint32_t tensor_size) {
 
         uint16_t pool_index = tsi_to_pool_index(tsi);
 
@@ -187,7 +200,16 @@ namespace daiet {
 
         entry = (struct entry_hdr *) (daiet + 1);
 
-        rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
+        if (likely(tsi+num_updates<=tensor_size))
+            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
+        else {
+            uint32_t num_valid = tensor_size-tsi;
+            uint32_t zeros = num_updates - num_valid;
+            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
+            memset(entry+num_valid, 0, sizeof(struct entry_hdr) * zeros);
+        }
+
+        return pool_index;
     }
 
     __rte_always_inline struct daiet_hdr * is_daiet_pkt_from_ps(struct ether_hdr* eth_hdr, uint16_t size) {
@@ -272,8 +294,9 @@ namespace daiet {
     int worker(DaietContext* dctx_ptr) {
 
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
-        const uint32_t num_updates = daiet_par.getNumUpdates();
+        num_updates = daiet_par.getNumUpdates();
         entries_size = sizeof(struct entry_hdr) * daiet_par.getNumUpdates();
+        shift = 0;
 
         volatile uint32_t rx_pkts = 0;
         uint32_t total_num_msgs = 0;
@@ -374,6 +397,10 @@ namespace daiet {
                     rx_pkts = 0;
                     tensor_size = tuptr->count;
                     total_num_msgs = tensor_size / num_updates;
+
+                    if (tensor_size % num_updates!=0)
+                        total_num_msgs++; // one final padded packet
+
                     tsi = 0;
 
 #ifdef LATENCIES
@@ -429,19 +456,19 @@ namespace daiet {
                         while ((uint32_t)rte_atomic32_read(top_index_ptr) < tsi + num_updates)
                             ;
 
-                        build_pkt(m, dpdk_par.portid, tsi);
+                        pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
 
 #ifdef TIMERS
-                        timer_tsis[j] = tsi;
-                        rte_timer_reset_sync(&timers[j], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[j]));
+                        timer_tsis[pool_index_monoset] = tsi;
+                        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[pool_index_monoset]));
 #endif
 
                         tsi += num_updates;
 
-                        sent_message_counters[j]++;
+                        sent_message_counters[pool_index_monoset]++;
 
 #ifdef LATENCIES
-                        write_timestamp(sent_timestamps,j);
+                        write_timestamp(sent_timestamps,pool_index_monoset);
 #endif
 
 #ifdef TIMESTAMPS
@@ -532,7 +559,7 @@ namespace daiet {
 #endif
 
                                     // Store result
-                                    store(daiet);
+                                    store(daiet, tensor_size);
 
                                     // Send for conversion
                                     tsis_for_conversion[pkt_idx] = tsi;
@@ -553,7 +580,7 @@ namespace daiet {
                                             ;
 
                                         //Resend the packet
-                                        reset_pkt(eth, dpdk_par.portid, tsi, m->ol_flags);
+                                        reset_pkt(eth, dpdk_par.portid, tsi, tensor_size, m->ol_flags);
 
                                         ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
                                         if (unlikely(ret < 0))
@@ -594,6 +621,8 @@ namespace daiet {
                     }
                     // Done update
 
+                    // Update shift
+                    shift = (shift + total_num_msgs) % (2 * max_num_pending_messages);
                     // End conversion job
                     ret = rte_ring_enqueue(converter_ring_ptr, nullptr);
                     if (unlikely(ret < 0))
