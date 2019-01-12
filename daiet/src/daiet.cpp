@@ -558,6 +558,7 @@ namespace daiet {
                 strcpy(args[i], par_vec[i].c_str());
             }
 
+/* mlockall has issues inside docker
 #ifndef COLOCATED
             // This is causing some issue with the PS
             if (daiet_par.getMode() == "worker"){
@@ -567,6 +568,7 @@ namespace daiet {
                 }
             }
 #endif
+*/
             // EAL init
             ret = rte_eal_init(args_c, args);
             if (ret < 0)
