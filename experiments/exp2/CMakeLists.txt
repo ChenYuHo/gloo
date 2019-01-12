@@ -37,5 +37,7 @@ if(NOT USE_VANILLA)
 endif()
 
 if(USE_MLX5)
-    target_link_libraries(exp1 ibverbs mlx5)
+    target_link_libraries(float16 ibverbs mlx5)
+    target_link_libraries(float32 ibverbs mlx5)
+    target_link_libraries(int32 ibverbs mlx5)
 endif()
