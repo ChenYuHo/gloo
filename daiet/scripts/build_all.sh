@@ -19,12 +19,12 @@ make -j
 cd ../experiments/exp1/
 mkdir -p build
 cd build
-find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -type f,d -exec rm -rf {} +
+find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
 cmake ..
 make -j
 cd ../../exp2
 mkdir -p build
 cd build
-find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -type f,d -exec rm -rf {} +
+find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
 cmake ..
 make -j
