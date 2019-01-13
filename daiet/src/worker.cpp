@@ -15,7 +15,6 @@ using namespace std;
 namespace daiet {
 
     TensorUpdate* tuptr;
-    size_t entries_size;
     uint32_t num_updates;
     uint16_t shift;
 
@@ -335,7 +334,7 @@ namespace daiet {
         entry = (struct entry_hdr *) (daiet + 1);
 
         fill_fn(entry, tsi, tensor_size);
-print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe());
+
         return pool_index;
     }
 
@@ -394,7 +393,7 @@ print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe
 
     void tx_buffer_callback(struct rte_mbuf **pkts, uint16_t unsent, __attribute__((unused)) void *userdata) {
 
-        LOG_DEBUG("CB");
+        LOG_DEBUG("TX buffer error: unsent " + to_string(unsent));
         unsigned nb_tx = 0, sent = 0;
 
         do {
@@ -437,7 +436,6 @@ print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe
 
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
         num_updates = daiet_par.getNumUpdates();
-        entries_size = sizeof(struct entry_hdr) * daiet_par.getNumUpdates();
         shift = 0;
         scalingfactor = daiet_par.getScalingFactor();
         scalingfactor_vec = scalingfactor;
@@ -676,8 +674,8 @@ print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe
                             //m->l3_len = sizeof(struct ipv4_hdr);
                             //m->ol_flags |= daiet_par.getTxFlags();
 
-                            rte_prefetch0 (rte_pktmbuf_mtod(m, void *));eth
-                            = rte_pktmbuf_mtod(m, struct ether_hdr *);
+                            rte_prefetch0 (rte_pktmbuf_mtod(m, void *));
+                            eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
 #ifndef COLOCATED
                             daiet = is_daiet_pkt_from_ps(eth, m->data_len);
@@ -798,6 +796,7 @@ print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe
 
         // Cleanup
         rte_free(pkts_burst);
+        rte_free(tx_buffer);
 
         return 0;
     }
