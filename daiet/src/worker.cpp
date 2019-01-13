@@ -5,6 +5,11 @@
 
 #include "worker.hpp"
 
+#if defined ( __AVX512F__ ) || defined ( __AVX512__ )
+#define MAX_VECTOR_SIZE 512
+#endif
+#include "vcl/vectorclass.h"
+
 using namespace std;
 
 namespace daiet {
@@ -13,6 +18,21 @@ namespace daiet {
     size_t entries_size;
     uint32_t num_updates;
     uint16_t shift;
+
+    float scalingfactor;
+
+#if MAX_VECTOR_SIZE >= 512
+    Vec16f vec_f;
+    Vec16i vec_i;
+    Vec16f scalingfactor_vec;
+#else
+    Vec8f vec_f;
+    Vec8i vec_i;
+    Vec8f scalingfactor_vec;
+#endif
+
+    void (*fill_fn)(entry_hdr*, uint32_t, uint32_t);
+    void (*store_fn)(daiet_hdr*, uint32_t);
 
 #ifdef TIMERS
     // TOFIX this should be thread local
@@ -96,17 +116,139 @@ namespace daiet {
             return (i - daiet_par.getMaxNumPendingMessages()) | 0x8000;
     }
 
-    __rte_always_inline void store(daiet_hdr* daiet, uint32_t tensor_size) {
+    __rte_always_inline void store_int32(daiet_hdr* daiet, uint32_t tensor_size) {
 
         uint32_t tsi = daiet->tsi;
+        uint32_t final_tsi;
         struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
 
-        if (likely(tsi+num_updates<=tensor_size))
-            rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, entries_size);
-        else {
-            rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, sizeof(struct entry_hdr) * (tensor_size-tsi));
+        if (likely(tsi + num_updates <= tensor_size)) {
+
+            //rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, entries_size);
+
+            for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
+
+                static_cast<uint32_t*>(tuptr->ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
+            }
+
+        } else {
+
+            //rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, sizeof(struct entry_hdr) * (tensor_size - tsi));
+
+            for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
+
+                static_cast<uint32_t*>(tuptr->ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
+            }
         }
 
+    }
+
+    __rte_always_inline void store_float32(daiet_hdr* daiet, uint32_t tensor_size) {
+
+        uint32_t tsi = daiet->tsi;
+        uint32_t final_tsi;
+        struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
+
+        if (likely(tsi + num_updates <= tensor_size)) {
+
+            /* This SIMD code does not improve performance */
+            /*
+
+             for (i = 0; i < num_updates; i++) {
+
+                 (entry+i)->upd = rte_be_to_cpu_32((entry+i)->upd);
+             }
+
+             #if MAX_VECTOR_SIZE >= 512
+             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi += 16, entry += 16) {
+             #else
+             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi += 8, entry += 8) {
+             #endif
+             vec_i.load(entry);
+             vec_f = to_float(vec_i) / scalingfactor_vec;
+             vec_f.store(&(static_cast<float*>(tuptr->ptr)[tsi]));
+             }
+             */
+
+            for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
+
+                static_cast<float*>(tuptr->ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
+            }
+
+        } else {
+
+            for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
+
+                static_cast<float*>(tuptr->ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
+            }
+        }
+
+    }
+
+    __rte_always_inline void fill_int32(struct entry_hdr *entry, uint32_t tsi, uint32_t tensor_size) {
+
+        uint32_t final_tsi;
+
+        if (likely(tsi + num_updates <= tensor_size)) {
+
+            // rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
+            for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
+                entry->upd = rte_cpu_to_be_32((static_cast<uint32_t*>(tuptr->ptr)[tsi]));
+            }
+
+        } else {
+            //Padding
+            uint32_t num_valid = tensor_size - tsi;
+            uint32_t zeros = num_updates - num_valid;
+
+            //rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
+            for (final_tsi = tsi + num_valid; tsi < final_tsi; tsi++, entry++) {
+                entry->upd = rte_cpu_to_be_32((static_cast<uint32_t*>(tuptr->ptr)[tsi]));
+            }
+
+            memset(entry + num_valid, 0, sizeof(struct entry_hdr) * zeros);
+        }
+    }
+
+    __rte_always_inline void fill_float32(struct entry_hdr *entry, uint32_t tsi, uint32_t tensor_size) {
+
+        float* cur_float_ptr;
+        uint32_t* cur_int_ptr;
+        uint32_t* final_ptr;
+
+        cur_float_ptr = &(static_cast<float*>(tuptr->ptr)[tsi]);
+        cur_int_ptr = static_cast<uint32_t*>((void*) cur_float_ptr);
+
+        if (likely(tsi + num_updates <= tensor_size)) {
+
+#if MAX_VECTOR_SIZE >= 512
+            for (uint32_t i = 0; i < num_updates; i += 16) {
+#else
+            for (uint32_t i = 0; i < num_updates; i += 8) {
+#endif
+                vec_f.load(cur_float_ptr + i);
+                round_to_int(vec_f * scalingfactor_vec).store(cur_float_ptr + i);
+            }
+
+            for (final_ptr = cur_int_ptr + num_updates; cur_int_ptr < final_ptr; cur_int_ptr++, entry++) {
+
+                entry->upd = rte_cpu_to_be_32(*(cur_int_ptr));
+            }
+
+        } else {
+            //Padding
+            uint32_t num_valid = tensor_size - tsi;
+            uint32_t zeros = num_updates - num_valid;
+
+            for (final_ptr = cur_int_ptr + num_valid;
+                    cur_int_ptr < final_ptr;
+                    cur_int_ptr++, cur_float_ptr++, entry++) {
+
+                entry->upd = rte_cpu_to_be_32(round(*(cur_float_ptr) * scalingfactor));
+            }
+
+            memset(entry + num_valid, 0, sizeof(struct entry_hdr) * zeros);
+        }
     }
 
     __rte_always_inline void reset_pkt(struct ether_hdr * eth, unsigned portid, uint32_t tsi, uint32_t tensor_size, uint64_t ol_flags) {
@@ -135,14 +277,7 @@ namespace daiet {
         // Swap msb
         daiet->pool_index = rte_cpu_to_be_16(tsi_to_pool_index(tsi));
 
-        if (likely(tsi+num_updates<=tensor_size))
-            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
-        else {
-            uint32_t num_valid = tensor_size-tsi;
-            uint32_t zeros = num_updates - num_valid;
-            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
-            memset(entry+num_valid, 0, sizeof(struct entry_hdr) * zeros);
-        }
+        fill_fn(entry, tsi, tensor_size);
     }
 
     __rte_always_inline uint16_t build_pkt(rte_mbuf* m, unsigned portid, uint32_t tsi, uint32_t tensor_size) {
@@ -156,8 +291,7 @@ namespace daiet {
         struct entry_hdr *entry;
         void *tmp;
 
-        m->data_len = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + sizeof(struct daiet_hdr)
-                + entries_size;
+        m->data_len = sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + sizeof(struct daiet_hdr) + entries_size;
         m->pkt_len = m->data_len;
 
         // Checksum offload
@@ -165,7 +299,7 @@ namespace daiet {
         m->l3_len = sizeof(struct ipv4_hdr);
         m->ol_flags |= daiet_par.getTxFlags();
 
-        rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+        rte_prefetch0 (rte_pktmbuf_mtod(m, void *));
         eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
         // Set MAC addresses
@@ -200,15 +334,8 @@ namespace daiet {
 
         entry = (struct entry_hdr *) (daiet + 1);
 
-        if (likely(tsi+num_updates<=tensor_size))
-            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
-        else {
-            uint32_t num_valid = tensor_size-tsi;
-            uint32_t zeros = num_updates - num_valid;
-            rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
-            memset(entry+num_valid, 0, sizeof(struct entry_hdr) * zeros);
-        }
-
+        fill_fn(entry, tsi, tensor_size);
+print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(), daiet_par.getPsPortBe());
         return pool_index;
     }
 
@@ -265,15 +392,17 @@ namespace daiet {
     }
 #endif
 
-    void worker_setup() {
+    void tx_buffer_callback(struct rte_mbuf **pkts, uint16_t unsent, __attribute__((unused)) void *userdata) {
 
-#ifdef TIMERS
-        // Initialize timer library
-        rte_timer_subsystem_init();
-#endif
-    }
+        LOG_DEBUG("CB");
+        unsigned nb_tx = 0, sent = 0;
 
-    void worker_cleanup() {
+        do {
+            nb_tx = rte_eth_tx_burst(dpdk_par.portid, 0, &pkts[sent], unsent - sent);
+
+            sent += nb_tx;
+        } while (sent < unsent);
+
     }
 
     /**
@@ -291,12 +420,27 @@ namespace daiet {
             rte_pktmbuf_free(*m_list++);
     }
 
-    int worker(DaietContext* dctx_ptr) {
+    void worker_setup() {
+
+#ifdef TIMERS
+        // Initialize timer library
+        rte_timer_subsystem_init();
+#endif
+    }
+
+    void worker_cleanup() {
+    }
+
+    int worker(void* arg) {
+
+        DaietContext* dctx_ptr = (DaietContext*) arg;
 
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
         num_updates = daiet_par.getNumUpdates();
         entries_size = sizeof(struct entry_hdr) * daiet_par.getNumUpdates();
         shift = 0;
+        scalingfactor = daiet_par.getScalingFactor();
+        scalingfactor_vec = scalingfactor;
 
         volatile uint32_t rx_pkts = 0;
         uint32_t total_num_msgs = 0;
@@ -318,7 +462,7 @@ namespace daiet {
 
         unsigned lcore_id;
         unsigned socket_id = rte_socket_id();
-        unsigned nb_rx = 0, j = 0;
+        unsigned nb_rx = 0, nb_tx = 0, sent = 0, j = 0;
         uint32_t worker_id;
 
 #ifndef TIMERS
@@ -327,12 +471,13 @@ namespace daiet {
         string pool_name = "worker_pool";
         struct rte_mbuf **pkts_burst;
         struct rte_mbuf* m;
+        struct rte_eth_dev_tx_buffer* tx_buffer;
+
+        uint64_t prev_tsc = 0, diff_tsc = 0, cur_tsc = 0;
+        const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * dpdk_par.bulk_drain_tx_us;
 
         struct ether_hdr* eth;
         struct daiet_hdr* daiet;
-
-        rte_atomic32_t* top_index_ptr;
-        rte_ring* converter_ring_ptr;
 
         uint32_t tsi = 0;
         uint16_t pool_index = 0;
@@ -362,16 +507,24 @@ namespace daiet {
         if (pool == NULL)
             LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
 
+        // Initialize TX buffers
+        tx_buffer = (rte_eth_dev_tx_buffer*) rte_zmalloc_socket("tx_buffer", RTE_ETH_TX_BUFFER_SIZE(dpdk_par.burst_tx), RTE_CACHE_LINE_SIZE, socket_id);
+
+        if (tx_buffer == NULL)
+            LOG_FATAL("Cannot allocate TX buffer");
+
+        rte_eth_tx_buffer_init(tx_buffer, dpdk_par.burst_tx);
+
+        ret = rte_eth_tx_buffer_set_err_callback(tx_buffer, tx_buffer_callback, NULL);
+
+        if (ret < 0)
+            LOG_FATAL("Cannot set callback for tx buffer");
+
         // Bitmap
         void* bitmap_mem;
         uint32_t bitmap_size;
         struct rte_bitmap *bitmap;
         uint32_t pkt_idx = 0;
-
-        // Conversion
-        uint32_t* tsis_for_conversion;
-        top_index_ptr = &dpdk_data.top_index;
-        converter_ring_ptr = dpdk_data.converter_ring_ptr;
 
         pkts_burst = (rte_mbuf **) rte_malloc_socket(NULL, max_num_pending_messages * sizeof(struct rte_mbuf*), RTE_CACHE_LINE_SIZE, socket_id);
         if (unlikely(pkts_burst == NULL))
@@ -385,125 +538,132 @@ namespace daiet {
 
             if (tuptr != NULL) {
 
-                rte_atomic32_clear(top_index_ptr);
+                memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
 
-                while (!dctx_ptr->send_conversion_job(tuptr) && !force_quit)
-                    ;
+                rx_pkts = 0;
+                tsi = 0;
+                tensor_size = tuptr->count;
+                total_num_msgs = tensor_size / num_updates;
 
-                if (!force_quit) {
+                if (tensor_size % num_updates != 0)
+                    total_num_msgs++; // one final padded packet
 
-                    memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
-
-                    rx_pkts = 0;
-                    tensor_size = tuptr->count;
-                    total_num_msgs = tensor_size / num_updates;
-
-                    if (tensor_size % num_updates!=0)
-                        total_num_msgs++; // one final padded packet
-
-                    tsi = 0;
+                if (tuptr->type == FLOAT) {
+                    fill_fn = &fill_float32;
+                    store_fn = &store_float32;
+                } else if (tuptr->type == INT) {
+                    fill_fn = &fill_int32;
+                    store_fn = &store_int32;
+                }
 
 #ifdef LATENCIES
+                uint64_t latencies[total_num_msgs];
+                memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
+                lat_idx = 0;
 
-                    uint64_t latencies[total_num_msgs];
-                    memset(latencies, 0, total_num_msgs * (sizeof(*latencies)));
-                    lat_idx = 0;
-
-                    memset(sent_timestamps, 0, max_num_pending_messages * (sizeof(*sent_timestamps)));
+                memset(sent_timestamps, 0, max_num_pending_messages * (sizeof(*sent_timestamps)));
 #endif
 
 #ifdef TIMESTAMPS
-                    uint64_t global_sent_timestamps[total_num_msgs];
-                    memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
-                    ts_idx = 0;
+                uint64_t global_sent_timestamps[total_num_msgs];
+                memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
+                ts_idx = 0;
 #endif
 
-                    // Initialize bitmap
-                    bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
-                    if (unlikely(bitmap_size == 0)) {
-                        LOG_FATAL("Worker thread: bitmap failed");
-                    }
+                // Initialize bitmap
+                bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
+                if (unlikely(bitmap_size == 0)) {
+                    LOG_FATAL("Worker thread: bitmap failed");
+                }
 
-                    bitmap_mem = rte_zmalloc_socket(NULL, bitmap_size, RTE_CACHE_LINE_SIZE, socket_id);
-                    if (unlikely(bitmap_mem == NULL)) {
-                        LOG_FATAL("Worker thread: cannot allocate bitmap");
-                    }
+                bitmap_mem = rte_zmalloc_socket("bitmap", bitmap_size, RTE_CACHE_LINE_SIZE, socket_id);
+                if (unlikely(bitmap_mem == NULL)) {
+                    LOG_FATAL("Worker thread: cannot allocate bitmap");
+                }
 
-                    bitmap = rte_bitmap_init(total_num_msgs, (uint8_t*) bitmap_mem, bitmap_size);
-                    if (unlikely(bitmap == NULL)) {
-                        LOG_FATAL("Failed to init bitmap");
-                    }
-                    rte_bitmap_reset(bitmap);
+                bitmap = rte_bitmap_init(total_num_msgs, (uint8_t*) bitmap_mem, bitmap_size);
+                if (unlikely(bitmap == NULL)) {
+                    LOG_FATAL("Failed to init bitmap");
+                }
+                rte_bitmap_reset(bitmap);
 
-                    // Init TSIs for conversion
-                    tsis_for_conversion = (uint32_t*)rte_zmalloc_socket(NULL, total_num_msgs*sizeof(uint32_t), RTE_CACHE_LINE_SIZE, socket_id);
-                    if (unlikely(tsis_for_conversion == NULL)) {
-                        LOG_FATAL("Worker thread: cannot allocate TSIs for conversion");
-                    }
+                // Send first pkt burst
+                burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
 
-                    // Send first pkt burst
-                    burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
+                // Allocate pkt burst
+                ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
+                if (unlikely(ret < 0))
+                    LOG_FATAL("Cannot allocate pkts burst");
 
-                    // Allocate pkt burst
-                    ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
-                    if (unlikely(ret < 0))
-                        LOG_FATAL("Cannot allocate pkts burst");
+                for (j = 0; j < burst_size; j++) {
+                    m = pkts_burst[j];
 
-                    for (j = 0; j < burst_size; j++) {
-                        m = pkts_burst[j];
-
-                        // Wait for conversion
-                        while ((uint32_t)rte_atomic32_read(top_index_ptr) < tsi + num_updates)
-                            ;
-
-                        pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
+                    pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
 
 #ifdef TIMERS
-                        timer_tsis[pool_index_monoset] = tsi;
-                        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[pool_index_monoset]));
+                    timer_tsis[pool_index_monoset] = tsi;
+                    rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[pool_index_monoset]));
 #endif
 
-                        tsi += num_updates;
+                    tsi += num_updates;
 
-                        sent_message_counters[pool_index_monoset]++;
+                    sent_message_counters[pool_index_monoset]++;
 
 #ifdef LATENCIES
-                        write_timestamp(sent_timestamps,pool_index_monoset);
+                    write_timestamp(sent_timestamps,pool_index_monoset);
 #endif
 
 #ifdef TIMESTAMPS
-                        write_global_timestamp(global_sent_timestamps,j);
+                    write_global_timestamp(global_sent_timestamps,j);
 #endif
-                    }
+                }
 
-                    // Transmit the packet burst
-                    do {
-                        ret = rte_ring_enqueue_bulk(dpdk_data.w_ring_tx, (void **) pkts_burst, burst_size, NULL);
-                    } while (ret == 0);
+                // Transmit the packet burst
+                sent = 0;
+                do {
+                    nb_tx = rte_eth_tx_burst(dpdk_par.portid, 0, &pkts_burst[sent], burst_size - sent);
 
-                    pkt_stats.w_tx += burst_size;
+                    sent += nb_tx;
+                } while (sent < burst_size);
+
+                pkt_stats.w_tx += burst_size;
 
 #ifdef LATENCIES
-                    lat_idx += burst_size;
+                lat_idx += burst_size;
 #endif
 
 #ifdef TIMESTAMPS
-                    ts_idx += burst_size;
+                ts_idx += burst_size;
 #endif
 
-                    while (rx_pkts < total_num_msgs && !force_quit) {
+                while (rx_pkts < total_num_msgs && !force_quit) {
 
 #ifdef TIMERS
-                        // Check timers
-                        timer_cur_tsc = rte_rdtsc();
-                        if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
-                            rte_timer_manage();
-                            timer_prev_tsc = timer_cur_tsc;
+                    // Check timers
+                    timer_cur_tsc = rte_rdtsc();
+                    if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
+                        rte_timer_manage();
+                        timer_prev_tsc = timer_cur_tsc;
+                    }
+#endif
+
+                    // Read packet from RX ring
+                    nb_rx = rte_eth_rx_burst(dpdk_par.portid, 0, pkts_burst, dpdk_par.burst_rx);
+
+                    if (unlikely(nb_rx == 0)) {
+
+                        cur_tsc = rte_get_timer_cycles();
+
+                        diff_tsc = cur_tsc - prev_tsc;
+                        if (unlikely(diff_tsc > drain_tsc)) {
+                            // TX drain
+                            nb_tx = rte_eth_tx_buffer_flush(dpdk_par.portid, 0, tx_buffer);
+                            if (nb_tx)
+                                pkt_stats.w_tx += nb_tx;
+
+                            prev_tsc = cur_tsc;
                         }
-#endif
-
-                        // Read packet from RX ring
-                        nb_rx = rte_ring_dequeue_burst(dpdk_data.w_ring_rx, (void **) pkts_burst, dpdk_par.burst_size_worker, NULL);
+                    } else {
 
                         for (j = 0; j < nb_rx; j++) {
 
@@ -516,12 +676,12 @@ namespace daiet {
                             //m->l3_len = sizeof(struct ipv4_hdr);
                             //m->ol_flags |= daiet_par.getTxFlags();
 
-                            rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-                            eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
+                            rte_prefetch0 (rte_pktmbuf_mtod(m, void *));eth
+                            = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
 #ifndef COLOCATED
                             daiet = is_daiet_pkt_from_ps(eth, m->data_len);
-                            if (likely(daiet!=NULL)) {
+                            if (likely(daiet != NULL)) {
 #else
                                 daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
 #endif
@@ -559,13 +719,7 @@ namespace daiet {
 #endif
 
                                     // Store result
-                                    store(daiet, tensor_size);
-
-                                    // Send for conversion
-                                    tsis_for_conversion[pkt_idx] = tsi;
-                                    ret = rte_ring_enqueue(converter_ring_ptr, &tsis_for_conversion[pkt_idx]);
-                                    if (unlikely(ret < 0))
-                                        LOG_FATAL("Cannot enqueue one tsi for conversion");
+                                    store_fn(daiet, tensor_size);
 
                                     tsi += num_updates * max_num_pending_messages;
 
@@ -575,16 +729,14 @@ namespace daiet {
 
                                     if (likely(tsi < tensor_size)) {
 
-                                        // Wait for conversion
-                                        while ((uint32_t)rte_atomic32_read(top_index_ptr) < tsi + num_updates)
-                                            ;
-
                                         //Resend the packet
                                         reset_pkt(eth, dpdk_par.portid, tsi, tensor_size, m->ol_flags);
 
-                                        ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
-                                        if (unlikely(ret < 0))
-                                            LOG_FATAL("Cannot enqueue one packet");
+                                        nb_tx = rte_eth_tx_buffer(dpdk_par.portid, 0, tx_buffer, m);
+                                        if (nb_tx) {
+                                            pkt_stats.w_tx += nb_tx;
+                                            prev_tsc = cur_tsc;
+                                        }
 
 #ifdef TIMERS
                                         // Start timer
@@ -592,7 +744,6 @@ namespace daiet {
                                                 &timer_tsis[pool_index_monoset]);
 #endif
 
-                                        pkt_stats.w_tx++;
                                         sent_message_counters[pool_index_monoset]++;
                                     }
 
@@ -619,36 +770,29 @@ namespace daiet {
 #endif
                         }
                     }
-                    // Done update
+                }
+                // Done update
 
-                    // Update shift
-                    shift = (shift + total_num_msgs) % (2 * max_num_pending_messages);
-                    // End conversion job
-                    ret = rte_ring_enqueue(converter_ring_ptr, nullptr);
-                    if (unlikely(ret < 0))
-                        LOG_FATAL("Cannot enqueue one NULL for conversion");
+                // Update shift
+                shift = (shift + total_num_msgs) % (2 * max_num_pending_messages);
 
-                    // Wait for conversion to end
-                    while (rte_atomic32_read(top_index_ptr) != 0)
-                        ;
-                    while (!dctx_ptr->send_result(tuptr->id) && !force_quit)
-                        ;
+                while (!dctx_ptr->send_result(tuptr->id) && !force_quit)
+                    ;
 
-                    rte_pktmbuf_free_bulk(pkts_burst, burst_size);
+                rte_pktmbuf_free_bulk(pkts_burst, burst_size);
 
-                    rte_free(tsis_for_conversion);
-                    rte_bitmap_free(bitmap);
-                    rte_free(bitmap_mem);
+                rte_bitmap_free(bitmap);
+                rte_free(bitmap_mem);
 
 #ifdef LATENCIES
-                    dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
+                dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
 #endif
 
 #ifdef TIMESTAMPS
-                    dump_timestamps(global_sent_timestamps, total_num_msgs, "timestamps_" + to_string(round_ts) + "_usec.dat");
-                    round_ts++;
+                dump_timestamps(global_sent_timestamps, total_num_msgs, "timestamps_" + to_string(round_ts) + "_usec.dat");
+                round_ts++;
 #endif
-                }
+
             }
         } // force quit
 

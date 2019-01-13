@@ -56,7 +56,6 @@ namespace daiet {
 
     extern volatile bool force_quit;
     extern volatile bool ps_stop;
-    extern volatile bool converter_stop;
 
     extern uint32_t core_to_workers_ids[];
 

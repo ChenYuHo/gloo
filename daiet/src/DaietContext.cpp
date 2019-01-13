@@ -20,7 +20,7 @@ namespace daiet {
     }
 
     DaietContext::DaietContext() :
-            master_ready(false), data_ready(false), result_empty(true), tensor_update_ptr(NULL), conversion_job(NULL), result_id(0), one_msec(1) {
+            master_ready(false), data_ready(false), result_empty(true), tensor_update_ptr(NULL), result_id(0), one_msec(1) {
 
         tid_counter.store(0);
         StartMaster();
@@ -97,38 +97,6 @@ namespace daiet {
         result_id = 0;
 
         result_pop_event.notify_one();
-    }
-
-    bool DaietContext::send_conversion_job(TensorUpdate* tuptr) {
-
-        boost::unique_lock<boost::mutex> lock(converter_mutex);
-
-        while (conversion_job != NULL) {
-            if (converter_ready_event.wait_for(lock, one_msec) == boost::cv_status::timeout)
-                return false;
-        }
-
-        conversion_job = tuptr;
-        converter_job_event.notify_one();
-
-        return true;
-    }
-
-    TensorUpdate* DaietContext::receive_conversion_job() {
-        boost::unique_lock<boost::mutex> lock(converter_mutex);
-
-        while (conversion_job == NULL) {
-            if (converter_job_event.wait_for(lock, one_msec) == boost::cv_status::timeout)
-                return NULL;
-        }
-
-        TensorUpdate* tpp = conversion_job;
-
-        conversion_job = NULL;
-
-        converter_ready_event.notify_one();
-
-        return tpp;
     }
 
     void DaietContext::StartMaster() {

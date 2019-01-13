@@ -11,40 +11,16 @@ using namespace std;
 
 namespace daiet {
 
+    void print_dpdk_params();
+    void parse_parameters();
+
     struct dpdk_data {
-
-            // CPU cores
-            uint32_t core_rx;
-            uint32_t core_tx;
-            uint32_t core_converter;
-
-            // Rings
-            struct rte_ring *w_ring_rx;
-            struct rte_ring *w_ring_tx;
-            struct rte_ring *p_ring_rx;
-            struct rte_ring *p_ring_tx;
-            struct rte_ring* converter_ring_ptr;
-
-            // Converter index
-            rte_atomic32_t top_index;
 
             // Buffer pool size
             uint32_t pool_buffer_size;
 
             dpdk_data() {
                 // Defaults
-
-                // CPU cores
-                core_rx = 0;
-                core_tx = 0;
-                core_converter = 0;
-
-                // Rings
-                w_ring_rx = NULL;
-                w_ring_tx = NULL;
-                p_ring_rx = NULL;
-                p_ring_tx = NULL;
-                converter_ring_ptr = NULL;
 
                 pool_buffer_size = RTE_MBUF_DEFAULT_BUF_SIZE;
             }
@@ -57,21 +33,17 @@ namespace daiet {
             uint16_t port_rx_ring_size;
             uint16_t port_tx_ring_size;
 
-            // Rings
-            uint32_t ring_rx_size;
-            uint32_t ring_tx_size;
-            uint32_t converter_ring_size;
-
             // Buffer pool
             uint32_t pool_size;
             uint32_t pool_cache_size;
 
             // Burst sizes
-            uint32_t burst_size_rx_read;
-            uint32_t burst_size_worker;
-            uint32_t burst_size_converter_read;
-            uint32_t burst_size_tx_read;
-            uint32_t burst_drain_tx_us;
+            uint32_t burst_rx;
+            uint32_t burst_tx;
+            uint32_t bulk_drain_tx_us;
+
+            // Extra EAL options
+            string eal_options;
 
             // Process prefix
             string prefix;
@@ -86,20 +58,16 @@ namespace daiet {
                 port_rx_ring_size = 1024;
                 port_tx_ring_size = 1024;
 
-                ring_rx_size = 65536;
-                ring_tx_size = 65536;
-                converter_ring_size = 65536;
-
                 pool_size = 8192 * 32;
                 pool_cache_size = 256 * 2;
 
-                burst_size_rx_read = 64;
-                burst_size_worker = 64;
-                burst_size_converter_read = 64;
-                burst_size_tx_read = 64;
-                burst_drain_tx_us = 100;
+                burst_rx = 64;
+                burst_tx = 64;
+                bulk_drain_tx_us = 100;
 
                 prefix = "daiet";
+                eal_options = "";
+
 #ifndef COLOCATED
                 corestr = "0-2";
 #else
@@ -107,8 +75,6 @@ namespace daiet {
 #endif
             }
     }__rte_cache_aligned;
-
-    void print_dpdk_params();
 
     class daiet_params {
         private:

@@ -15,5 +15,5 @@ namespace daiet {
 
     void worker_setup();
     void worker_cleanup();
-    int worker(DaietContext*);
+    int worker(void*);
 }

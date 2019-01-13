@@ -9,7 +9,6 @@ namespace daiet {
 
     volatile bool force_quit;
     volatile bool ps_stop;
-    volatile bool converter_stop;
 
     struct pkt_statistics pkt_stats;
 }

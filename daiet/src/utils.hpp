@@ -15,9 +15,6 @@
 #include <algorithm>
 #include <map>
 
-#include <boost/program_options.hpp>
-#include <boost/algorithm/string/split.hpp>
-
 #include "dpdk.h"
 #include "common.hpp"
 #include "params.hpp"

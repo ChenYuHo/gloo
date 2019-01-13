@@ -4,6 +4,7 @@
  */
 
 #include "utils.hpp"
+#include <boost/algorithm/string/split.hpp>
 
 using namespace std;
 
@@ -34,9 +35,6 @@ namespace daiet {
     }
     template void LOG_INFO<string>(string);
     template void LOG_INFO<char const*>(char const*);
-
-    namespace po = boost::program_options;
-    template void LOG_INFO<po::options_description>(po::options_description);
 
     template<typename T>
 #ifdef DEBUG

@@ -41,9 +41,6 @@ namespace daiet {
             void wait_master_ready();
             void set_master_ready();
 
-            TensorUpdate* receive_conversion_job();
-            bool send_conversion_job(TensorUpdate*);
-
             void receive_result(const int32_t);
             bool send_result(const int32_t);
             TensorUpdate* receive_tensor();
@@ -70,15 +67,13 @@ namespace daiet {
             int ret;
 
             std::atomic_uint_fast32_t tid_counter;
-            boost::mutex master_ready_mutex, data_ready_mutex, result_mutex, converter_mutex;
-            boost::condition_variable master_ready_event, data_push_event, data_pop_event, result_push_event, result_pop_event, converter_ready_event,
-                    converter_job_event;
+            boost::mutex master_ready_mutex, data_ready_mutex, result_mutex;
+            boost::condition_variable master_ready_event, data_push_event, data_pop_event, result_push_event, result_pop_event;
             bool master_ready;
 
             // Shared
             bool data_ready, result_empty;
             TensorUpdate* tensor_update_ptr;
-            TensorUpdate* conversion_job;
             int32_t result_id;
             // ***
 

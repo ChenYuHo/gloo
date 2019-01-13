@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
     vector<int32_t, aligned_allocator<int32_t, kBufferAlignment>> data;
     int roundnum = 0;
 
-    int32_t elem = 1;
+    int32_t elem = 1, expected = 0;
 
     // GLOO transport
     gloo::transport::tcp::attr attr;
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
     data.resize(tensor_size);
     cout << "-- Tensor initialization" << endl;
     for (int i = 0; i < tensor_size; i++) {
-        base_data.insert(base_data.begin() + i, elem);
+        base_data.insert(base_data.begin() + i, (i%100)*elem);
     }
     copy(base_data.begin(), base_data.end(), data.begin());
     cout << "---- Ended" << endl;
@@ -120,8 +120,9 @@ int main(int argc, char* argv[]) {
 
     cout << "-- Final check" << endl;
     for (int i = 0; i < tensor_size; i++) {
-        if (data[i] != elem * powf(size, num_last_rounds)) {
-            cout << "---- Failed: index: " << i << " -> received " << data[i] << " instead of " << elem * powf(size, num_last_rounds) << endl;
+        expected = (i%100) * elem * powf(size, num_last_rounds);
+        if (data[i] != expected) {
+            cout << "---- Failed: index: " << i << " -> received " << data[i] << " instead of " << expected << endl;
             break;
         }
     }

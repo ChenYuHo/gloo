@@ -15,11 +15,8 @@
 #include "params.hpp"
 #include "worker.hpp"
 #include "ps.hpp"
-#include "converter.hpp"
 
 using namespace std;
-using namespace daiet;
-namespace po = boost::program_options;
 
 namespace daiet {
 
@@ -27,172 +24,6 @@ namespace daiet {
     struct dpdk_data dpdk_data;
     struct dpdk_params dpdk_par;
     daiet_params daiet_par;
-
-    volatile bool tx_rx_stop = false;
-
-#ifdef COLOCATED
-    __rte_always_inline bool is_daiet_pkt(struct ether_hdr* eth, uint16_t size, bool& to_ps) {
-
-        int idx;
-        uint16_t etherType;
-        struct ipv4_hdr* ip_hdr;
-        struct udp_hdr* udp_hdr;
-
-        idx = sizeof(struct ether_hdr);
-        etherType = rte_be_to_cpu_16(eth->ether_type);
-
-        if (etherType == ETHER_TYPE_IPv4 && size >= idx + sizeof(struct ipv4_hdr)) {
-
-            idx += sizeof(struct ipv4_hdr);
-            ip_hdr = (struct ipv4_hdr *) (eth + 1);
-
-            if (ip_hdr->next_proto_id == IPPROTO_UDP && size >= idx + sizeof(struct udp_hdr)) {
-                idx += sizeof(struct udp_hdr);
-                udp_hdr = (struct udp_hdr *) (ip_hdr + 1);
-
-                if (udp_hdr->dst_port == daiet_par.getPsPortBe()) {
-                    to_ps = true;
-                } else if (udp_hdr->dst_port == daiet_par.getWorkerPortBe()) {
-                    to_ps = false;
-                } else {
-                    return false;
-                }
-
-                if (size >= idx + sizeof(struct daiet_hdr)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-#endif
-
-    int rx_loop(__attribute__((unused)) void*) {
-        // Get core ID
-        unsigned lcore_id = rte_lcore_id();
-
-#ifndef COLOCATED
-        struct rte_ring * ring_rx;
-
-        if (daiet_par.getMode() == "worker")
-            ring_rx = dpdk_data.w_ring_rx;
-        else if (daiet_par.getMode() == "ps")
-            ring_rx = dpdk_data.p_ring_rx;
-        else
-            return -1;
-#else
-        int j;
-        struct rte_mbuf* m;
-        struct ether_hdr *eth;
-        bool to_ps;
-#endif
-
-        int ret;
-
-        uint16_t n_mbufs;
-        struct rte_mbuf *rx_pkts_burst[dpdk_par.burst_size_rx_read];
-
-        LOG_DEBUG("RX core: " + to_string(lcore_id));
-
-        while (!force_quit && !tx_rx_stop) {
-
-            n_mbufs = rte_eth_rx_burst(dpdk_par.portid, 0, rx_pkts_burst, dpdk_par.burst_size_rx_read);
-
-            if (n_mbufs != 0) {
-#ifndef COLOCATED
-                do {
-                    ret = rte_ring_sp_enqueue_bulk(ring_rx, (void **) rx_pkts_burst, n_mbufs, NULL);
-                } while (ret == 0);
-#else
-                for (j = 0; j < n_mbufs; j++) {
-
-                    m = rx_pkts_burst[j];
-
-                    rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-                    eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
-
-                    if (likely(is_daiet_pkt(eth, m->data_len, to_ps))) {
-                        if (to_ps) {
-
-                            ret = rte_ring_enqueue(dpdk_data.p_ring_rx, m);
-                            if (unlikely(ret < 0))
-                            LOG_FATAL("Cannot enqueue one packet");
-
-                        } else {
-
-                            ret = rte_ring_enqueue(dpdk_data.w_ring_rx, m);
-                            if (unlikely(ret < 0))
-                            LOG_FATAL("Cannot enqueue one packet");
-                        }
-                    } else {
-                        // Free original packet
-                        rte_pktmbuf_free(m);
-                    }
-                }
-#endif
-            }
-        }
-        return 0;
-    }
-
-    int tx_loop(__attribute__((unused)) void*) {
-        // Get core ID
-        unsigned lcore_id = rte_lcore_id();
-
-#ifndef COLOCATED
-        struct rte_ring * ring_tx;
-
-        if (daiet_par.getMode() == "worker")
-            ring_tx = dpdk_data.w_ring_tx;
-        else if (daiet_par.getMode() == "ps")
-            ring_tx = dpdk_data.p_ring_tx;
-        else
-            return -1;
-#endif
-
-        uint32_t n_mbufs = 0, n_pkts, sent = 0;
-        struct rte_mbuf *tx_pkts_burst[dpdk_par.burst_size_tx_read];
-
-        uint64_t prev_tsc = 0, diff_tsc, cur_tsc;
-        const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * dpdk_par.burst_drain_tx_us;
-
-        LOG_DEBUG("TX core: " + to_string(lcore_id));
-
-        while (!force_quit && !tx_rx_stop) {
-
-            cur_tsc = rte_rdtsc();
-
-            diff_tsc = cur_tsc - prev_tsc;
-            if (unlikely(diff_tsc > drain_tsc)) {
-                // Ring drain
-#ifndef COLOCATED
-                n_mbufs = rte_ring_sc_dequeue_burst(ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
-#else
-                n_mbufs = rte_ring_sc_dequeue_burst(dpdk_data.w_ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
-                n_mbufs += rte_ring_sc_dequeue_burst(dpdk_data.p_ring_tx, (void **) &tx_pkts_burst[n_mbufs], dpdk_par.burst_size_tx_read, NULL);
-#endif
-            } else {
-#ifndef COLOCATED
-                n_mbufs = rte_ring_sc_dequeue_bulk(ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
-#else
-                n_mbufs = rte_ring_sc_dequeue_bulk(dpdk_data.w_ring_tx, (void **) tx_pkts_burst, dpdk_par.burst_size_tx_read, NULL);
-                n_mbufs += rte_ring_sc_dequeue_bulk(dpdk_data.p_ring_tx, (void **) &tx_pkts_burst[n_mbufs], dpdk_par.burst_size_tx_read, NULL);
-#endif
-            }
-
-            if (n_mbufs != 0) {
-
-                do {
-                    n_pkts = rte_eth_tx_burst(dpdk_par.portid, 0, &tx_pkts_burst[sent], n_mbufs - sent);
-
-                    sent += n_pkts;
-                } while (sent < n_mbufs);
-                sent = 0;
-                prev_tsc = cur_tsc;
-            }
-        }
-        return 0;
-    }
 
     void port_init() {
 
@@ -276,6 +107,19 @@ namespace daiet {
         //port_conf.lpbk_mode = 0; // Loopback operation mode disabled
         //port_conf.dcb_capability_en = 0; // DCB disabled
 
+        /* FDIR
+        port_conf.rx_adv_conf.rss_conf.rss_key = NULL;
+        port_conf.rx_adv_conf.rss_conf.rss_hf = 0;
+
+        port_conf.fdir_conf.mode = RTE_FDIR_MODE_PERFECT;
+        port_conf.fdir_conf.pballoc = RTE_FDIR_PBALLOC_64K;
+        port_conf.fdir_conf.status = RTE_FDIR_NO_REPORT_STATUS;
+        port_conf.fdir_conf.drop_queue = 127;
+
+        memset(&port_conf.fdir_conf.mask, 0x00, sizeof(struct rte_eth_fdir_masks));
+        port_conf.fdir_conf.mask.dst_port_mask = 0xFFFF;
+        */
+
         ret = rte_eth_dev_configure(dpdk_par.portid, 1, 1, &port_conf);
         if (ret < 0)
             LOG_FATAL("Cannot configure port: " + string(rte_strerror(ret)));
@@ -345,160 +189,11 @@ namespace daiet {
             LOG_FATAL("Error starting the port: " + string(rte_strerror(ret)));
 
         // Enable promiscuous mode
-        //rte_eth_promiscuous_enable(portid);
+        //rte_eth_promiscuous_enable(dpdk_par.portid);
 
         LOG_DEBUG("Initialization ended. Port " + to_string(dpdk_par.portid) + " address: " + mac_to_str(port_eth_addr));
 
         check_port_link_status(dpdk_par.portid);
-    }
-
-    void rings_init(string mode) {
-
-        string rx_name, tx_name;
-        struct rte_ring * ring_rx;
-        struct rte_ring * ring_tx;
-
-        if (mode == "worker") {
-            rx_name = "w_ring_rx";
-            tx_name = "w_ring_tx";
-        } else if (mode == "ps") {
-            rx_name = "p_ring_rx";
-            tx_name = "p_ring_tx";
-        }
-
-        ring_rx = rte_ring_create(rx_name.c_str(), dpdk_par.ring_rx_size, rte_socket_id(), RING_F_SP_ENQ);
-
-        if (ring_rx == NULL)
-            LOG_FATAL("Cannot create RX ring");
-
-        ring_tx = rte_ring_create(tx_name.c_str(), dpdk_par.ring_tx_size, rte_socket_id(), RING_F_SC_DEQ);
-
-        if (ring_tx == NULL)
-            LOG_FATAL("Cannot create TX ring");
-
-        if (mode == "worker") {
-            dpdk_data.w_ring_rx = ring_rx;
-            dpdk_data.w_ring_tx = ring_tx;
-        } else if (mode == "ps") {
-            dpdk_data.p_ring_rx = ring_rx;
-            dpdk_data.p_ring_tx = ring_tx;
-        }
-    }
-
-    void rings_cleanup(string mode) {
-
-        if (mode == "worker") {
-            rte_ring_free(dpdk_data.w_ring_rx);
-            rte_ring_free(dpdk_data.w_ring_tx);
-        } else if (mode == "ps") {
-            rte_ring_free(dpdk_data.p_ring_rx);
-            rte_ring_free(dpdk_data.p_ring_tx);
-        }
-    }
-
-    void signal_handler(int signum) {
-        if (signum == SIGINT || signum == SIGTERM) {
-            LOG_DEBUG(" Signal " + to_string(signum) + " received, preparing to exit...");
-            force_quit = true;
-        }
-    }
-
-    void parse_parameters() {
-
-        string config_file;
-        ifstream ifs;
-        float max_float;
-        uint16_t worker_port, ps_port;
-        uint32_t num_updates;
-        string worker_ip_str, ps_ips_str, ps_macs_str;
-
-        po::options_description dpdk_options("DPDK options");
-        po::options_description daiet_options("DAIET options");
-        po::options_description config_file_options;
-
-        dpdk_options.add_options()
-                ("dpdk.cores", po::value<string>(&dpdk_par.corestr)->default_value("0-2"), "List of cores")
-                ("dpdk.prefix", po::value<string>(&dpdk_par.prefix)->default_value("daiet"), "Process prefix")
-                ("dpdk.port_id", po::value<uint16_t>(&dpdk_par.portid)->default_value(0), "Port ID")
-                ("dpdk.ring_rx_size", po::value<uint32_t>(&dpdk_par.ring_rx_size)->default_value(65536), "RX ring size, must be a power of 2")
-                ("dpdk.ring_tx_size", po::value<uint32_t>(&dpdk_par.ring_tx_size)->default_value(65536), "TX ring size, must be a power of 2")
-                ("dpdk.converter_ring_size", po::value<uint32_t>(&dpdk_par.converter_ring_size)->default_value(4194304), "Converter ring size, must be a power of 2 greater than the max tensor size / num_updates")
-                ("dpdk.pool_size", po::value<uint32_t>(&dpdk_par.pool_size)->default_value(8192 * 32), "Pool size")
-                ("dpdk.pool_cache_size", po::value<uint32_t>(&dpdk_par.pool_cache_size)->default_value(256 * 2), "Pool cache size")
-                ("dpdk.burst_size_rx_read", po::value<uint32_t>(&dpdk_par.burst_size_rx_read)->default_value(64), "RX read burst size")
-                ("dpdk.burst_size_worker", po::value<uint32_t>(&dpdk_par.burst_size_worker)->default_value(64), "Worker burst size")
-                ("dpdk.burst_size_converter_read", po::value<uint32_t>(&dpdk_par.burst_size_converter_read)->default_value(64), "Converter read burst size")
-                ("dpdk.burst_size_tx_read", po::value<uint32_t>(&dpdk_par.burst_size_tx_read)->default_value(64), "TX read burst size")
-                ("dpdk.burst_drain_tx_us", po::value<uint32_t>(&dpdk_par.burst_drain_tx_us)->default_value(100), "TX burst drain timer (us)");
-
-        daiet_options.add_options()
-                ("daiet.worker_ip", po::value<string>(&worker_ip_str)->default_value("10.0.0.1"), "IP address of this worker")
-                ("daiet.worker_port", po::value<uint16_t>(&worker_port)->default_value(4000), "Worker UDP port")
-                ("daiet.ps_port", po::value<uint16_t>(&ps_port)->default_value(48879), "PS UDP port")
-                ("daiet.ps_ips", po::value<string>(&ps_ips_str)->required(), "Comma-separated list of PS IP addresses")
-                ("daiet.ps_macs", po::value<string>(&ps_macs_str)->required(), "Comma-separated list of PS MAC addresses")
-                ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
-                ("daiet.num_updates", po::value<uint32_t>(&num_updates)->default_value(32), "Number of updates per packet")
-                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value")
-#ifndef COLOCATED
-                ("daiet.mode", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
-#endif
-                ("daiet.num_workers", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers (only for PS mode)");
-
-
-        config_file_options.add(daiet_options).add(dpdk_options);
-
-        config_file = "/etc/daiet.cfg";
-        ifs.open(config_file.c_str());
-        if(!ifs.good()){
-            ifs.close();
-
-            char hostname[500];
-            if (gethostname(hostname,sizeof(hostname))!=0)
-                LOG_FATAL("gethostname failed: "+ string(strerror(errno)));
-
-            config_file = "daiet-"+string(hostname)+".cfg";
-            ifs.open(config_file.c_str());
-            if(!ifs.good()){
-                ifs.close();
-
-                config_file = "daiet.cfg";
-                ifs.open(config_file.c_str());
-                if(!ifs.good()){
-                    ifs.close();
-                    LOG_FATAL("No config file found! (/etc/daiet.cfg, daiet-"+string(hostname)+".cfg, daiet.cfg)");
-                }
-            }
-        }
-        LOG_INFO("Configuration file "+config_file);
-
-        po::variables_map vm;
-        po::store(po::parse_config_file(ifs, config_file_options), vm);
-        po::notify(vm);
-
-#ifndef COLOCATED
-        if (daiet_par.getMode() != "worker" && daiet_par.getMode() != "ps")
-            LOG_FATAL("Wrong mode: " + daiet_par.getMode());
-#endif
-
-        if (!daiet_par.setWorkerIp(worker_ip_str))
-            LOG_FATAL("Invalid worker IP: " + worker_ip_str);
-
-        daiet_par.setWorkerPort(worker_port);
-        daiet_par.setPsPort(ps_port);
-
-        if (!daiet_par.setPs(ps_ips_str, ps_macs_str))
-            LOG_FATAL("Invalid PS address: \n" + ps_ips_str + "\n" + ps_macs_str);
-
-        daiet_par.setMaxFloat(max_float);
-        daiet_par.setNumUpdates(num_updates);
-
-#ifndef COLOCATED
-        if (daiet_par.getNumWorkers()<=0 && daiet_par.getMode()=="ps")
-#else
-        if (daiet_par.getNumWorkers()<=0)
-#endif
-            LOG_FATAL("PS mode requires a positive number of workers.");
     }
 
     int master(DaietContext* dctx_ptr) {
@@ -520,11 +215,6 @@ namespace daiet {
 
             force_quit = false;
             ps_stop = false;
-            tx_rx_stop = false;
-
-            /* Set signal handler */
-            signal(SIGINT, signal_handler);
-            signal(SIGTERM, signal_handler);
 
             daiet_log = std::ofstream("daiet.log", std::ios::out);
 
@@ -545,7 +235,7 @@ namespace daiet {
             }
 
             // EAL cmd line
-            eal_cmdline = "daiet -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix;
+            eal_cmdline = "daiet -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix + " " + dpdk_par.eal_options;
             vector<string> par_vec = split(eal_cmdline);
 
             int args_c = par_vec.size();
@@ -574,34 +264,16 @@ namespace daiet {
             if (ret < 0)
                 LOG_FATAL("EAL init failed: " + string(rte_strerror(rte_errno)));
 
+            // Count cores/workers
             uint32_t n_lcores = 0, lcore_id, wid = 0;
-
             for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
                 if (rte_lcore_is_enabled(lcore_id) != 0) {
 
-                    // First core is for the master
-                    if (n_lcores == 1)
-                        dpdk_data.core_rx = lcore_id;
-                    else if (n_lcores == 2)
-                        dpdk_data.core_tx = lcore_id;
-                    else if (n_lcores == 3)
-                        dpdk_data.core_converter = lcore_id;
-                    else {
-                        core_to_workers_ids[lcore_id] = wid;
-                        wid++;
-                    }
-
+                    core_to_workers_ids[lcore_id] = wid;
+                    wid++;
                     n_lcores++;
                 }
             }
-
-#ifndef COLOCATED
-            if (n_lcores < 4)
-                LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 4");
-#else
-            if (n_lcores < 5)
-            LOG_FATAL("Number of cores (" + to_string(n_lcores) + ") must be equal or greater than 5");
-#endif
 
             num_workers_threads = wid;
             LOG_INFO("Number of worker threads: " + to_string(num_workers_threads));
@@ -611,31 +283,12 @@ namespace daiet {
             hz_str << setprecision(3) << (double) hz / 1000000000;
             LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
 
-            // Initialize rings
-#ifndef COLOCATED
-            rings_init(daiet_par.getMode());
-#else
-            rings_init("worker");
-            rings_init("ps");
-#endif
-
-            dpdk_data.converter_ring_ptr= rte_ring_create(string("converter").c_str(), dpdk_par.converter_ring_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-
-            if (dpdk_data.converter_ring_ptr == NULL)
-                LOG_FATAL("Cannot create converter ring");
-
-            rte_atomic32_init(&dpdk_data.top_index);
-
             // Initialize port
             port_init();
 
             // Initialize workers/PSs
 #ifndef COLOCATED
-            if (daiet_par.getMode() == "worker") {
-                worker_setup();
-            } else if (daiet_par.getMode() == "ps") {
-                ps_setup();
-            }
+            worker_setup();
 #else
             worker_setup();
             ps_setup();
@@ -648,104 +301,52 @@ namespace daiet {
                     LOG_FATAL("Core " + to_string(lcore_id) + " in state " + to_string(rte_eal_get_lcore_state(lcore_id)));
             }
 
-            // Launch RX and TX loops
-            rte_eal_remote_launch(rx_loop, NULL, dpdk_data.core_rx);
-            rte_eal_remote_launch(tx_loop, NULL, dpdk_data.core_tx);
-            rte_eal_remote_launch(converter, dctx_ptr, dpdk_data.core_converter);
-
-            sleep(1);
-
             begin_cpu = clock();
             begin = rte_get_timer_cycles();
 
             // Launch functions on slave cores
-            RTE_LCORE_FOREACH_SLAVE(lcore_id)
-            {
-
-                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx && lcore_id != dpdk_data.core_converter) {
+            RTE_LCORE_FOREACH_SLAVE(lcore_id) {
 
 #ifndef COLOCATED
-                    if (daiet_par.getMode() == "worker") {
-
-                        // rte_eal_remote_launch(worker, NULL, lcore_id);
-                        LOG_FATAL("Slave worker thread"); //TOFIX multithread support
-
-                    } else if (daiet_par.getMode() == "ps") {
-                        rte_eal_remote_launch(ps, NULL, lcore_id);
-                    }
+                 rte_eal_remote_launch(worker, dctx_ptr, lcore_id);
 #else
-                    // One worker and as many PSs as needed
-                    rte_eal_remote_launch(ps, NULL, lcore_id);
+                 // FIXME Equal number of workers and PSs
+                 rte_eal_remote_launch(ps, NULL, lcore_id);
 #endif
-                }
             }
 
-#ifndef COLOCATED
             // Launch function on master cores
-            if (daiet_par.getMode() == "worker")
-                worker(dctx_ptr);
-            else if (daiet_par.getMode() == "ps")
-                ps(NULL);
-#else
             worker(dctx_ptr);
-#endif
 
             // Join worker/ps threads
-            RTE_LCORE_FOREACH_SLAVE(lcore_id)
-            {
-                if (lcore_id != dpdk_data.core_rx && lcore_id != dpdk_data.core_tx && lcore_id != dpdk_data.core_converter) {
-                    ret = rte_eal_wait_lcore(lcore_id);
-                    if (unlikely(ret < 0)) {
-                        LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
-                    }
+            RTE_LCORE_FOREACH_SLAVE(lcore_id) {
+
+                ret = rte_eal_wait_lcore(lcore_id);
+                if (unlikely(ret < 0)) {
+                    LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
                 }
             }
 
             elapsed_secs = ((double) (rte_get_timer_cycles() - begin)) / hz;
             elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
 
-            tx_rx_stop = true;
-            converter_stop = true;
-
-            // Wait RX/TX cores
-            ret = rte_eal_wait_lcore(dpdk_data.core_rx);
-            if (unlikely(ret < 0)) {
-                LOG_DEBUG("Core " + to_string(dpdk_data.core_rx) + " returned " + to_string(ret));
-            }
-
-            ret = rte_eal_wait_lcore(dpdk_data.core_tx);
-            if (unlikely(ret < 0)) {
-                LOG_DEBUG("Core " + to_string(dpdk_data.core_tx) + " returned " + to_string(ret));
-            }
-
-            ret = rte_eal_wait_lcore(dpdk_data.core_converter);
-            if (unlikely(ret < 0)) {
-                LOG_DEBUG("Core " + to_string(dpdk_data.core_converter) + " returned " + to_string(ret));
-            }
-
             // Print stats
             print_dev_stats(dpdk_par.portid);
             //print_dev_xstats(dpdk_par.portid);
 
 #ifndef COLOCATED
-            if (daiet_par.getMode() == "worker") {
-                LOG_INFO("TX " + to_string(pkt_stats.w_tx));
-                LOG_INFO("RX " + to_string(pkt_stats.w_rx));
-#ifdef TIMERS
-                LOG_INFO("Timeouts " + to_string(pkt_stats.w_timeouts));
-#endif
-            } else if (daiet_par.getMode() == "ps") {
-                LOG_INFO("TX " + to_string(pkt_stats.p_tx));
-                LOG_INFO("RX " + to_string(pkt_stats.p_rx));
-            }
+
+            LOG_INFO("TX " + to_string(pkt_stats.w_tx));
+            LOG_INFO("RX " + to_string(pkt_stats.w_rx));
 #else
             LOG_INFO("Worker TX " + to_string(pkt_stats.w_tx));
             LOG_INFO("Worker RX " + to_string(pkt_stats.w_rx));
-#ifdef TIMERS
-            LOG_INFO("Worker Timeouts " + to_string(pkt_stats.w_timeouts));
-#endif
             LOG_INFO("PS TX " + to_string(pkt_stats.p_tx));
             LOG_INFO("PS RX " + to_string(pkt_stats.p_rx));
+#endif
+
+#ifdef TIMERS
+            LOG_INFO("Timeouts " + to_string(pkt_stats.w_timeouts));
 #endif
 
             elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
@@ -761,24 +362,13 @@ namespace daiet {
             LOG_DEBUG("Port closed");
 
 #ifndef COLOCATED
-            if (daiet_par.getMode() == "worker") {
-                worker_cleanup();
-            } else if (daiet_par.getMode() == "ps") {
-                ps_cleanup();
-            }
+            worker_cleanup();
 #else
             worker_cleanup();
             ps_cleanup();
 #endif
 
-            rte_ring_free(dpdk_data.converter_ring_ptr);
 
-#ifndef COLOCATED
-            rings_cleanup(daiet_par.getMode());
-#else
-            rings_cleanup("worker");
-            rings_cleanup("ps");
-#endif
             // EAL cleanup
             ret = rte_eal_cleanup(); // Ignore warning
             if (ret < 0)

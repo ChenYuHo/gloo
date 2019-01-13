@@ -4,27 +4,120 @@
  */
 
 #include "params.hpp"
+#include <boost/program_options.hpp>
+
+namespace po = boost::program_options;
 
 namespace daiet {
+
+    void parse_parameters() {
+
+        string config_file;
+        ifstream ifs;
+        float max_float;
+        uint16_t worker_port, ps_port;
+        uint32_t num_updates;
+        string worker_ip_str, ps_ips_str, ps_macs_str;
+
+        po::options_description dpdk_options("DPDK options");
+        po::options_description daiet_options("DAIET options");
+        po::options_description config_file_options;
+
+        dpdk_options.add_options()
+                ("dpdk.cores", po::value<string>(&dpdk_par.corestr)->default_value("0-2"), "List of cores")
+                ("dpdk.prefix", po::value<string>(&dpdk_par.prefix)->default_value("daiet"), "Process prefix")
+                ("dpdk.extra_eal_options", po::value<string>(&dpdk_par.eal_options)->default_value(""), "Extra EAL options")
+                ("dpdk.port_id", po::value<uint16_t>(&dpdk_par.portid)->default_value(0), "Port ID")
+                ("dpdk.pool_size", po::value<uint32_t>(&dpdk_par.pool_size)->default_value(8192 * 32), "Pool size")
+                ("dpdk.pool_cache_size", po::value<uint32_t>(&dpdk_par.pool_cache_size)->default_value(256 * 2), "Pool cache size")
+                ("dpdk.burst_rx", po::value<uint32_t>(&dpdk_par.burst_rx)->default_value(64), "RX burst size")
+                ("dpdk.burst_tx", po::value<uint32_t>(&dpdk_par.burst_tx)->default_value(64), "TX burst size")
+                ("dpdk.bulk_drain_tx_us", po::value<uint32_t>(&dpdk_par.bulk_drain_tx_us)->default_value(100), "TX bulk drain timer (us)");
+
+        daiet_options.add_options()
+                ("daiet.worker_ip", po::value<string>(&worker_ip_str)->default_value("10.0.0.1"), "IP address of this worker")
+                ("daiet.worker_port", po::value<uint16_t>(&worker_port)->default_value(4000), "Worker UDP port")
+                ("daiet.ps_port", po::value<uint16_t>(&ps_port)->default_value(48879), "PS UDP port")
+                ("daiet.ps_ips", po::value<string>(&ps_ips_str)->required(), "Comma-separated list of PS IP addresses")
+                ("daiet.ps_macs", po::value<string>(&ps_macs_str)->required(), "Comma-separated list of PS MAC addresses")
+                ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
+                ("daiet.num_updates", po::value<uint32_t>(&num_updates)->default_value(32), "Number of updates per packet")
+                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value")
+#ifndef COLOCATED
+                ("daiet.mode", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
+#endif
+                ("daiet.num_workers", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers (only for PS mode)");
+
+
+        config_file_options.add(daiet_options).add(dpdk_options);
+
+        config_file = "/etc/daiet.cfg";
+        ifs.open(config_file.c_str());
+        if(!ifs.good()){
+            ifs.close();
+
+            char hostname[500];
+            if (gethostname(hostname,sizeof(hostname))!=0)
+                LOG_FATAL("gethostname failed: "+ string(strerror(errno)));
+
+            config_file = "daiet-"+string(hostname)+".cfg";
+            ifs.open(config_file.c_str());
+            if(!ifs.good()){
+                ifs.close();
+
+                config_file = "daiet.cfg";
+                ifs.open(config_file.c_str());
+                if(!ifs.good()){
+                    ifs.close();
+                    LOG_FATAL("No config file found! (/etc/daiet.cfg, daiet-"+string(hostname)+".cfg, daiet.cfg)");
+                }
+            }
+        }
+        LOG_INFO("Configuration file "+config_file);
+
+        po::variables_map vm;
+        po::store(po::parse_config_file(ifs, config_file_options), vm);
+        po::notify(vm);
+
+#ifndef COLOCATED
+        if (daiet_par.getMode() != "worker" && daiet_par.getMode() != "ps")
+            LOG_FATAL("Wrong mode: " + daiet_par.getMode());
+#endif
+
+        if (!daiet_par.setWorkerIp(worker_ip_str))
+            LOG_FATAL("Invalid worker IP: " + worker_ip_str);
+
+        daiet_par.setWorkerPort(worker_port);
+        daiet_par.setPsPort(ps_port);
+
+        if (!daiet_par.setPs(ps_ips_str, ps_macs_str))
+            LOG_FATAL("Invalid PS address: \n" + ps_ips_str + "\n" + ps_macs_str);
+
+        daiet_par.setMaxFloat(max_float);
+        daiet_par.setNumUpdates(num_updates);
+
+#ifndef COLOCATED
+        if (daiet_par.getNumWorkers()<=0 && daiet_par.getMode()=="ps")
+#else
+        if (daiet_par.getNumWorkers()<=0)
+#endif
+            LOG_FATAL("PS mode requires a positive number of workers.");
+    }
 
     void print_dpdk_params() {
 
         LOG_INFO("** DPDK parameters **");
+        LOG_INFO("Cores: " + dpdk_par.corestr);
         LOG_INFO("Port ID: " + to_string(dpdk_par.portid));
         LOG_INFO("Port RX ring size: " + to_string(dpdk_par.port_rx_ring_size));
         LOG_INFO("Port TX ring size: " + to_string(dpdk_par.port_tx_ring_size));
-        LOG_INFO("Ring RX size: " + to_string(dpdk_par.ring_rx_size));
-        LOG_INFO("Ring TX size: " + to_string(dpdk_par.ring_tx_size));
-        LOG_INFO("Converter ring size: " + to_string(dpdk_par.converter_ring_size));
         LOG_INFO("Pool size: " + to_string(dpdk_par.pool_size));
         LOG_INFO("Pool cache size: " + to_string(dpdk_par.pool_cache_size));
-        LOG_INFO("Burst size RX read: " + to_string(dpdk_par.burst_size_rx_read));
-        LOG_INFO("Burst size worker: " + to_string(dpdk_par.burst_size_worker));
-        LOG_INFO("Burst size converter read: " + to_string(dpdk_par.burst_size_converter_read));
-        LOG_INFO("Burst size TX read: " + to_string(dpdk_par.burst_size_tx_read));
-        LOG_INFO("Burst drain TX us: " + to_string(dpdk_par.burst_drain_tx_us));
+        LOG_INFO("Burst size RX: " + to_string(dpdk_par.burst_rx));
+        LOG_INFO("Burst size TX: " + to_string(dpdk_par.burst_tx));
+        LOG_INFO("Burst drain TX us: " + to_string(dpdk_par.bulk_drain_tx_us));
         LOG_INFO("Prefix: " + dpdk_par.prefix);
-        LOG_INFO("Cores: " + dpdk_par.corestr);
+        LOG_INFO("Extra EAL options: " + dpdk_par.eal_options);
     }
 
     daiet_params::daiet_params() {
@@ -40,7 +133,7 @@ namespace daiet {
 
         tx_flags = PKT_TX_IP_CKSUM | PKT_TX_IPV4 | PKT_TX_UDP_CKSUM;
 
-        scaling_factor = INT32_MAX/FLT_MAX;
+        scaling_factor = INT32_MAX / FLT_MAX;
 
         worker_port_be = rte_cpu_to_be_16(4000);
         ps_port_be = rte_cpu_to_be_16(48879);
@@ -66,7 +159,7 @@ namespace daiet {
         LOG_INFO("Num updates: " + to_string(num_updates));
         LOG_INFO("Max num pending messages: " + to_string(max_num_pending_messages));
         LOG_INFO("Worker port: " + to_string(rte_be_to_cpu_16(worker_port_be)));
-        LOG_INFO("Ps port: " + to_string(rte_be_to_cpu_16(ps_port_be)));
+        LOG_INFO("PS port: " + to_string(rte_be_to_cpu_16(ps_port_be)));
         LOG_INFO("Scaling factor: " + to_string(scaling_factor));
 
         LOG_INFO("Worker IP: " + ip_to_str(worker_ip_be));
@@ -90,7 +183,7 @@ namespace daiet {
     }
 
     void daiet_params::setMaxFloat(float maxFloat) {
-        scaling_factor = INT32_MAX/maxFloat;
+        scaling_factor = INT32_MAX / maxFloat;
     }
 
     void daiet_params::setWorkerPort(uint16_t workerPort) {
