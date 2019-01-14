@@ -101,6 +101,11 @@ namespace daiet {
             LOG_DEBUG("TX UDP checksum offload enabled");
         }
 
+        if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE) {
+            txm.offloads |= DEV_TX_OFFLOAD_MBUF_FAST_FREE;
+            LOG_DEBUG("Fast release of mbufs enabled");
+        }
+
         port_conf.rxmode = rxm;
         port_conf.txmode = txm;
         //port_conf.link_speeds = ETH_LINK_SPEED_AUTONEG;

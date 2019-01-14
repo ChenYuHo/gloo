@@ -16,6 +16,7 @@ namespace daiet {
 
     TensorUpdate* tuptr;
     uint32_t num_updates;
+    size_t entries_size;
     uint16_t shift;
 
     float scalingfactor;
@@ -436,6 +437,7 @@ namespace daiet {
 
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
         num_updates = daiet_par.getNumUpdates();
+        entries_size = sizeof(struct entry_hdr) * num_updates;
         shift = 0;
         scalingfactor = daiet_par.getScalingFactor();
         scalingfactor_vec = scalingfactor;
@@ -467,7 +469,8 @@ namespace daiet {
         struct rte_mempool *pool;
 #endif
         string pool_name = "worker_pool";
-        struct rte_mbuf **pkts_burst;
+        struct rte_mbuf **pkts_tx_burst;
+        struct rte_mbuf **pkts_rx_burst;
         struct rte_mbuf* m;
         struct rte_eth_dev_tx_buffer* tx_buffer;
 
@@ -524,9 +527,18 @@ namespace daiet {
         struct rte_bitmap *bitmap;
         uint32_t pkt_idx = 0;
 
-        pkts_burst = (rte_mbuf **) rte_malloc_socket(NULL, max_num_pending_messages * sizeof(struct rte_mbuf*), RTE_CACHE_LINE_SIZE, socket_id);
-        if (unlikely(pkts_burst == NULL))
-            LOG_FATAL("Worker thread: cannot allocate pkts burst");
+        // Allocate pkt burst
+        pkts_tx_burst = (rte_mbuf **) rte_malloc_socket(NULL, max_num_pending_messages * sizeof(struct rte_mbuf*), RTE_CACHE_LINE_SIZE, socket_id);
+        if (unlikely(pkts_tx_burst == NULL))
+            LOG_FATAL("Cannot allocate pkts tx burst");
+
+        ret = rte_pktmbuf_alloc_bulk(pool, pkts_tx_burst, max_num_pending_messages);
+        if (unlikely(ret < 0))
+            LOG_FATAL("Cannot allocate mbuf tx burst");
+
+        pkts_rx_burst = (rte_mbuf **) rte_malloc_socket(NULL, max_num_pending_messages * sizeof(struct rte_mbuf*), RTE_CACHE_LINE_SIZE, socket_id);
+        if (unlikely(pkts_rx_burst == NULL))
+            LOG_FATAL("Cannot allocate pkts rx burst");
 
         dctx_ptr->set_master_ready();
 
@@ -571,12 +583,12 @@ namespace daiet {
                 // Initialize bitmap
                 bitmap_size = rte_bitmap_get_memory_footprint(total_num_msgs);
                 if (unlikely(bitmap_size == 0)) {
-                    LOG_FATAL("Worker thread: bitmap failed");
+                    LOG_FATAL("Bitmap failed");
                 }
 
                 bitmap_mem = rte_zmalloc_socket("bitmap", bitmap_size, RTE_CACHE_LINE_SIZE, socket_id);
                 if (unlikely(bitmap_mem == NULL)) {
-                    LOG_FATAL("Worker thread: cannot allocate bitmap");
+                    LOG_FATAL("Cannot allocate bitmap");
                 }
 
                 bitmap = rte_bitmap_init(total_num_msgs, (uint8_t*) bitmap_mem, bitmap_size);
@@ -588,13 +600,11 @@ namespace daiet {
                 // Send first pkt burst
                 burst_size = total_num_msgs < max_num_pending_messages ? total_num_msgs : max_num_pending_messages;
 
-                // Allocate pkt burst
-                ret = rte_pktmbuf_alloc_bulk(pool, pkts_burst, burst_size);
-                if (unlikely(ret < 0))
-                    LOG_FATAL("Cannot allocate pkts burst");
-
                 for (j = 0; j < burst_size; j++) {
-                    m = pkts_burst[j];
+                    m = pkts_tx_burst[j];
+
+                    // Increase refcnt so it is not freed
+                    rte_mbuf_refcnt_update(m,1);
 
                     pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
 
@@ -619,7 +629,7 @@ namespace daiet {
                 // Transmit the packet burst
                 sent = 0;
                 do {
-                    nb_tx = rte_eth_tx_burst(dpdk_par.portid, 0, &pkts_burst[sent], burst_size - sent);
+                    nb_tx = rte_eth_tx_burst(dpdk_par.portid, 0, &pkts_tx_burst[sent], burst_size - sent);
 
                     sent += nb_tx;
                 } while (sent < burst_size);
@@ -646,7 +656,7 @@ namespace daiet {
 #endif
 
                     // Read packet from RX ring
-                    nb_rx = rte_eth_rx_burst(dpdk_par.portid, 0, pkts_burst, dpdk_par.burst_rx);
+                    nb_rx = rte_eth_rx_burst(dpdk_par.portid, 0, pkts_rx_burst, dpdk_par.burst_rx);
 
                     if (unlikely(nb_rx == 0)) {
 
@@ -665,8 +675,8 @@ namespace daiet {
 
                         for (j = 0; j < nb_rx; j++) {
 
-                            m = pkts_burst[j];
-                            pkts_burst[j] = NULL;
+                            m = pkts_rx_burst[j];
+                            pkts_rx_burst[j] = NULL;
 
                             // Checksum offload
                             // TOFIX these assignments have a ~20% performance overhead
@@ -777,8 +787,6 @@ namespace daiet {
                 while (!dctx_ptr->send_result(tuptr->id) && !force_quit)
                     ;
 
-                rte_pktmbuf_free_bulk(pkts_burst, burst_size);
-
                 rte_bitmap_free(bitmap);
                 rte_free(bitmap_mem);
 
@@ -795,7 +803,9 @@ namespace daiet {
         } // force quit
 
         // Cleanup
-        rte_free(pkts_burst);
+        rte_free(pkts_rx_burst);
+        rte_pktmbuf_free_bulk(pkts_tx_burst, burst_size);
+        rte_free(pkts_tx_burst);
         rte_free(tx_buffer);
 
         return 0;
