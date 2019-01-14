@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "common.hpp"
 #include "utils.hpp"
 
 using namespace std;
@@ -18,6 +19,7 @@ namespace daiet {
 
             // Buffer pool size
             uint32_t pool_buffer_size;
+            uint32_t core_to_workers_ids[RTE_MAX_LCORE];
 
             dpdk_data() {
                 // Defaults
@@ -25,6 +27,8 @@ namespace daiet {
                 pool_buffer_size = RTE_MBUF_DEFAULT_BUF_SIZE;
             }
     }__rte_cache_aligned;
+
+    extern struct dpdk_data dpdk_data;
 
     struct dpdk_params {
 
@@ -75,6 +79,8 @@ namespace daiet {
 #endif
             }
     }__rte_cache_aligned;
+
+    extern struct dpdk_params dpdk_par;
 
     class daiet_params {
         private:
@@ -173,7 +179,5 @@ namespace daiet {
             }
     };
 
-    extern struct dpdk_data dpdk_data;
-    extern struct dpdk_params dpdk_par;
     extern daiet_params daiet_par;
 }

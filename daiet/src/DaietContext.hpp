@@ -21,6 +21,7 @@ namespace daiet {
     struct TensorUpdate {
             void* ptr;
             int count;
+            int start_idx;
             int32_t id;
             TensorUpdateType type;
     };
@@ -40,10 +41,11 @@ namespace daiet {
 
             void wait_master_ready();
             void set_master_ready();
+            void set_num_worker_threads(uint32_t);
 
             void receive_result(const int32_t);
             bool send_result(const int32_t);
-            TensorUpdate* receive_tensor();
+            bool receive_tensor(TensorUpdate&);
             void send_tensor(TensorUpdate*);
 
             void StartMaster();
@@ -69,10 +71,12 @@ namespace daiet {
             std::atomic_uint_fast32_t tid_counter;
             boost::mutex master_ready_mutex, data_ready_mutex, result_mutex;
             boost::condition_variable master_ready_event, data_push_event, data_pop_event, result_push_event, result_pop_event;
-            bool master_ready;
+            uint32_t num_worker_threads;
 
             // Shared
-            bool data_ready, result_empty;
+            uint32_t master_ready;
+            uint32_t data_ready;
+            uint32_t results;
             TensorUpdate* tensor_update_ptr;
             int32_t result_id;
             // ***

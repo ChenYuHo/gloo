@@ -6,26 +6,21 @@
 #include "daiet.hpp"
 
 #include <signal.h>
-#include <unistd.h>
-#include <sys/mman.h>
+//#include <sys/mman.h>
 
-#include "dpdk.h"
+#include "daiet.hpp"
 #include "common.hpp"
 #include "utils.hpp"
 #include "params.hpp"
+#include "stats.hpp"
 #include "worker.hpp"
-#include "ps.hpp"
+//#include "ps.hpp"
 
 using namespace std;
 
 namespace daiet {
 
-    uint32_t core_to_workers_ids[RTE_MAX_LCORE];
-    struct dpdk_data dpdk_data;
-    struct dpdk_params dpdk_par;
-    daiet_params daiet_par;
-
-    void port_init() {
+    void port_init(uint32_t num_queues) {
 
         int ret;
 
@@ -33,6 +28,7 @@ namespace daiet {
         bool found_portid = false;
 
         struct rte_mempool *pool;
+        string pool_name;
 
         struct rte_eth_dev_info dev_info;
 
@@ -125,7 +121,7 @@ namespace daiet {
         port_conf.fdir_conf.mask.dst_port_mask = 0xFFFF;
         */
 
-        ret = rte_eth_dev_configure(dpdk_par.portid, 1, 1, &port_conf);
+        ret = rte_eth_dev_configure(dpdk_par.portid, num_queues, num_queues, &port_conf);
         if (ret < 0)
             LOG_FATAL("Cannot configure port: " + string(rte_strerror(ret)));
 
@@ -143,11 +139,6 @@ namespace daiet {
         //Get the port address
         rte_eth_macaddr_get(dpdk_par.portid, &port_eth_addr);
 
-        // Init the buffer pool
-        pool = rte_pktmbuf_pool_create("rx_pool", dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
-        if (pool == NULL)
-            LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
-
         // init RX queue
         rx_conf = dev_info.default_rxconf;
         rx_conf.offloads = port_conf.rxmode.offloads;
@@ -156,10 +147,6 @@ namespace daiet {
         //rx_conf.rx_thresh.wthresh = 4;
         //rx_conf.rx_free_thresh = 64;
         //rx_conf.rx_drop_en = 0;
-
-        ret = rte_eth_rx_queue_setup(dpdk_par.portid, 0, dpdk_par.port_rx_ring_size, rte_eth_dev_socket_id(dpdk_par.portid), &rx_conf, pool);
-        if (ret < 0)
-            LOG_FATAL("RX queue setup error: " + string(rte_strerror(ret)));
 
         // init TX queue on each port
         tx_conf = dev_info.default_txconf;
@@ -171,21 +158,36 @@ namespace daiet {
         //tx_conf.tx_free_thresh = 0;
         //tx_conf.tx_rs_thresh = 0;
 
-        ret = rte_eth_tx_queue_setup(dpdk_par.portid, 0, dpdk_par.port_tx_ring_size, rte_eth_dev_socket_id(dpdk_par.portid), &tx_conf);
-        if (ret < 0)
-            LOG_FATAL("TX queue setup error: " + string(rte_strerror(ret)));
+        for (uint32_t i=0; i<num_queues; i++){
 
-        // stats mapping
-        if (dev_info.max_rx_queues > 1) {
-            ret = rte_eth_dev_set_rx_queue_stats_mapping(dpdk_par.portid, 0, 0);
-            if (ret < 0)
-                LOG_ERROR("RX queue stats mapping error " + string(rte_strerror(ret)));
-        }
+            // Init the rx buffer pool
+            pool_name = "rx_pool_" + to_string(i);
+            pool = rte_pktmbuf_pool_create(pool_name.c_str(), dpdk_par.pool_size, dpdk_par.pool_cache_size, 0, dpdk_data.pool_buffer_size, rte_socket_id());
+            if (pool == NULL)
+                LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
 
-        if (dev_info.max_tx_queues > 1) {
-            ret = rte_eth_dev_set_tx_queue_stats_mapping(dpdk_par.portid, 0, 0);
+            // Init queues
+            ret = rte_eth_rx_queue_setup(dpdk_par.portid, i, dpdk_par.port_rx_ring_size, rte_eth_dev_socket_id(dpdk_par.portid), &rx_conf, pool);
             if (ret < 0)
-                LOG_ERROR("TX queue stats mapping error " + string(rte_strerror(ret)));
+                LOG_FATAL("RX queue setup error: " + string(rte_strerror(ret)));
+
+            ret = rte_eth_tx_queue_setup(dpdk_par.portid, i, dpdk_par.port_tx_ring_size, rte_eth_dev_socket_id(dpdk_par.portid), &tx_conf);
+            if (ret < 0)
+                LOG_FATAL("TX queue setup error: " + string(rte_strerror(ret)));
+
+            // Stats mapping
+            if (i<RTE_ETHDEV_QUEUE_STAT_CNTRS){
+
+                ret = rte_eth_dev_set_rx_queue_stats_mapping(dpdk_par.portid, i, i);
+                if (ret < 0)
+                    LOG_ERROR("RX queue stats mapping error " + string(rte_strerror(ret)));
+
+                ret = rte_eth_dev_set_tx_queue_stats_mapping(dpdk_par.portid, i, i);
+                if (ret < 0)
+                    LOG_ERROR("TX queue stats mapping error " + string(rte_strerror(ret)));
+            } else {
+                LOG_ERROR ("No stats mapping for queue: " + to_string(i));
+            }
         }
 
         // Start device
@@ -274,7 +276,7 @@ namespace daiet {
             for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
                 if (rte_lcore_is_enabled(lcore_id) != 0) {
 
-                    core_to_workers_ids[lcore_id] = wid;
+                    dpdk_data.core_to_workers_ids[lcore_id] = wid;
                     wid++;
                     n_lcores++;
                 }
@@ -289,15 +291,16 @@ namespace daiet {
             LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
 
             // Initialize port
-            port_init();
+            port_init(num_workers_threads);
 
             // Initialize workers/PSs
 #ifndef COLOCATED
             worker_setup();
 #else
-            worker_setup();
+            workers_setup();
             ps_setup();
 #endif
+            pkt_stats.init(num_workers_threads, 0);
 
             // Check state of slave cores
             RTE_LCORE_FOREACH_SLAVE(lcore_id)
@@ -320,7 +323,7 @@ namespace daiet {
 #endif
             }
 
-            // Launch function on master cores
+            // Launch function on master core
             worker(dctx_ptr);
 
             // Join worker/ps threads
@@ -339,20 +342,7 @@ namespace daiet {
             print_dev_stats(dpdk_par.portid);
             //print_dev_xstats(dpdk_par.portid);
 
-#ifndef COLOCATED
-
-            LOG_INFO("TX " + to_string(pkt_stats.w_tx));
-            LOG_INFO("RX " + to_string(pkt_stats.w_rx));
-#else
-            LOG_INFO("Worker TX " + to_string(pkt_stats.w_tx));
-            LOG_INFO("Worker RX " + to_string(pkt_stats.w_rx));
-            LOG_INFO("PS TX " + to_string(pkt_stats.p_tx));
-            LOG_INFO("PS RX " + to_string(pkt_stats.p_rx));
-#endif
-
-#ifdef TIMERS
-            LOG_INFO("Timeouts " + to_string(pkt_stats.w_timeouts));
-#endif
+            pkt_stats.dump();
 
             elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
             elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
@@ -372,7 +362,6 @@ namespace daiet {
             worker_cleanup();
             ps_cleanup();
 #endif
-
 
             // EAL cleanup
             ret = rte_eal_cleanup(); // Ignore warning

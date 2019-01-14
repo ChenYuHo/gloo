@@ -10,6 +10,10 @@ namespace po = boost::program_options;
 
 namespace daiet {
 
+    struct dpdk_data dpdk_data;
+    struct dpdk_params dpdk_par;
+    daiet_params daiet_par;
+
     void parse_parameters() {
 
         string config_file;

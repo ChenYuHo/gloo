@@ -4,6 +4,7 @@
  */
 
 #include "utils.hpp"
+#include "params.hpp"
 #include <boost/algorithm/string/split.hpp>
 
 using namespace std;

@@ -15,9 +15,7 @@
 #include <algorithm>
 #include <map>
 
-#include "dpdk.h"
 #include "common.hpp"
-#include "params.hpp"
 
 using namespace std;
 

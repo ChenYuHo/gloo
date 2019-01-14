@@ -4,6 +4,7 @@
  */
 
 #include "worker.hpp"
+#include "stats.hpp"
 
 #if defined ( __AVX512F__ ) || defined ( __AVX512__ )
 #define MAX_VECTOR_SIZE 512
@@ -14,25 +15,27 @@ using namespace std;
 
 namespace daiet {
 
-    TensorUpdate* tuptr;
-    uint32_t num_updates;
-    size_t entries_size;
-    uint16_t shift;
+    thread_local uint32_t worker_id;
+    thread_local TensorUpdate tu;
+    thread_local uint32_t num_updates;
+    thread_local size_t entries_size;
+    thread_local uint16_t start_pool_index;
+    thread_local uint16_t shift;
 
-    float scalingfactor;
+    thread_local float scalingfactor;
 
 #if MAX_VECTOR_SIZE >= 512
-    Vec16f vec_f;
-    Vec16i vec_i;
-    Vec16f scalingfactor_vec;
+    thread_local Vec16f vec_f;
+    thread_local Vec16i vec_i;
+    thread_local Vec16f scalingfactor_vec;
 #else
-    Vec8f vec_f;
-    Vec8i vec_i;
-    Vec8f scalingfactor_vec;
+    thread_local Vec8f vec_f;
+    thread_local Vec8i vec_i;
+    thread_local Vec8f scalingfactor_vec;
 #endif
 
-    void (*fill_fn)(entry_hdr*, uint32_t, uint32_t);
-    void (*store_fn)(daiet_hdr*, uint32_t);
+    thread_local void (*fill_fn)(entry_hdr*, uint32_t, uint32_t);
+    thread_local void (*store_fn)(daiet_hdr*, uint32_t);
 
 #ifdef TIMERS
     // TOFIX this should be thread local
@@ -110,10 +113,10 @@ namespace daiet {
         uint32_t i = ((tsi / num_updates) + shift) % (2 * daiet_par.getMaxNumPendingMessages());
         if (i < daiet_par.getMaxNumPendingMessages())
             // Set 0
-            return i;
+            return (start_pool_index + i);
         else
             // Set 1
-            return (i - daiet_par.getMaxNumPendingMessages()) | 0x8000;
+            return ((start_pool_index + (i - daiet_par.getMaxNumPendingMessages())) | 0x8000);
     }
 
     __rte_always_inline void store_int32(daiet_hdr* daiet, uint32_t tensor_size) {
@@ -124,20 +127,20 @@ namespace daiet {
 
         if (likely(tsi + num_updates <= tensor_size)) {
 
-            //rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, entries_size);
+            //rte_memcpy(&(static_cast<uint32_t*>(tu.ptr)[tsi]), entry, entries_size);
 
             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<uint32_t*>(tuptr->ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
+                static_cast<uint32_t*>(tu.ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
             }
 
         } else {
 
-            //rte_memcpy(&(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entry, sizeof(struct entry_hdr) * (tensor_size - tsi));
+            //rte_memcpy(&(static_cast<uint32_t*>(tu.ptr)[tsi]), entry, sizeof(struct entry_hdr) * (tensor_size - tsi));
 
             for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<uint32_t*>(tuptr->ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
+                static_cast<uint32_t*>(tu.ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
             }
         }
 
@@ -166,20 +169,20 @@ namespace daiet {
              #endif
              vec_i.load(entry);
              vec_f = to_float(vec_i) / scalingfactor_vec;
-             vec_f.store(&(static_cast<float*>(tuptr->ptr)[tsi]));
+             vec_f.store(&(static_cast<float*>(tu.ptr)[tsi]));
              }
              */
 
             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<float*>(tuptr->ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
+                static_cast<float*>(tu.ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
             }
 
         } else {
 
             for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<float*>(tuptr->ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
+                static_cast<float*>(tu.ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
             }
         }
 
@@ -191,9 +194,9 @@ namespace daiet {
 
         if (likely(tsi + num_updates <= tensor_size)) {
 
-            // rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), entries_size);
+            // rte_memcpy(entry, &(static_cast<uint32_t*>(tu.ptr)[tsi]), entries_size);
             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
-                entry->upd = rte_cpu_to_be_32((static_cast<uint32_t*>(tuptr->ptr)[tsi]));
+                entry->upd = rte_cpu_to_be_32((static_cast<uint32_t*>(tu.ptr)[tsi]));
             }
 
         } else {
@@ -201,9 +204,9 @@ namespace daiet {
             uint32_t num_valid = tensor_size - tsi;
             uint32_t zeros = num_updates - num_valid;
 
-            //rte_memcpy(entry, &(static_cast<uint32_t*>(tuptr->ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
+            //rte_memcpy(entry, &(static_cast<uint32_t*>(tu.ptr)[tsi]), sizeof(struct entry_hdr) * num_valid);
             for (final_tsi = tsi + num_valid; tsi < final_tsi; tsi++, entry++) {
-                entry->upd = rte_cpu_to_be_32((static_cast<uint32_t*>(tuptr->ptr)[tsi]));
+                entry->upd = rte_cpu_to_be_32((static_cast<uint32_t*>(tu.ptr)[tsi]));
             }
 
             memset(entry + num_valid, 0, sizeof(struct entry_hdr) * zeros);
@@ -216,7 +219,7 @@ namespace daiet {
         uint32_t* cur_int_ptr;
         uint32_t* final_ptr;
 
-        cur_float_ptr = &(static_cast<float*>(tuptr->ptr)[tsi]);
+        cur_float_ptr = &(static_cast<float*>(tu.ptr)[tsi]);
         cur_int_ptr = static_cast<uint32_t*>((void*) cur_float_ptr);
 
         if (likely(tsi + num_updates <= tensor_size)) {
@@ -322,7 +325,7 @@ namespace daiet {
 
         // UDP header
         udp = (struct udp_hdr *) (ip + 1);
-        udp->src_port = daiet_par.getWorkerPortBe();
+        udp->src_port = daiet_par.getWorkerPortBe() + worker_id;
         udp->dst_port = daiet_par.getPsPortBe();
         udp->dgram_len = rte_cpu_to_be_16(m->data_len - sizeof(struct ether_hdr) - sizeof(struct ipv4_hdr));
         udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
@@ -443,6 +446,7 @@ namespace daiet {
         scalingfactor_vec = scalingfactor;
 
         volatile uint32_t rx_pkts = 0;
+        uint64_t w_tx = 0, w_rx = 0;
         uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
         uint32_t tensor_size = 0;
@@ -463,7 +467,6 @@ namespace daiet {
         unsigned lcore_id;
         unsigned socket_id = rte_socket_id();
         unsigned nb_rx = 0, nb_tx = 0, sent = 0, j = 0;
-        uint32_t worker_id;
 
 #ifndef TIMERS
         struct rte_mempool *pool;
@@ -486,8 +489,9 @@ namespace daiet {
 
         // Get core ID
         lcore_id = rte_lcore_id();
-        worker_id = core_to_workers_ids[lcore_id];
+        worker_id = dpdk_data.core_to_workers_ids[lcore_id];
         LOG_DEBUG("Worker core: " + to_string(lcore_id) + " worker id: " + to_string(worker_id));
+        start_pool_index = worker_id *max_num_pending_messages;
 
 #ifdef TIMERS
         // Timer
@@ -544,26 +548,29 @@ namespace daiet {
 
         while (!force_quit) {
 
-            tuptr = dctx_ptr->receive_tensor();
-
-            if (tuptr != NULL) {
+            if (dctx_ptr->receive_tensor(tu)) {
 
                 memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
 
                 rx_pkts = 0;
                 tsi = 0;
-                tensor_size = tuptr->count;
+                tensor_size = tu.count;
                 total_num_msgs = tensor_size / num_updates;
 
                 if (tensor_size % num_updates != 0)
                     total_num_msgs++; // one final padded packet
 
-                if (tuptr->type == FLOAT) {
-                    fill_fn = &fill_float32;
-                    store_fn = &store_float32;
-                } else if (tuptr->type == INT) {
+                if (tu.type == INT) {
+
+                    tu.ptr = static_cast<uint32_t*>(tu.ptr) + tu.start_idx;
                     fill_fn = &fill_int32;
                     store_fn = &store_int32;
+
+                } else if (tu.type == FLOAT) {
+
+                    tu.ptr = static_cast<float*>(tu.ptr) + tu.start_idx;
+                    fill_fn = &fill_float32;
+                    store_fn = &store_float32;
                 }
 
 #ifdef LATENCIES
@@ -606,7 +613,7 @@ namespace daiet {
                     // Increase refcnt so it is not freed
                     rte_mbuf_refcnt_update(m,1);
 
-                    pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
+                    pool_index_monoset = (build_pkt(m, dpdk_par.portid, tsi, tensor_size) -start_pool_index) & 0x7FFF;
 
 #ifdef TIMERS
                     timer_tsis[pool_index_monoset] = tsi;
@@ -634,7 +641,7 @@ namespace daiet {
                     sent += nb_tx;
                 } while (sent < burst_size);
 
-                pkt_stats.w_tx += burst_size;
+                w_tx += burst_size;
 
 #ifdef LATENCIES
                 lat_idx += burst_size;
@@ -667,7 +674,7 @@ namespace daiet {
                             // TX drain
                             nb_tx = rte_eth_tx_buffer_flush(dpdk_par.portid, 0, tx_buffer);
                             if (nb_tx)
-                                pkt_stats.w_tx += nb_tx;
+                                w_tx += nb_tx;
 
                             prev_tsc = cur_tsc;
                         }
@@ -699,9 +706,9 @@ namespace daiet {
 
                                 pool_index = rte_be_to_cpu_16(daiet->pool_index);
                                 // Clear msb
-                                pool_index_monoset = pool_index & 0x7FFF;
+                                pool_index_monoset = (pool_index - start_pool_index) & 0x7FFF;
 
-                                pkt_stats.w_rx++;
+                                w_rx++;
 
                                 if (likely(rte_bitmap_get(bitmap, pkt_idx) == 0)) {
 
@@ -742,7 +749,7 @@ namespace daiet {
 
                                         nb_tx = rte_eth_tx_buffer(dpdk_par.portid, 0, tx_buffer, m);
                                         if (nb_tx) {
-                                            pkt_stats.w_tx += nb_tx;
+                                            w_tx += nb_tx;
                                             prev_tsc = cur_tsc;
                                         }
 
@@ -784,7 +791,7 @@ namespace daiet {
                 // Update shift
                 shift = (shift + total_num_msgs) % (2 * max_num_pending_messages);
 
-                while (!dctx_ptr->send_result(tuptr->id) && !force_quit)
+                while (!dctx_ptr->send_result(tu.id) && !force_quit)
                     ;
 
                 rte_bitmap_free(bitmap);
@@ -802,6 +809,7 @@ namespace daiet {
             }
         } // force quit
 
+        pkt_stats.set_workers(worker_id, w_tx, w_rx);
         // Cleanup
         rte_free(pkts_rx_burst);
         rte_pktmbuf_free_bulk(pkts_tx_burst, burst_size);

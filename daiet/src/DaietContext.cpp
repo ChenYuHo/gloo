@@ -20,7 +20,7 @@ namespace daiet {
     }
 
     DaietContext::DaietContext() :
-            master_ready(false), data_ready(false), result_empty(true), tensor_update_ptr(NULL), result_id(0), one_msec(1) {
+            num_worker_threads (1), master_ready(0), data_ready(0), results(0), tensor_update_ptr(NULL), result_id(0), one_msec(1) {
 
         tid_counter.store(0);
         StartMaster();
@@ -31,10 +31,14 @@ namespace daiet {
         StopMaster();
     }
 
+    void DaietContext::set_num_worker_threads(uint32_t nt){
+        num_worker_threads = nt;
+    }
+
     void DaietContext::wait_master_ready() {
         boost::unique_lock<boost::mutex> lock(master_ready_mutex);
 
-        while (!master_ready)
+        while (master_ready!=num_worker_threads)
             master_ready_event.wait(lock);
     }
 
@@ -42,47 +46,58 @@ namespace daiet {
 
         boost::unique_lock<boost::mutex> lock(master_ready_mutex);
 
-        master_ready = true;
-        master_ready_event.notify_one();
+        if ((++master_ready) == num_worker_threads)
+            master_ready_event.notify_one();
     }
 
     void DaietContext::send_tensor(TensorUpdate* tuptr) {
         boost::unique_lock<boost::mutex> lock(data_ready_mutex);
 
-        while (data_ready)
+        while (data_ready!=0)
             data_pop_event.wait(lock);
 
         tensor_update_ptr = tuptr;
-        data_ready = true;
-        data_push_event.notify_one();
+        data_ready = num_worker_threads;
+        data_push_event.notify_all();
     }
 
-    TensorUpdate* DaietContext::receive_tensor() {
+    bool DaietContext::receive_tensor(TensorUpdate& tu) {
         boost::unique_lock<boost::mutex> lock(data_ready_mutex);
 
-        while (!data_ready) {
+        while (data_ready==0) {
             if (data_push_event.wait_for(lock, one_msec) == boost::cv_status::timeout)
-                return NULL;
+                return false;
         }
 
-        TensorUpdate* tuptr = tensor_update_ptr;
-        tensor_update_ptr = NULL;
-        data_ready = false;
-        data_pop_event.notify_one();
-        return tuptr;
+        tu = *tensor_update_ptr; // Copy
+
+        if (data_ready != 1){
+            tu.count /= num_worker_threads;
+        } else {
+            tu.count -= tu.start_idx;
+        }
+
+        tensor_update_ptr->start_idx += tu.count;
+
+        if ((--data_ready) == 0)
+            data_pop_event.notify_one();
+
+        return true;
     }
 
     bool DaietContext::send_result(const int32_t rid) {
         boost::unique_lock<boost::mutex> lock(result_mutex);
 
-        while (!result_empty) {
+        while (results == num_worker_threads) {
             if (result_pop_event.wait_for(lock, one_msec) == boost::cv_status::timeout)
                 return false;
         }
 
-        result_id = rid;
-        result_empty = false;
-        result_push_event.notify_all();
+        if (results == 0)
+            result_id = rid;
+
+        if ((++results)==num_worker_threads)
+            result_push_event.notify_all();
 
         return true;
     }
@@ -90,13 +105,13 @@ namespace daiet {
     void DaietContext::receive_result(const int32_t rid) {
         boost::unique_lock<boost::mutex> lock(result_mutex);
 
-        while (result_id != rid)
+        while (results != num_worker_threads && result_id != rid)
             result_push_event.wait(lock);
 
-        result_empty = true;
+        results = 0;
         result_id = 0;
 
-        result_pop_event.notify_one();
+        result_pop_event.notify_all();
     }
 
     void DaietContext::StartMaster() {
@@ -128,6 +143,7 @@ namespace daiet {
         TensorUpdate tu;
         tu.ptr = ptr;
         tu.count = count;
+        tu.start_idx = 0;
         tu.id = tensor_id;
         tu.type = FLOAT;
 
@@ -141,6 +157,7 @@ namespace daiet {
         TensorUpdate tu;
         tu.ptr = ptr;
         tu.count = count;
+        tu.start_idx = 0;
         tu.id = tensor_id;
         tu.type = INT;
 
