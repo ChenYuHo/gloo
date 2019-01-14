@@ -71,7 +71,7 @@ int main(int argc, char* argv[]) {
     data.resize(tensor_size);
     cout << "-- Tensor initialization" << endl;
     for (int i = 0; i < tensor_size; i++) {
-        base_data.insert(base_data.begin() + i, (i%100)*elem);
+        base_data.insert(base_data.begin() + i, gloo::cpu_float2half_rn(i%100)*elem);
     }
     copy(base_data.begin(), base_data.end(), data.begin());
     cout << "---- Ended" << endl;
@@ -123,7 +123,7 @@ int main(int argc, char* argv[]) {
     cout << "-- Final check" << endl;
     for (int i = 0; i < tensor_size; i++) {
         expected = (i%100) * gloo::cpu_half2float(elem) * powf(size, num_last_rounds);
-        if (gloo::cpu_half2float(data[i]) != expected) {
+        if (data[i] != expected) {
             cout << "---- Failed: index: " << i << " -> received " << data[i] << " instead of " << expected << endl;
             break;
         }
