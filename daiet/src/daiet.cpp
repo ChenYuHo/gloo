@@ -300,6 +300,7 @@ namespace daiet {
             workers_setup();
             ps_setup();
 #endif
+            dctx_ptr->set_num_worker_threads(num_workers_threads);
             pkt_stats.init(num_workers_threads, 0);
 
             // Check state of slave cores

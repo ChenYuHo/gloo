@@ -16,6 +16,7 @@ using namespace std;
 namespace daiet {
 
     thread_local uint32_t worker_id;
+    thread_local uint16_t worker_port;
     thread_local TensorUpdate tu;
     thread_local uint32_t num_updates;
     thread_local size_t entries_size;
@@ -271,7 +272,7 @@ namespace daiet {
         ip->src_addr = daiet_par.getWorkerIpBe();
 
         // Set UDP
-        udp->src_port = daiet_par.getWorkerPortBe();
+        udp->src_port = worker_port;
         udp->dst_port = daiet_par.getPsPortBe();
         udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, ol_flags);
 
@@ -325,7 +326,7 @@ namespace daiet {
 
         // UDP header
         udp = (struct udp_hdr *) (ip + 1);
-        udp->src_port = daiet_par.getWorkerPortBe() + worker_id;
+        udp->src_port = worker_port;
         udp->dst_port = daiet_par.getPsPortBe();
         udp->dgram_len = rte_cpu_to_be_16(m->data_len - sizeof(struct ether_hdr) - sizeof(struct ipv4_hdr));
         udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
@@ -361,7 +362,7 @@ namespace daiet {
                 idx += sizeof(struct udp_hdr);
                 udp_hdr = (struct udp_hdr *) (ip_hdr + 1);
 
-                if (udp_hdr->dst_port == daiet_par.getWorkerPortBe() && size >= idx + sizeof(struct daiet_hdr)) {
+                if (udp_hdr->dst_port == worker_port && size >= idx + sizeof(struct daiet_hdr)) {
 
                     return (struct daiet_hdr *) (udp_hdr + 1);
                 }
@@ -401,7 +402,7 @@ namespace daiet {
         unsigned nb_tx = 0, sent = 0;
 
         do {
-            nb_tx = rte_eth_tx_burst(dpdk_par.portid, 0, &pkts[sent], unsent - sent);
+            nb_tx = rte_eth_tx_burst(dpdk_par.portid, worker_id, &pkts[sent], unsent - sent);
 
             sent += nb_tx;
         } while (sent < unsent);
@@ -491,6 +492,7 @@ namespace daiet {
         lcore_id = rte_lcore_id();
         worker_id = dpdk_data.core_to_workers_ids[lcore_id];
         LOG_DEBUG("Worker core: " + to_string(lcore_id) + " worker id: " + to_string(worker_id));
+        worker_port = rte_cpu_to_be_16(daiet_par.getWorkerPort()+worker_id);
         start_pool_index = worker_id *max_num_pending_messages;
 
 #ifdef TIMERS
@@ -636,7 +638,7 @@ namespace daiet {
                 // Transmit the packet burst
                 sent = 0;
                 do {
-                    nb_tx = rte_eth_tx_burst(dpdk_par.portid, 0, &pkts_tx_burst[sent], burst_size - sent);
+                    nb_tx = rte_eth_tx_burst(dpdk_par.portid, worker_id, &pkts_tx_burst[sent], burst_size - sent);
 
                     sent += nb_tx;
                 } while (sent < burst_size);
@@ -663,7 +665,7 @@ namespace daiet {
 #endif
 
                     // Read packet from RX ring
-                    nb_rx = rte_eth_rx_burst(dpdk_par.portid, 0, pkts_rx_burst, dpdk_par.burst_rx);
+                    nb_rx = rte_eth_rx_burst(dpdk_par.portid, worker_id, pkts_rx_burst, dpdk_par.burst_rx);
 
                     if (unlikely(nb_rx == 0)) {
 
@@ -672,7 +674,7 @@ namespace daiet {
                         diff_tsc = cur_tsc - prev_tsc;
                         if (unlikely(diff_tsc > drain_tsc)) {
                             // TX drain
-                            nb_tx = rte_eth_tx_buffer_flush(dpdk_par.portid, 0, tx_buffer);
+                            nb_tx = rte_eth_tx_buffer_flush(dpdk_par.portid, worker_id, tx_buffer);
                             if (nb_tx)
                                 w_tx += nb_tx;
 
@@ -747,7 +749,7 @@ namespace daiet {
                                         //Resend the packet
                                         reset_pkt(eth, dpdk_par.portid, tsi, tensor_size, m->ol_flags);
 
-                                        nb_tx = rte_eth_tx_buffer(dpdk_par.portid, 0, tx_buffer, m);
+                                        nb_tx = rte_eth_tx_buffer(dpdk_par.portid, worker_id, tx_buffer, m);
                                         if (nb_tx) {
                                             w_tx += nb_tx;
                                             prev_tsc = cur_tsc;
@@ -766,7 +768,7 @@ namespace daiet {
                                     // We have seen this packet before
 #ifdef DEBUG
                                     LOG_DEBUG("Duplicated packet");
-                                    print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
+                                    print_packet(eth,m->data_len, worker_port,daiet_par.getPsPortBe());
 #endif
 
                                     rte_pktmbuf_free(m);
@@ -776,7 +778,7 @@ namespace daiet {
 
 #ifdef DEBUG
                                 LOG_DEBUG("Wrong packet");
-                                print_packet(eth,m->data_len, daiet_par.getWorkerPortBe(),daiet_par.getPsPortBe());
+                                print_packet(eth,m->data_len, worker_port,daiet_par.getPsPortBe());
 #endif
 
                                 // Free original packet

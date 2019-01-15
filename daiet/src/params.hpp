@@ -96,7 +96,7 @@ namespace daiet {
 
             float scaling_factor;
 
-            uint16_t worker_port_be;
+            uint16_t worker_port;
             uint16_t ps_port_be;
             uint32_t worker_ip_be;
 
@@ -135,8 +135,8 @@ namespace daiet {
                 return tx_flags;
             }
 
-            __rte_always_inline uint16_t getWorkerPortBe() const {
-                return worker_port_be;
+            __rte_always_inline uint16_t getWorkerPort() const {
+                return worker_port;
             }
 
             void setWorkerPort(uint16_t workerPort);

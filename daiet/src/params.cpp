@@ -191,7 +191,7 @@ namespace daiet {
     }
 
     void daiet_params::setWorkerPort(uint16_t workerPort) {
-        worker_port_be = rte_cpu_to_be_16(workerPort);
+        worker_port = workerPort;
     }
 
     void daiet_params::setPsPort(uint16_t psPort) {
