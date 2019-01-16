@@ -20,11 +20,11 @@ cd ../experiments/exp1/
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake ..
+cmake -DUSE_MLX5=ON ..
 make -j
 cd ../../exp2
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake ..
+cmake -DUSE_MLX5=ON ..
 make -j

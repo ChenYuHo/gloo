@@ -19,7 +19,7 @@ namespace daiet {
         public:
             pkt_statistics();
             void init(uint32_t, uint32_t);
-            void set_workers(uint32_t, uint64_t, uint64_t);
+            void set_workers(uint16_t, uint64_t, uint64_t);
             void set_ps(uint32_t, uint64_t, uint64_t);
             void dump();
 

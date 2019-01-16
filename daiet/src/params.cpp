@@ -91,7 +91,7 @@ namespace daiet {
         if (!daiet_par.setWorkerIp(worker_ip_str))
             LOG_FATAL("Invalid worker IP: " + worker_ip_str);
 
-        daiet_par.setWorkerPort(worker_port);
+        daiet_par.setBaseWorkerPort(worker_port);
         daiet_par.setPsPort(ps_port);
 
         if (!daiet_par.setPs(ps_ips_str, ps_macs_str))
@@ -139,7 +139,7 @@ namespace daiet {
 
         scaling_factor = INT32_MAX / FLT_MAX;
 
-        worker_port_be = rte_cpu_to_be_16(4000);
+        worker_port = 4000;
         ps_port_be = rte_cpu_to_be_16(48879);
         worker_ip_be = rte_cpu_to_be_32(0x0a000001);
 
@@ -162,7 +162,7 @@ namespace daiet {
         LOG_INFO("** DAIET parameters **");
         LOG_INFO("Num updates: " + to_string(num_updates));
         LOG_INFO("Max num pending messages: " + to_string(max_num_pending_messages));
-        LOG_INFO("Worker port: " + to_string(rte_be_to_cpu_16(worker_port_be)));
+        LOG_INFO("Worker port: " + to_string(worker_port));
         LOG_INFO("PS port: " + to_string(rte_be_to_cpu_16(ps_port_be)));
         LOG_INFO("Scaling factor: " + to_string(scaling_factor));
 
@@ -190,7 +190,7 @@ namespace daiet {
         scaling_factor = INT32_MAX / maxFloat;
     }
 
-    void daiet_params::setWorkerPort(uint16_t workerPort) {
+    void daiet_params::setBaseWorkerPort(uint16_t workerPort) {
         worker_port = workerPort;
     }
 

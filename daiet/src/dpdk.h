@@ -33,3 +33,4 @@
 #include <rte_rwlock.h>
 #include <rte_timer.h>
 #include <rte_bitmap.h>
+#include <rte_flow.h>

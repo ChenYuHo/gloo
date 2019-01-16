@@ -1,6 +1,8 @@
 #!/bin/bash
 
-declare -a intfs=("eno1")
+set -x
+
+IFACE="eno1"
 
 cwd=$(pwd)
 
@@ -14,9 +16,6 @@ insmod kmod/igb_uio.ko
 
 cd ../usertools
 
-for i in "${intfs[@]}"
-do
-    ./dpdk-devbind.py --bind=igb_uio $i
-done
+./dpdk-devbind.py --bind=igb_uio ${IFACE}
 
 cd $cwd

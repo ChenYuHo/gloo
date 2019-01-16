@@ -19,7 +19,7 @@ namespace daiet {
 
             // Buffer pool size
             uint32_t pool_buffer_size;
-            uint32_t core_to_workers_ids[RTE_MAX_LCORE];
+            uint16_t core_to_workers_ids[RTE_MAX_LCORE];
 
             dpdk_data() {
                 // Defaults
@@ -135,11 +135,11 @@ namespace daiet {
                 return tx_flags;
             }
 
-            __rte_always_inline uint16_t getWorkerPort() const {
+            __rte_always_inline uint16_t getBaseWorkerPort() const {
                 return worker_port;
             }
 
-            void setWorkerPort(uint16_t workerPort);
+            void setBaseWorkerPort(uint16_t workerPort);
 
             __rte_always_inline uint16_t getPsPortBe() const {
                 return ps_port_be;

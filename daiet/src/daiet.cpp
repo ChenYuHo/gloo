@@ -20,7 +20,73 @@ using namespace std;
 
 namespace daiet {
 
-    void port_init(uint32_t num_queues) {
+        struct rte_flow* insert_flow_rule(uint8_t port_id, uint16_t rx_q, uint16_t udp_dst_port) {
+
+            struct rte_flow_attr attr;
+            struct rte_flow_item pattern[4];
+            struct rte_flow_action action[2];
+            struct rte_flow *flow = NULL;
+            struct rte_flow_action_queue queue;
+            struct rte_flow_item_eth eth_spec;
+            struct rte_flow_item_eth eth_mask;
+            struct rte_flow_item_ipv4 ip_spec;
+            struct rte_flow_item_ipv4 ip_mask;
+            struct rte_flow_item_udp udp_spec;
+            struct rte_flow_item_udp udp_mask;
+            struct rte_flow_error error;
+
+            // Rule attribute (ingress)
+            memset(&attr, 0, sizeof(struct rte_flow_attr));
+            attr.ingress = 1;
+
+            memset(pattern, 0, sizeof(pattern));
+            memset(action, 0, sizeof(action));
+
+            // Action sequence
+            queue.index = rx_q;
+            action[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+            action[0].conf = &queue;
+            action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+            // First level of the pattern (eth)
+            memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+            memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+            pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+            pattern[0].spec = &eth_spec;
+            pattern[0].mask = &eth_mask;
+
+            // Second level of the pattern (IPv4)
+            memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+            memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+            ip_spec.hdr.next_proto_id = 17;
+            ip_mask.hdr.next_proto_id = 0xFF;
+            pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+            pattern[1].spec = &ip_spec;
+            pattern[1].mask = &ip_mask;
+
+            // Third level of the pattern (UDP)
+            memset(&udp_spec, 0, sizeof(struct rte_flow_item_udp));
+            memset(&udp_mask, 0, sizeof(struct rte_flow_item_udp));
+            udp_spec.hdr.dst_port = rte_cpu_to_be_16(udp_dst_port);
+            udp_mask.hdr.dst_port = 0xFFFF;
+            pattern[2].type = RTE_FLOW_ITEM_TYPE_UDP;
+            pattern[2].spec = &udp_spec;
+            pattern[2].mask = &udp_mask;
+
+            // Final level
+            pattern[3].type = RTE_FLOW_ITEM_TYPE_END;
+
+            int res = rte_flow_validate(port_id, &attr, pattern, action, &error);
+
+            if(res!=0)
+                LOG_FATAL ("Flow rule can't be added: " + to_string(error.type) + " " + string((error.message ? error.message : "(no stated reason)")));
+
+            flow = rte_flow_create(port_id, &attr, pattern, action, &error);
+
+            return flow;
+    }
+
+    void port_init(uint16_t num_queues) {
 
         int ret;
 
@@ -108,7 +174,7 @@ namespace daiet {
         //port_conf.lpbk_mode = 0; // Loopback operation mode disabled
         //port_conf.dcb_capability_en = 0; // DCB disabled
 
-        /* FDIR
+        // Flow director
         port_conf.rx_adv_conf.rss_conf.rss_key = NULL;
         port_conf.rx_adv_conf.rss_conf.rss_hf = 0;
 
@@ -117,9 +183,8 @@ namespace daiet {
         port_conf.fdir_conf.status = RTE_FDIR_NO_REPORT_STATUS;
         port_conf.fdir_conf.drop_queue = 127;
 
-        memset(&port_conf.fdir_conf.mask, 0x00, sizeof(struct rte_eth_fdir_masks));
-        port_conf.fdir_conf.mask.dst_port_mask = 0xFFFF;
-        */
+        //memset(&port_conf.fdir_conf.mask, 0x00, sizeof(struct rte_eth_fdir_masks));
+        //port_conf.fdir_conf.mask.dst_port_mask = 0xFFFF;
 
         ret = rte_eth_dev_configure(dpdk_par.portid, num_queues, num_queues, &port_conf);
         if (ret < 0)
@@ -201,6 +266,10 @@ namespace daiet {
         LOG_DEBUG("Initialization ended. Port " + to_string(dpdk_par.portid) + " address: " + mac_to_str(port_eth_addr));
 
         check_port_link_status(dpdk_par.portid);
+
+        // Add FDIR filters
+        for (uint16_t i = 0; i < num_queues; i++)
+            insert_flow_rule(dpdk_par.portid, i, daiet_par.getBaseWorkerPort()+i);
     }
 
     int master(DaietContext* dctx_ptr) {
@@ -217,7 +286,7 @@ namespace daiet {
             double elapsed_secs;
             ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
 
-            uint32_t num_workers_threads;
+            uint16_t num_workers_threads;
             string eal_cmdline;
 
             force_quit = false;
@@ -272,7 +341,7 @@ namespace daiet {
                 LOG_FATAL("EAL init failed: " + string(rte_strerror(rte_errno)));
 
             // Count cores/workers
-            uint32_t n_lcores = 0, lcore_id, wid = 0;
+            uint16_t n_lcores = 0, lcore_id, wid = 0;
             for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
                 if (rte_lcore_is_enabled(lcore_id) != 0) {
 
@@ -353,6 +422,9 @@ namespace daiet {
             // Cleanup
 
             LOG_DEBUG("Closing port...");
+            struct rte_flow_error error;
+            if(rte_flow_flush(dpdk_par.portid, &error)!=0)
+                LOG_ERROR("Flow flush failed!");
             rte_eth_dev_stop(dpdk_par.portid);
             rte_eth_dev_close(dpdk_par.portid);
             LOG_DEBUG("Port closed");

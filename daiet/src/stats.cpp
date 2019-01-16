@@ -31,7 +31,7 @@ namespace daiet {
 #endif
     }
 
-    void pkt_statistics::set_workers(uint32_t wid, uint64_t tx, uint64_t rx) {
+    void pkt_statistics::set_workers(uint16_t wid, uint64_t tx, uint64_t rx) {
 
         boost::unique_lock<boost::mutex> lock(w_mutex);
 
