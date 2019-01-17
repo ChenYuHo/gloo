@@ -31,5 +31,5 @@ if(NOT USE_VANILLA)
 endif()
 
 if(USE_MLX5)
-    target_link_libraries(exp1 ibverbs mlx5)
+    target_link_libraries(exp1 ibverbs mlx5 mnl)
 endif()
