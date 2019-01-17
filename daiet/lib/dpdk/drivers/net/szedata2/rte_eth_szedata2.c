@@ -1474,7 +1474,7 @@ rte_szedata2_eth_dev_init(struct rte_eth_dev *dev, struct port_info *pi)
 	PMD_INIT_FUNC_TRACE();
 
 	PMD_INIT_LOG(INFO, "Initializing eth_dev %s (driver %s)", data->name,
-			dev->device->driver->name);
+			RTE_STR(RTE_SZEDATA2_DRIVER_NAME));
 
 	/* Fill internal private structure. */
 	internals->dev = dev;
@@ -1525,7 +1525,7 @@ rte_szedata2_eth_dev_init(struct rte_eth_dev *dev, struct port_info *pi)
 	ether_addr_copy(&eth_addr, data->mac_addrs);
 
 	PMD_INIT_LOG(INFO, "%s device %s successfully initialized",
-			dev->device->driver->name, data->name);
+			RTE_STR(RTE_SZEDATA2_DRIVER_NAME), data->name);
 
 	return 0;
 }
@@ -1544,10 +1544,9 @@ rte_szedata2_eth_dev_uninit(struct rte_eth_dev *dev)
 	PMD_INIT_FUNC_TRACE();
 
 	free(internals->sze_dev_path);
-	rte_free(dev->data->mac_addrs);
 
 	PMD_DRV_LOG(INFO, "%s device %s successfully uninitialized",
-			dev->device->driver->name, dev->data->name);
+			RTE_STR(RTE_SZEDATA2_DRIVER_NAME), dev->data->name);
 
 	return 0;
 }
@@ -1922,9 +1921,7 @@ RTE_PMD_REGISTER_PCI_TABLE(RTE_SZEDATA2_DRIVER_NAME, rte_szedata2_pci_id_table);
 RTE_PMD_REGISTER_KMOD_DEP(RTE_SZEDATA2_DRIVER_NAME,
 	"* combo6core & combov3 & szedata2 & ( szedata2_cv3 | szedata2_cv3_fdt )");
 
-RTE_INIT(szedata2_init_log);
-static void
-szedata2_init_log(void)
+RTE_INIT(szedata2_init_log)
 {
 	szedata2_logtype_init = rte_log_register("pmd.net.szedata2.init");
 	if (szedata2_logtype_init >= 0)

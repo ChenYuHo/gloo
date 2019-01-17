@@ -2,6 +2,7 @@
  * Copyright(c) 2010-2014 Intel Corporation
  */
 
+#include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -37,6 +38,23 @@
 static void *next_baseaddr;
 static uint64_t system_page_sz;
 
+#ifdef RTE_ARCH_64
+/*
+ * Linux kernel uses a really high address as starting address for serving
+ * mmaps calls. If there exists addressing limitations and IOVA mode is VA,
+ * this starting address is likely too high for those devices. However, it
+ * is possible to use a lower address in the process virtual address space
+ * as with 64 bits there is a lot of available space.
+ *
+ * Current known limitations are 39 or 40 bits. Setting the starting address
+ * at 4GB implies there are 508GB or 1020GB for mapping the available
+ * hugepages. This is likely enough for most systems, although a device with
+ * addressing limitations should call rte_mem_check_dma_mask for ensuring all
+ * memory is within supported range.
+ */
+static uint64_t baseaddr = 0x100000000;
+#endif
+
 void *
 eal_get_virtual_area(void *requested_addr, size_t *size,
 		size_t page_sz, int flags, int mmap_flags)
@@ -60,6 +78,11 @@ eal_get_virtual_area(void *requested_addr, size_t *size,
 			rte_eal_process_type() == RTE_PROC_PRIMARY)
 		next_baseaddr = (void *) internal_config.base_virtaddr;
 
+#ifdef RTE_ARCH_64
+	if (next_baseaddr == NULL && internal_config.base_virtaddr == 0 &&
+			rte_eal_process_type() == RTE_PROC_PRIMARY)
+		next_baseaddr = (void *) baseaddr;
+#endif
 	if (requested_addr == NULL && next_baseaddr != NULL) {
 		requested_addr = next_baseaddr;
 		requested_addr = RTE_PTR_ALIGN(requested_addr, page_sz);
@@ -91,7 +114,17 @@ eal_get_virtual_area(void *requested_addr, size_t *size,
 				mmap_flags, -1, 0);
 		if (mapped_addr == MAP_FAILED && allow_shrink)
 			*size -= page_sz;
-	} while (allow_shrink && mapped_addr == MAP_FAILED && *size > 0);
+
+		if (mapped_addr != MAP_FAILED && addr_is_hint &&
+		    mapped_addr != requested_addr) {
+			/* hint was not used. Try with another offset */
+			munmap(mapped_addr, map_sz);
+			mapped_addr = MAP_FAILED;
+			next_baseaddr = RTE_PTR_ADD(next_baseaddr, page_sz);
+			requested_addr = next_baseaddr;
+		}
+	} while ((allow_shrink || addr_is_hint) &&
+		 mapped_addr == MAP_FAILED && *size > 0);
 
 	/* align resulting address - if map failed, we will ignore the value
 	 * anyway, so no need to add additional checks.
@@ -159,382 +192,6 @@ eal_get_virtual_area(void *requested_addr, size_t *size,
 	return aligned_addr;
 }
 
-static uint64_t
-get_mem_amount(uint64_t page_sz, uint64_t max_mem)
-{
-	uint64_t area_sz, max_pages;
-
-	/* limit to RTE_MAX_MEMSEG_PER_LIST pages or RTE_MAX_MEM_MB_PER_LIST */
-	max_pages = RTE_MAX_MEMSEG_PER_LIST;
-	max_mem = RTE_MIN((uint64_t)RTE_MAX_MEM_MB_PER_LIST << 20, max_mem);
-
-	area_sz = RTE_MIN(page_sz * max_pages, max_mem);
-
-	/* make sure the list isn't smaller than the page size */
-	area_sz = RTE_MAX(area_sz, page_sz);
-
-	return RTE_ALIGN(area_sz, page_sz);
-}
-
-static int
-free_memseg_list(struct rte_memseg_list *msl)
-{
-	if (rte_fbarray_destroy(&msl->memseg_arr)) {
-		RTE_LOG(ERR, EAL, "Cannot destroy memseg list\n");
-		return -1;
-	}
-	memset(msl, 0, sizeof(*msl));
-	return 0;
-}
-
-static int
-alloc_memseg_list(struct rte_memseg_list *msl, uint64_t page_sz,
-		uint64_t max_mem, int socket_id, int type_msl_idx)
-{
-	char name[RTE_FBARRAY_NAME_LEN];
-	uint64_t mem_amount;
-	int max_segs;
-
-	mem_amount = get_mem_amount(page_sz, max_mem);
-	max_segs = mem_amount / page_sz;
-
-	snprintf(name, sizeof(name), MEMSEG_LIST_FMT, page_sz >> 10, socket_id,
-		 type_msl_idx);
-	if (rte_fbarray_init(&msl->memseg_arr, name, max_segs,
-			sizeof(struct rte_memseg))) {
-		RTE_LOG(ERR, EAL, "Cannot allocate memseg list: %s\n",
-			rte_strerror(rte_errno));
-		return -1;
-	}
-
-	msl->page_sz = page_sz;
-	msl->socket_id = socket_id;
-	msl->base_va = NULL;
-
-	RTE_LOG(DEBUG, EAL, "Memseg list allocated: 0x%zxkB at socket %i\n",
-			(size_t)page_sz >> 10, socket_id);
-
-	return 0;
-}
-
-static int
-alloc_va_space(struct rte_memseg_list *msl)
-{
-	uint64_t page_sz;
-	size_t mem_sz;
-	void *addr;
-	int flags = 0;
-
-#ifdef RTE_ARCH_PPC_64
-	flags |= MAP_HUGETLB;
-#endif
-
-	page_sz = msl->page_sz;
-	mem_sz = page_sz * msl->memseg_arr.len;
-
-	addr = eal_get_virtual_area(msl->base_va, &mem_sz, page_sz, 0, flags);
-	if (addr == NULL) {
-		if (rte_errno == EADDRNOTAVAIL)
-			RTE_LOG(ERR, EAL, "Could not mmap %llu bytes at [%p] - please use '--base-virtaddr' option\n",
-				(unsigned long long)mem_sz, msl->base_va);
-		else
-			RTE_LOG(ERR, EAL, "Cannot reserve memory\n");
-		return -1;
-	}
-	msl->base_va = addr;
-
-	return 0;
-}
-
-static int __rte_unused
-memseg_primary_init_32(void)
-{
-	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
-	int active_sockets, hpi_idx, msl_idx = 0;
-	unsigned int socket_id, i;
-	struct rte_memseg_list *msl;
-	uint64_t extra_mem_per_socket, total_extra_mem, total_requested_mem;
-	uint64_t max_mem;
-
-	/* no-huge does not need this at all */
-	if (internal_config.no_hugetlbfs)
-		return 0;
-
-	/* this is a giant hack, but desperate times call for desperate
-	 * measures. in legacy 32-bit mode, we cannot preallocate VA space,
-	 * because having upwards of 2 gigabytes of VA space already mapped will
-	 * interfere with our ability to map and sort hugepages.
-	 *
-	 * therefore, in legacy 32-bit mode, we will be initializing memseg
-	 * lists much later - in eal_memory.c, right after we unmap all the
-	 * unneeded pages. this will not affect secondary processes, as those
-	 * should be able to mmap the space without (too many) problems.
-	 */
-	if (internal_config.legacy_mem)
-		return 0;
-
-	/* 32-bit mode is a very special case. we cannot know in advance where
-	 * the user will want to allocate their memory, so we have to do some
-	 * heuristics.
-	 */
-	active_sockets = 0;
-	total_requested_mem = 0;
-	if (internal_config.force_sockets)
-		for (i = 0; i < rte_socket_count(); i++) {
-			uint64_t mem;
-
-			socket_id = rte_socket_id_by_idx(i);
-			mem = internal_config.socket_mem[socket_id];
-
-			if (mem == 0)
-				continue;
-
-			active_sockets++;
-			total_requested_mem += mem;
-		}
-	else
-		total_requested_mem = internal_config.memory;
-
-	max_mem = (uint64_t)RTE_MAX_MEM_MB << 20;
-	if (total_requested_mem > max_mem) {
-		RTE_LOG(ERR, EAL, "Invalid parameters: 32-bit process can at most use %uM of memory\n",
-				(unsigned int)(max_mem >> 20));
-		return -1;
-	}
-	total_extra_mem = max_mem - total_requested_mem;
-	extra_mem_per_socket = active_sockets == 0 ? total_extra_mem :
-			total_extra_mem / active_sockets;
-
-	/* the allocation logic is a little bit convoluted, but here's how it
-	 * works, in a nutshell:
-	 *  - if user hasn't specified on which sockets to allocate memory via
-	 *    --socket-mem, we allocate all of our memory on master core socket.
-	 *  - if user has specified sockets to allocate memory on, there may be
-	 *    some "unused" memory left (e.g. if user has specified --socket-mem
-	 *    such that not all memory adds up to 2 gigabytes), so add it to all
-	 *    sockets that are in use equally.
-	 *
-	 * page sizes are sorted by size in descending order, so we can safely
-	 * assume that we dispense with bigger page sizes first.
-	 */
-
-	/* create memseg lists */
-	for (i = 0; i < rte_socket_count(); i++) {
-		int hp_sizes = (int) internal_config.num_hugepage_sizes;
-		uint64_t max_socket_mem, cur_socket_mem;
-		unsigned int master_lcore_socket;
-		struct rte_config *cfg = rte_eal_get_configuration();
-		bool skip;
-
-		socket_id = rte_socket_id_by_idx(i);
-
-#ifndef RTE_EAL_NUMA_AWARE_HUGEPAGES
-		if (socket_id > 0)
-			break;
-#endif
-
-		/* if we didn't specifically request memory on this socket */
-		skip = active_sockets != 0 &&
-				internal_config.socket_mem[socket_id] == 0;
-		/* ...or if we didn't specifically request memory on *any*
-		 * socket, and this is not master lcore
-		 */
-		master_lcore_socket = rte_lcore_to_socket_id(cfg->master_lcore);
-		skip |= active_sockets == 0 && socket_id != master_lcore_socket;
-
-		if (skip) {
-			RTE_LOG(DEBUG, EAL, "Will not preallocate memory on socket %u\n",
-					socket_id);
-			continue;
-		}
-
-		/* max amount of memory on this socket */
-		max_socket_mem = (active_sockets != 0 ?
-					internal_config.socket_mem[socket_id] :
-					internal_config.memory) +
-					extra_mem_per_socket;
-		cur_socket_mem = 0;
-
-		for (hpi_idx = 0; hpi_idx < hp_sizes; hpi_idx++) {
-			uint64_t max_pagesz_mem, cur_pagesz_mem = 0;
-			uint64_t hugepage_sz;
-			struct hugepage_info *hpi;
-			int type_msl_idx, max_segs, total_segs = 0;
-
-			hpi = &internal_config.hugepage_info[hpi_idx];
-			hugepage_sz = hpi->hugepage_sz;
-
-			/* check if pages are actually available */
-			if (hpi->num_pages[socket_id] == 0)
-				continue;
-
-			max_segs = RTE_MAX_MEMSEG_PER_TYPE;
-			max_pagesz_mem = max_socket_mem - cur_socket_mem;
-
-			/* make it multiple of page size */
-			max_pagesz_mem = RTE_ALIGN_FLOOR(max_pagesz_mem,
-					hugepage_sz);
-
-			RTE_LOG(DEBUG, EAL, "Attempting to preallocate "
-					"%" PRIu64 "M on socket %i\n",
-					max_pagesz_mem >> 20, socket_id);
-
-			type_msl_idx = 0;
-			while (cur_pagesz_mem < max_pagesz_mem &&
-					total_segs < max_segs) {
-				if (msl_idx >= RTE_MAX_MEMSEG_LISTS) {
-					RTE_LOG(ERR, EAL,
-						"No more space in memseg lists, please increase %s\n",
-						RTE_STR(CONFIG_RTE_MAX_MEMSEG_LISTS));
-					return -1;
-				}
-
-				msl = &mcfg->memsegs[msl_idx];
-
-				if (alloc_memseg_list(msl, hugepage_sz,
-						max_pagesz_mem, socket_id,
-						type_msl_idx)) {
-					/* failing to allocate a memseg list is
-					 * a serious error.
-					 */
-					RTE_LOG(ERR, EAL, "Cannot allocate memseg list\n");
-					return -1;
-				}
-
-				if (alloc_va_space(msl)) {
-					/* if we couldn't allocate VA space, we
-					 * can try with smaller page sizes.
-					 */
-					RTE_LOG(ERR, EAL, "Cannot allocate VA space for memseg list, retrying with different page size\n");
-					/* deallocate memseg list */
-					if (free_memseg_list(msl))
-						return -1;
-					break;
-				}
-
-				total_segs += msl->memseg_arr.len;
-				cur_pagesz_mem = total_segs * hugepage_sz;
-				type_msl_idx++;
-				msl_idx++;
-			}
-			cur_socket_mem += cur_pagesz_mem;
-		}
-		if (cur_socket_mem == 0) {
-			RTE_LOG(ERR, EAL, "Cannot allocate VA space on socket %u\n",
-				socket_id);
-			return -1;
-		}
-	}
-
-	return 0;
-}
-
-static int __rte_unused
-memseg_primary_init(void)
-{
-	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
-	int i, socket_id, hpi_idx, msl_idx = 0;
-	struct rte_memseg_list *msl;
-	uint64_t max_mem, total_mem;
-
-	/* no-huge does not need this at all */
-	if (internal_config.no_hugetlbfs)
-		return 0;
-
-	max_mem = (uint64_t)RTE_MAX_MEM_MB << 20;
-	total_mem = 0;
-
-	/* create memseg lists */
-	for (hpi_idx = 0; hpi_idx < (int) internal_config.num_hugepage_sizes;
-			hpi_idx++) {
-		struct hugepage_info *hpi;
-		uint64_t hugepage_sz;
-
-		hpi = &internal_config.hugepage_info[hpi_idx];
-		hugepage_sz = hpi->hugepage_sz;
-
-		for (i = 0; i < (int) rte_socket_count(); i++) {
-			uint64_t max_type_mem, total_type_mem = 0;
-			int type_msl_idx, max_segs, total_segs = 0;
-
-			socket_id = rte_socket_id_by_idx(i);
-
-#ifndef RTE_EAL_NUMA_AWARE_HUGEPAGES
-			if (socket_id > 0)
-				break;
-#endif
-
-			if (total_mem >= max_mem)
-				break;
-
-			max_type_mem = RTE_MIN(max_mem - total_mem,
-				(uint64_t)RTE_MAX_MEM_MB_PER_TYPE << 20);
-			max_segs = RTE_MAX_MEMSEG_PER_TYPE;
-
-			type_msl_idx = 0;
-			while (total_type_mem < max_type_mem &&
-					total_segs < max_segs) {
-				uint64_t cur_max_mem;
-				if (msl_idx >= RTE_MAX_MEMSEG_LISTS) {
-					RTE_LOG(ERR, EAL,
-						"No more space in memseg lists, please increase %s\n",
-						RTE_STR(CONFIG_RTE_MAX_MEMSEG_LISTS));
-					return -1;
-				}
-
-				msl = &mcfg->memsegs[msl_idx++];
-
-				cur_max_mem = max_type_mem - total_type_mem;
-				if (alloc_memseg_list(msl, hugepage_sz,
-						cur_max_mem, socket_id,
-						type_msl_idx))
-					return -1;
-
-				total_segs += msl->memseg_arr.len;
-				total_type_mem = total_segs * hugepage_sz;
-				type_msl_idx++;
-
-				if (alloc_va_space(msl)) {
-					RTE_LOG(ERR, EAL, "Cannot allocate VA space for memseg list\n");
-					return -1;
-				}
-			}
-			total_mem += total_type_mem;
-		}
-	}
-	return 0;
-}
-
-static int
-memseg_secondary_init(void)
-{
-	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
-	int msl_idx = 0;
-	struct rte_memseg_list *msl;
-
-	for (msl_idx = 0; msl_idx < RTE_MAX_MEMSEG_LISTS; msl_idx++) {
-
-		msl = &mcfg->memsegs[msl_idx];
-
-		/* skip empty memseg lists */
-		if (msl->memseg_arr.len == 0)
-			continue;
-
-		if (rte_fbarray_attach(&msl->memseg_arr)) {
-			RTE_LOG(ERR, EAL, "Cannot attach to primary process memseg lists\n");
-			return -1;
-		}
-
-		/* preallocate VA space */
-		if (alloc_va_space(msl)) {
-			RTE_LOG(ERR, EAL, "Cannot preallocate VA space for hugepage memory\n");
-			return -1;
-		}
-	}
-
-	return 0;
-}
-
 static struct rte_memseg *
 virt2memseg(const void *addr, const struct rte_memseg_list *msl)
 {
@@ -547,7 +204,7 @@ virt2memseg(const void *addr, const struct rte_memseg_list *msl)
 
 	/* a memseg list was specified, check if it's the right one */
 	start = msl->base_va;
-	end = RTE_PTR_ADD(start, (size_t)msl->page_sz * msl->memseg_arr.len);
+	end = RTE_PTR_ADD(start, msl->len);
 
 	if (addr < start || addr >= end)
 		return NULL;
@@ -570,8 +227,7 @@ virt2memseg_list(const void *addr)
 		msl = &mcfg->memsegs[msl_idx];
 
 		start = msl->base_va;
-		end = RTE_PTR_ADD(start,
-				(size_t)msl->page_sz * msl->memseg_arr.len);
+		end = RTE_PTR_ADD(start, msl->len);
 		if (addr >= start && addr < end)
 			break;
 	}
@@ -649,6 +305,9 @@ physmem_size(const struct rte_memseg_list *msl, void *arg)
 {
 	uint64_t *total_len = arg;
 
+	if (msl->external)
+		return 0;
+
 	*total_len += msl->memseg_arr.count * msl->page_sz;
 
 	return 0;
@@ -670,7 +329,7 @@ dump_memseg(const struct rte_memseg_list *msl, const struct rte_memseg *ms,
 		void *arg)
 {
 	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
-	int msl_idx, ms_idx;
+	int msl_idx, ms_idx, fd;
 	FILE *f = arg;
 
 	msl_idx = msl - mcfg->memsegs;
@@ -681,10 +340,11 @@ dump_memseg(const struct rte_memseg_list *msl, const struct rte_memseg *ms,
 	if (ms_idx < 0)
 		return -1;
 
+	fd = eal_memalloc_get_seg_fd(msl_idx, ms_idx);
 	fprintf(f, "Segment %i-%i: IOVA:0x%"PRIx64", len:%zu, "
 			"virt:%p, socket_id:%"PRId32", "
 			"hugepage_sz:%"PRIu64", nchannel:%"PRIx32", "
-			"nrank:%"PRIx32"\n",
+			"nrank:%"PRIx32" fd:%i\n",
 			msl_idx, ms_idx,
 			ms->iova,
 			ms->len,
@@ -692,7 +352,8 @@ dump_memseg(const struct rte_memseg_list *msl, const struct rte_memseg *ms,
 			ms->socket_id,
 			ms->hugepage_sz,
 			ms->nchannel,
-			ms->nrank);
+			ms->nrank,
+			fd);
 
 	return 0;
 }
@@ -759,6 +420,97 @@ rte_dump_physmem_layout(FILE *f)
 	rte_memseg_walk(dump_memseg, f);
 }
 
+static int
+check_iova(const struct rte_memseg_list *msl __rte_unused,
+		const struct rte_memseg *ms, void *arg)
+{
+	uint64_t *mask = arg;
+	rte_iova_t iova;
+
+	/* higher address within segment */
+	iova = (ms->iova + ms->len) - 1;
+	if (!(iova & *mask))
+		return 0;
+
+	RTE_LOG(DEBUG, EAL, "memseg iova %"PRIx64", len %zx, out of range\n",
+			    ms->iova, ms->len);
+
+	RTE_LOG(DEBUG, EAL, "\tusing dma mask %"PRIx64"\n", *mask);
+	return 1;
+}
+
+#define MAX_DMA_MASK_BITS 63
+
+/* check memseg iovas are within the required range based on dma mask */
+static int __rte_experimental
+check_dma_mask(uint8_t maskbits, bool thread_unsafe)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	uint64_t mask;
+	int ret;
+
+	/* Sanity check. We only check width can be managed with 64 bits
+	 * variables. Indeed any higher value is likely wrong. */
+	if (maskbits > MAX_DMA_MASK_BITS) {
+		RTE_LOG(ERR, EAL, "wrong dma mask size %u (Max: %u)\n",
+				   maskbits, MAX_DMA_MASK_BITS);
+		return -1;
+	}
+
+	/* create dma mask */
+	mask = ~((1ULL << maskbits) - 1);
+
+	if (thread_unsafe)
+		ret = rte_memseg_walk_thread_unsafe(check_iova, &mask);
+	else
+		ret = rte_memseg_walk(check_iova, &mask);
+
+	if (ret)
+		/*
+		 * Dma mask precludes hugepage usage.
+		 * This device can not be used and we do not need to keep
+		 * the dma mask.
+		 */
+		return 1;
+
+	/*
+	 * we need to keep the more restricted maskbit for checking
+	 * potential dynamic memory allocation in the future.
+	 */
+	mcfg->dma_maskbits = mcfg->dma_maskbits == 0 ? maskbits :
+			     RTE_MIN(mcfg->dma_maskbits, maskbits);
+
+	return 0;
+}
+
+int __rte_experimental
+rte_mem_check_dma_mask(uint8_t maskbits)
+{
+	return check_dma_mask(maskbits, false);
+}
+
+int __rte_experimental
+rte_mem_check_dma_mask_thread_unsafe(uint8_t maskbits)
+{
+	return check_dma_mask(maskbits, true);
+}
+
+/*
+ * Set dma mask to use when memory initialization is done.
+ *
+ * This function should ONLY be used by code executed before the memory
+ * initialization. PMDs should use rte_mem_check_dma_mask if addressing
+ * limitations by the device.
+ */
+void __rte_experimental
+rte_mem_set_dma_mask(uint8_t maskbits)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+
+	mcfg->dma_maskbits = mcfg->dma_maskbits == 0 ? maskbits :
+			     RTE_MIN(mcfg->dma_maskbits, maskbits);
+}
+
 /* return the number of memory channels */
 unsigned rte_memory_get_nchannel(void)
 {
@@ -797,13 +549,10 @@ rte_mem_lock_page(const void *virt)
 }
 
 int __rte_experimental
-rte_memseg_contig_walk(rte_memseg_contig_walk_t func, void *arg)
+rte_memseg_contig_walk_thread_unsafe(rte_memseg_contig_walk_t func, void *arg)
 {
 	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
 	int i, ms_idx, ret = 0;
-
-	/* do not allow allocations/frees/init while we iterate */
-	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
 
 	for (i = 0; i < RTE_MAX_MEMSEG_LISTS; i++) {
 		struct rte_memseg_list *msl = &mcfg->memsegs[i];
@@ -829,30 +578,34 @@ rte_memseg_contig_walk(rte_memseg_contig_walk_t func, void *arg)
 			len = n_segs * msl->page_sz;
 
 			ret = func(msl, ms, len, arg);
-			if (ret < 0) {
-				ret = -1;
-				goto out;
-			} else if (ret > 0) {
-				ret = 1;
-				goto out;
-			}
+			if (ret)
+				return ret;
 			ms_idx = rte_fbarray_find_next_used(arr,
 					ms_idx + n_segs);
 		}
 	}
-out:
+	return 0;
+}
+
+int __rte_experimental
+rte_memseg_contig_walk(rte_memseg_contig_walk_t func, void *arg)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	int ret = 0;
+
+	/* do not allow allocations/frees/init while we iterate */
+	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
+	ret = rte_memseg_contig_walk_thread_unsafe(func, arg);
 	rte_rwlock_read_unlock(&mcfg->memory_hotplug_lock);
+
 	return ret;
 }
 
 int __rte_experimental
-rte_memseg_walk(rte_memseg_walk_t func, void *arg)
+rte_memseg_walk_thread_unsafe(rte_memseg_walk_t func, void *arg)
 {
 	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
 	int i, ms_idx, ret = 0;
-
-	/* do not allow allocations/frees/init while we iterate */
-	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
 
 	for (i = 0; i < RTE_MAX_MEMSEG_LISTS; i++) {
 		struct rte_memseg_list *msl = &mcfg->memsegs[i];
@@ -868,29 +621,33 @@ rte_memseg_walk(rte_memseg_walk_t func, void *arg)
 		while (ms_idx >= 0) {
 			ms = rte_fbarray_get(arr, ms_idx);
 			ret = func(msl, ms, arg);
-			if (ret < 0) {
-				ret = -1;
-				goto out;
-			} else if (ret > 0) {
-				ret = 1;
-				goto out;
-			}
+			if (ret)
+				return ret;
 			ms_idx = rte_fbarray_find_next_used(arr, ms_idx + 1);
 		}
 	}
-out:
+	return 0;
+}
+
+int __rte_experimental
+rte_memseg_walk(rte_memseg_walk_t func, void *arg)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	int ret = 0;
+
+	/* do not allow allocations/frees/init while we iterate */
+	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
+	ret = rte_memseg_walk_thread_unsafe(func, arg);
 	rte_rwlock_read_unlock(&mcfg->memory_hotplug_lock);
+
 	return ret;
 }
 
 int __rte_experimental
-rte_memseg_list_walk(rte_memseg_list_walk_t func, void *arg)
+rte_memseg_list_walk_thread_unsafe(rte_memseg_list_walk_t func, void *arg)
 {
 	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
 	int i, ret = 0;
-
-	/* do not allow allocations/frees/init while we iterate */
-	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
 
 	for (i = 0; i < RTE_MAX_MEMSEG_LISTS; i++) {
 		struct rte_memseg_list *msl = &mcfg->memsegs[i];
@@ -899,17 +656,122 @@ rte_memseg_list_walk(rte_memseg_list_walk_t func, void *arg)
 			continue;
 
 		ret = func(msl, arg);
-		if (ret < 0) {
-			ret = -1;
-			goto out;
-		}
-		if (ret > 0) {
-			ret = 1;
-			goto out;
-		}
+		if (ret)
+			return ret;
 	}
-out:
+	return 0;
+}
+
+int __rte_experimental
+rte_memseg_list_walk(rte_memseg_list_walk_t func, void *arg)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	int ret = 0;
+
+	/* do not allow allocations/frees/init while we iterate */
+	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
+	ret = rte_memseg_list_walk_thread_unsafe(func, arg);
 	rte_rwlock_read_unlock(&mcfg->memory_hotplug_lock);
+
+	return ret;
+}
+
+int __rte_experimental
+rte_memseg_get_fd_thread_unsafe(const struct rte_memseg *ms)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	struct rte_memseg_list *msl;
+	struct rte_fbarray *arr;
+	int msl_idx, seg_idx, ret;
+
+	if (ms == NULL) {
+		rte_errno = EINVAL;
+		return -1;
+	}
+
+	msl = rte_mem_virt2memseg_list(ms->addr);
+	if (msl == NULL) {
+		rte_errno = EINVAL;
+		return -1;
+	}
+	arr = &msl->memseg_arr;
+
+	msl_idx = msl - mcfg->memsegs;
+	seg_idx = rte_fbarray_find_idx(arr, ms);
+
+	if (!rte_fbarray_is_used(arr, seg_idx)) {
+		rte_errno = ENOENT;
+		return -1;
+	}
+
+	ret = eal_memalloc_get_seg_fd(msl_idx, seg_idx);
+	if (ret < 0) {
+		rte_errno = -ret;
+		ret = -1;
+	}
+	return ret;
+}
+
+int __rte_experimental
+rte_memseg_get_fd(const struct rte_memseg *ms)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	int ret;
+
+	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
+	ret = rte_memseg_get_fd_thread_unsafe(ms);
+	rte_rwlock_read_unlock(&mcfg->memory_hotplug_lock);
+
+	return ret;
+}
+
+int __rte_experimental
+rte_memseg_get_fd_offset_thread_unsafe(const struct rte_memseg *ms,
+		size_t *offset)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	struct rte_memseg_list *msl;
+	struct rte_fbarray *arr;
+	int msl_idx, seg_idx, ret;
+
+	if (ms == NULL || offset == NULL) {
+		rte_errno = EINVAL;
+		return -1;
+	}
+
+	msl = rte_mem_virt2memseg_list(ms->addr);
+	if (msl == NULL) {
+		rte_errno = EINVAL;
+		return -1;
+	}
+	arr = &msl->memseg_arr;
+
+	msl_idx = msl - mcfg->memsegs;
+	seg_idx = rte_fbarray_find_idx(arr, ms);
+
+	if (!rte_fbarray_is_used(arr, seg_idx)) {
+		rte_errno = ENOENT;
+		return -1;
+	}
+
+	ret = eal_memalloc_get_seg_fd_offset(msl_idx, seg_idx, offset);
+	if (ret < 0) {
+		rte_errno = -ret;
+		ret = -1;
+	}
+	return ret;
+}
+
+int __rte_experimental
+rte_memseg_get_fd_offset(const struct rte_memseg *ms, size_t *offset)
+{
+	struct rte_mem_config *mcfg = rte_eal_get_configuration()->mem_config;
+	int ret;
+
+	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
+	ret = rte_memseg_get_fd_offset_thread_unsafe(ms, offset);
+	rte_rwlock_read_unlock(&mcfg->memory_hotplug_lock);
+
 	return ret;
 }
 
@@ -927,15 +789,7 @@ rte_eal_memory_init(void)
 	/* lock mem hotplug here, to prevent races while we init */
 	rte_rwlock_read_lock(&mcfg->memory_hotplug_lock);
 
-	retval = rte_eal_process_type() == RTE_PROC_PRIMARY ?
-#ifndef RTE_ARCH_64
-			memseg_primary_init_32() :
-#else
-			memseg_primary_init() :
-#endif
-			memseg_secondary_init();
-
-	if (retval < 0)
+	if (rte_eal_memseg_init() < 0)
 		goto fail;
 
 	if (eal_memalloc_init() < 0)

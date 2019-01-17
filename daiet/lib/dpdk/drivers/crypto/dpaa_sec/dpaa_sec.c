@@ -23,6 +23,7 @@
 #include <rte_mbuf.h>
 #include <rte_memcpy.h>
 #include <rte_string_fns.h>
+#include <rte_spinlock.h>
 
 #include <fsl_usd.h>
 #include <fsl_qman.h>
@@ -106,6 +107,12 @@ dpaa_mem_vtop(void *vaddr)
 static inline void *
 dpaa_mem_ptov(rte_iova_t paddr)
 {
+	void *va;
+
+	va = (void *)dpaax_iova_table_get_va(paddr);
+	if (likely(va))
+		return va;
+
 	return rte_mem_iova2virt(paddr);
 }
 
@@ -274,6 +281,9 @@ caam_auth_alg(dpaa_sec_session *ses, struct alginfo *alginfo_a)
 {
 	switch (ses->auth_alg) {
 	case RTE_CRYPTO_AUTH_NULL:
+		alginfo_a->algtype =
+			(ses->proto_alg == RTE_SECURITY_PROTOCOL_IPSEC) ?
+			OP_PCL_IPSEC_HMAC_NULL : 0;
 		ses->digest_length = 0;
 		break;
 	case RTE_CRYPTO_AUTH_MD5_HMAC:
@@ -322,6 +332,9 @@ caam_cipher_alg(dpaa_sec_session *ses, struct alginfo *alginfo_c)
 {
 	switch (ses->cipher_alg) {
 	case RTE_CRYPTO_CIPHER_NULL:
+		alginfo_c->algtype =
+			(ses->proto_alg == RTE_SECURITY_PROTOCOL_IPSEC) ?
+			OP_PCL_IPSEC_NULL : 0;
 		break;
 	case RTE_CRYPTO_CIPHER_AES_CBC:
 		alginfo_c->algtype =
@@ -359,6 +372,87 @@ caam_aead_alg(dpaa_sec_session *ses, struct alginfo *alginfo)
 	}
 }
 
+/* prepare ipsec proto command block of the session */
+static int
+dpaa_sec_prep_ipsec_cdb(dpaa_sec_session *ses)
+{
+	struct alginfo cipherdata = {0}, authdata = {0};
+	struct sec_cdb *cdb = &ses->cdb;
+	int32_t shared_desc_len = 0;
+	int err;
+#if RTE_BYTE_ORDER == RTE_BIG_ENDIAN
+	int swap = false;
+#else
+	int swap = true;
+#endif
+
+	caam_cipher_alg(ses, &cipherdata);
+	if (cipherdata.algtype == (unsigned int)DPAA_SEC_ALG_UNSUPPORT) {
+		DPAA_SEC_ERR("not supported cipher alg");
+		return -ENOTSUP;
+	}
+
+	cipherdata.key = (size_t)ses->cipher_key.data;
+	cipherdata.keylen = ses->cipher_key.length;
+	cipherdata.key_enc_flags = 0;
+	cipherdata.key_type = RTA_DATA_IMM;
+
+	caam_auth_alg(ses, &authdata);
+	if (authdata.algtype == (unsigned int)DPAA_SEC_ALG_UNSUPPORT) {
+		DPAA_SEC_ERR("not supported auth alg");
+		return -ENOTSUP;
+	}
+
+	authdata.key = (size_t)ses->auth_key.data;
+	authdata.keylen = ses->auth_key.length;
+	authdata.key_enc_flags = 0;
+	authdata.key_type = RTA_DATA_IMM;
+
+	cdb->sh_desc[0] = cipherdata.keylen;
+	cdb->sh_desc[1] = authdata.keylen;
+	err = rta_inline_query(IPSEC_AUTH_VAR_AES_DEC_BASE_DESC_LEN,
+			       MIN_JOB_DESC_SIZE,
+			       (unsigned int *)cdb->sh_desc,
+			       &cdb->sh_desc[2], 2);
+
+	if (err < 0) {
+		DPAA_SEC_ERR("Crypto: Incorrect key lengths");
+		return err;
+	}
+	if (cdb->sh_desc[2] & 1)
+		cipherdata.key_type = RTA_DATA_IMM;
+	else {
+		cipherdata.key = (size_t)dpaa_mem_vtop(
+					(void *)(size_t)cipherdata.key);
+		cipherdata.key_type = RTA_DATA_PTR;
+	}
+	if (cdb->sh_desc[2] & (1<<1))
+		authdata.key_type = RTA_DATA_IMM;
+	else {
+		authdata.key = (size_t)dpaa_mem_vtop(
+					(void *)(size_t)authdata.key);
+		authdata.key_type = RTA_DATA_PTR;
+	}
+
+	cdb->sh_desc[0] = 0;
+	cdb->sh_desc[1] = 0;
+	cdb->sh_desc[2] = 0;
+	if (ses->dir == DIR_ENC) {
+		shared_desc_len = cnstr_shdsc_ipsec_new_encap(
+				cdb->sh_desc,
+				true, swap, SHR_SERIAL,
+				&ses->encap_pdb,
+				(uint8_t *)&ses->ip4_hdr,
+				&cipherdata, &authdata);
+	} else if (ses->dir == DIR_DEC) {
+		shared_desc_len = cnstr_shdsc_ipsec_new_decap(
+				cdb->sh_desc,
+				true, swap, SHR_SERIAL,
+				&ses->decap_pdb,
+				&cipherdata, &authdata);
+	}
+	return shared_desc_len;
+}
 
 /* prepare command block of the session */
 static int
@@ -376,7 +470,9 @@ dpaa_sec_prep_cdb(dpaa_sec_session *ses)
 
 	memset(cdb, 0, sizeof(struct sec_cdb));
 
-	if (is_cipher_only(ses)) {
+	if (is_proto_ipsec(ses)) {
+		shared_desc_len = dpaa_sec_prep_ipsec_cdb(ses);
+	} else if (is_cipher_only(ses)) {
 		caam_cipher_alg(ses, &alginfo_c);
 		if (alginfo_c.algtype == (unsigned int)DPAA_SEC_ALG_UNSUPPORT) {
 			DPAA_SEC_ERR("not supported cipher alg");
@@ -484,28 +580,13 @@ dpaa_sec_prep_cdb(dpaa_sec_session *ses)
 		cdb->sh_desc[0] = 0;
 		cdb->sh_desc[1] = 0;
 		cdb->sh_desc[2] = 0;
-		if (is_proto_ipsec(ses)) {
-			if (ses->dir == DIR_ENC) {
-				shared_desc_len = cnstr_shdsc_ipsec_new_encap(
-						cdb->sh_desc,
-						true, swap, &ses->encap_pdb,
-						(uint8_t *)&ses->ip4_hdr,
-						&alginfo_c, &alginfo_a);
-			} else if (ses->dir == DIR_DEC) {
-				shared_desc_len = cnstr_shdsc_ipsec_new_decap(
-						cdb->sh_desc,
-						true, swap, &ses->decap_pdb,
-						&alginfo_c, &alginfo_a);
-			}
-		} else {
-			/* Auth_only_len is set as 0 here and it will be
-			 * overwritten in fd for each packet.
-			 */
-			shared_desc_len = cnstr_shdsc_authenc(cdb->sh_desc,
-					true, swap, &alginfo_c, &alginfo_a,
-					ses->iv.length, 0,
-					ses->digest_length, ses->dir);
-		}
+		/* Auth_only_len is set as 0 here and it will be
+		 * overwritten in fd for each packet.
+		 */
+		shared_desc_len = cnstr_shdsc_authenc(cdb->sh_desc,
+				true, swap, &alginfo_c, &alginfo_a,
+				ses->iv.length, 0,
+				ses->digest_length, ses->dir);
 	}
 
 	if (shared_desc_len < 0) {
@@ -526,12 +607,25 @@ dpaa_sec_deq(struct dpaa_sec_qp *qp, struct rte_crypto_op **ops, int nb_ops)
 {
 	struct qman_fq *fq;
 	unsigned int pkts = 0;
-	int ret;
+	int num_rx_bufs, ret;
 	struct qm_dqrr_entry *dq;
+	uint32_t vdqcr_flags = 0;
 
 	fq = &qp->outq;
-	ret = qman_set_vdq(fq, (nb_ops > DPAA_MAX_DEQUEUE_NUM_FRAMES) ?
-				DPAA_MAX_DEQUEUE_NUM_FRAMES : nb_ops);
+	/*
+	 * Until request for four buffers, we provide exact number of buffers.
+	 * Otherwise we do not set the QM_VDQCR_EXACT flag.
+	 * Not setting QM_VDQCR_EXACT flag can provide two more buffers than
+	 * requested, so we request two less in this case.
+	 */
+	if (nb_ops < 4) {
+		vdqcr_flags = QM_VDQCR_EXACT;
+		num_rx_bufs = nb_ops;
+	} else {
+		num_rx_bufs = nb_ops > DPAA_MAX_DEQUEUE_NUM_FRAMES ?
+			(DPAA_MAX_DEQUEUE_NUM_FRAMES - 2) : (nb_ops - 2);
+	}
+	ret = qman_set_vdq(fq, num_rx_bufs, vdqcr_flags);
 	if (ret)
 		return 0;
 
@@ -1416,7 +1510,7 @@ dpaa_sec_enqueue_burst(void *qp, struct rte_crypto_op **ops,
 			switch (op->sess_type) {
 			case RTE_CRYPTO_OP_WITH_SESSION:
 				ses = (dpaa_sec_session *)
-					get_session_private_data(
+					get_sym_session_private_data(
 							op->sym->session,
 							cryptodev_driver_id);
 				break;
@@ -1432,20 +1526,26 @@ dpaa_sec_enqueue_burst(void *qp, struct rte_crypto_op **ops,
 				nb_ops = loop;
 				goto send_pkts;
 			}
-			if (unlikely(!ses->qp || ses->qp != qp)) {
-				DPAA_SEC_DP_ERR("sess->qp - %p qp %p",
-					     ses->qp, qp);
+			if (unlikely(!ses->qp)) {
 				if (dpaa_sec_attach_sess_q(qp, ses)) {
 					frames_to_send = loop;
 					nb_ops = loop;
 					goto send_pkts;
 				}
+			} else if (unlikely(ses->qp != qp)) {
+				DPAA_SEC_DP_ERR("Old:sess->qp = %p"
+					" New qp = %p\n", ses->qp, qp);
+				frames_to_send = loop;
+				nb_ops = loop;
+				goto send_pkts;
 			}
 
 			auth_only_len = op->sym->auth.data.length -
 						op->sym->cipher.data.length;
 			if (rte_pktmbuf_is_contiguous(op->sym->m_src)) {
-				if (is_auth_only(ses)) {
+				if (is_proto_ipsec(ses)) {
+					cf = build_proto(op, ses);
+				} else if (is_auth_only(ses)) {
 					cf = build_auth_only(op, ses);
 				} else if (is_cipher_only(ses)) {
 					cf = build_cipher_only(op, ses);
@@ -1454,8 +1554,6 @@ dpaa_sec_enqueue_burst(void *qp, struct rte_crypto_op **ops,
 					auth_only_len = ses->auth_only_len;
 				} else if (is_auth_cipher(ses)) {
 					cf = build_cipher_auth(op, ses);
-				} else if (is_proto_ipsec(ses)) {
-					cf = build_proto(op, ses);
 				} else {
 					DPAA_SEC_DP_ERR("not supported ops");
 					frames_to_send = loop;
@@ -1585,26 +1683,6 @@ dpaa_sec_queue_pair_setup(struct rte_cryptodev *dev, uint16_t qp_id,
 	return 0;
 }
 
-/** Start queue pair */
-static int
-dpaa_sec_queue_pair_start(__rte_unused struct rte_cryptodev *dev,
-			  __rte_unused uint16_t queue_pair_id)
-{
-	PMD_INIT_FUNC_TRACE();
-
-	return 0;
-}
-
-/** Stop queue pair */
-static int
-dpaa_sec_queue_pair_stop(__rte_unused struct rte_cryptodev *dev,
-			 __rte_unused uint16_t queue_pair_id)
-{
-	PMD_INIT_FUNC_TRACE();
-
-	return 0;
-}
-
 /** Return the number of allocated queue pairs */
 static uint32_t
 dpaa_sec_queue_pair_count(struct rte_cryptodev *dev)
@@ -1616,7 +1694,7 @@ dpaa_sec_queue_pair_count(struct rte_cryptodev *dev)
 
 /** Returns the size of session structure */
 static unsigned int
-dpaa_sec_session_get_size(struct rte_cryptodev *dev __rte_unused)
+dpaa_sec_sym_session_get_size(struct rte_cryptodev *dev __rte_unused)
 {
 	PMD_INIT_FUNC_TRACE();
 
@@ -1755,34 +1833,6 @@ dpaa_sec_attach_sess_q(struct dpaa_sec_qp *qp, dpaa_sec_session *sess)
 }
 
 static int
-dpaa_sec_qp_attach_sess(struct rte_cryptodev *dev __rte_unused,
-			uint16_t qp_id __rte_unused,
-			void *ses __rte_unused)
-{
-	PMD_INIT_FUNC_TRACE();
-	return 0;
-}
-
-static int
-dpaa_sec_qp_detach_sess(struct rte_cryptodev *dev,
-			uint16_t qp_id  __rte_unused,
-			void *ses)
-{
-	dpaa_sec_session *sess = ses;
-	struct dpaa_sec_dev_private *qi = dev->data->dev_private;
-
-	PMD_INIT_FUNC_TRACE();
-
-	if (sess->inq)
-		dpaa_sec_detach_rxq(qi, sess->inq);
-	sess->inq = NULL;
-
-	sess->qp = NULL;
-
-	return 0;
-}
-
-static int
 dpaa_sec_set_session_parameters(struct rte_cryptodev *dev,
 			    struct rte_crypto_sym_xform *xform,	void *sess)
 {
@@ -1795,6 +1845,7 @@ dpaa_sec_set_session_parameters(struct rte_cryptodev *dev,
 		DPAA_SEC_ERR("invalid session struct");
 		return -EINVAL;
 	}
+	memset(session, 0, sizeof(dpaa_sec_session));
 
 	/* Default IV length = 0 */
 	session->iv.length = 0;
@@ -1842,7 +1893,9 @@ dpaa_sec_set_session_parameters(struct rte_cryptodev *dev,
 		return -EINVAL;
 	}
 	session->ctx_pool = internals->ctx_pool;
+	rte_spinlock_lock(&internals->lock);
 	session->inq = dpaa_sec_attach_rxq(internals);
+	rte_spinlock_unlock(&internals->lock);
 	if (session->inq == NULL) {
 		DPAA_SEC_ERR("unable to attach sec queue");
 		goto err1;
@@ -1859,7 +1912,7 @@ err1:
 }
 
 static int
-dpaa_sec_session_configure(struct rte_cryptodev *dev,
+dpaa_sec_sym_session_configure(struct rte_cryptodev *dev,
 		struct rte_crypto_sym_xform *xform,
 		struct rte_cryptodev_sym_session *sess,
 		struct rte_mempool *mempool)
@@ -1883,7 +1936,7 @@ dpaa_sec_session_configure(struct rte_cryptodev *dev,
 		return ret;
 	}
 
-	set_session_private_data(sess, dev->driver_id,
+	set_sym_session_private_data(sess, dev->driver_id,
 			sess_private_data);
 
 
@@ -1892,12 +1945,12 @@ dpaa_sec_session_configure(struct rte_cryptodev *dev,
 
 /** Clear the memory of session so it doesn't leave key material behind */
 static void
-dpaa_sec_session_clear(struct rte_cryptodev *dev,
+dpaa_sec_sym_session_clear(struct rte_cryptodev *dev,
 		struct rte_cryptodev_sym_session *sess)
 {
 	struct dpaa_sec_dev_private *qi = dev->data->dev_private;
 	uint8_t index = dev->driver_id;
-	void *sess_priv = get_session_private_data(sess, index);
+	void *sess_priv = get_sym_session_private_data(sess, index);
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -1911,7 +1964,7 @@ dpaa_sec_session_clear(struct rte_cryptodev *dev,
 		rte_free(s->cipher_key.data);
 		rte_free(s->auth_key.data);
 		memset(s, 0, sizeof(dpaa_sec_session));
-		set_session_private_data(sess, index, NULL);
+		set_sym_session_private_data(sess, index, NULL);
 		rte_mempool_put(sess_mp, sess_priv);
 	}
 }
@@ -1923,111 +1976,86 @@ dpaa_sec_set_ipsec_session(__rte_unused struct rte_cryptodev *dev,
 {
 	struct dpaa_sec_dev_private *internals = dev->data->dev_private;
 	struct rte_security_ipsec_xform *ipsec_xform = &conf->ipsec;
-	struct rte_crypto_auth_xform *auth_xform;
-	struct rte_crypto_cipher_xform *cipher_xform;
+	struct rte_crypto_auth_xform *auth_xform = NULL;
+	struct rte_crypto_cipher_xform *cipher_xform = NULL;
 	dpaa_sec_session *session = (dpaa_sec_session *)sess;
 
 	PMD_INIT_FUNC_TRACE();
 
+	memset(session, 0, sizeof(dpaa_sec_session));
 	if (ipsec_xform->direction == RTE_SECURITY_IPSEC_SA_DIR_EGRESS) {
 		cipher_xform = &conf->crypto_xform->cipher;
-		auth_xform = &conf->crypto_xform->next->auth;
+		if (conf->crypto_xform->next)
+			auth_xform = &conf->crypto_xform->next->auth;
 	} else {
 		auth_xform = &conf->crypto_xform->auth;
-		cipher_xform = &conf->crypto_xform->next->cipher;
+		if (conf->crypto_xform->next)
+			cipher_xform = &conf->crypto_xform->next->cipher;
 	}
 	session->proto_alg = conf->protocol;
-	session->cipher_key.data = rte_zmalloc(NULL,
-					       cipher_xform->key.length,
-					       RTE_CACHE_LINE_SIZE);
-	if (session->cipher_key.data == NULL &&
-			cipher_xform->key.length > 0) {
-		DPAA_SEC_ERR("No Memory for cipher key");
-		return -ENOMEM;
+
+	if (cipher_xform && cipher_xform->algo != RTE_CRYPTO_CIPHER_NULL) {
+		session->cipher_key.data = rte_zmalloc(NULL,
+						       cipher_xform->key.length,
+						       RTE_CACHE_LINE_SIZE);
+		if (session->cipher_key.data == NULL &&
+				cipher_xform->key.length > 0) {
+			DPAA_SEC_ERR("No Memory for cipher key");
+			return -ENOMEM;
+		}
+		memcpy(session->cipher_key.data, cipher_xform->key.data,
+				cipher_xform->key.length);
+		session->cipher_key.length = cipher_xform->key.length;
+
+		switch (cipher_xform->algo) {
+		case RTE_CRYPTO_CIPHER_AES_CBC:
+		case RTE_CRYPTO_CIPHER_3DES_CBC:
+		case RTE_CRYPTO_CIPHER_AES_CTR:
+			break;
+		default:
+			DPAA_SEC_ERR("Crypto: Unsupported Cipher alg %u",
+				cipher_xform->algo);
+			goto out;
+		}
+		session->cipher_alg = cipher_xform->algo;
+	} else {
+		session->cipher_key.data = NULL;
+		session->cipher_key.length = 0;
+		session->cipher_alg = RTE_CRYPTO_CIPHER_NULL;
 	}
 
-	session->cipher_key.length = cipher_xform->key.length;
-	session->auth_key.data = rte_zmalloc(NULL,
-					auth_xform->key.length,
-					RTE_CACHE_LINE_SIZE);
-	if (session->auth_key.data == NULL &&
-			auth_xform->key.length > 0) {
-		DPAA_SEC_ERR("No Memory for auth key");
-		rte_free(session->cipher_key.data);
-		return -ENOMEM;
-	}
-	session->auth_key.length = auth_xform->key.length;
-	memcpy(session->cipher_key.data, cipher_xform->key.data,
-			cipher_xform->key.length);
-	memcpy(session->auth_key.data, auth_xform->key.data,
-			auth_xform->key.length);
+	if (auth_xform && auth_xform->algo != RTE_CRYPTO_AUTH_NULL) {
+		session->auth_key.data = rte_zmalloc(NULL,
+						auth_xform->key.length,
+						RTE_CACHE_LINE_SIZE);
+		if (session->auth_key.data == NULL &&
+				auth_xform->key.length > 0) {
+			DPAA_SEC_ERR("No Memory for auth key");
+			rte_free(session->cipher_key.data);
+			return -ENOMEM;
+		}
+		memcpy(session->auth_key.data, auth_xform->key.data,
+				auth_xform->key.length);
+		session->auth_key.length = auth_xform->key.length;
 
-	switch (auth_xform->algo) {
-	case RTE_CRYPTO_AUTH_SHA1_HMAC:
-		session->auth_alg = RTE_CRYPTO_AUTH_SHA1_HMAC;
-		break;
-	case RTE_CRYPTO_AUTH_MD5_HMAC:
-		session->auth_alg = RTE_CRYPTO_AUTH_MD5_HMAC;
-		break;
-	case RTE_CRYPTO_AUTH_SHA256_HMAC:
-		session->auth_alg = RTE_CRYPTO_AUTH_SHA256_HMAC;
-		break;
-	case RTE_CRYPTO_AUTH_SHA384_HMAC:
-		session->auth_alg = RTE_CRYPTO_AUTH_SHA384_HMAC;
-		break;
-	case RTE_CRYPTO_AUTH_SHA512_HMAC:
-		session->auth_alg = RTE_CRYPTO_AUTH_SHA512_HMAC;
-		break;
-	case RTE_CRYPTO_AUTH_AES_CMAC:
-		session->auth_alg = RTE_CRYPTO_AUTH_AES_CMAC;
-		break;
-	case RTE_CRYPTO_AUTH_NULL:
+		switch (auth_xform->algo) {
+		case RTE_CRYPTO_AUTH_SHA1_HMAC:
+		case RTE_CRYPTO_AUTH_MD5_HMAC:
+		case RTE_CRYPTO_AUTH_SHA256_HMAC:
+		case RTE_CRYPTO_AUTH_SHA384_HMAC:
+		case RTE_CRYPTO_AUTH_SHA512_HMAC:
+		case RTE_CRYPTO_AUTH_AES_CMAC:
+			break;
+		default:
+			DPAA_SEC_ERR("Crypto: Unsupported auth alg %u",
+				auth_xform->algo);
+			goto out;
+		}
+		session->auth_alg = auth_xform->algo;
+	} else {
+		session->auth_key.data = NULL;
+		session->auth_key.length = 0;
 		session->auth_alg = RTE_CRYPTO_AUTH_NULL;
-		break;
-	case RTE_CRYPTO_AUTH_SHA224_HMAC:
-	case RTE_CRYPTO_AUTH_AES_XCBC_MAC:
-	case RTE_CRYPTO_AUTH_SNOW3G_UIA2:
-	case RTE_CRYPTO_AUTH_SHA1:
-	case RTE_CRYPTO_AUTH_SHA256:
-	case RTE_CRYPTO_AUTH_SHA512:
-	case RTE_CRYPTO_AUTH_SHA224:
-	case RTE_CRYPTO_AUTH_SHA384:
-	case RTE_CRYPTO_AUTH_MD5:
-	case RTE_CRYPTO_AUTH_AES_GMAC:
-	case RTE_CRYPTO_AUTH_KASUMI_F9:
-	case RTE_CRYPTO_AUTH_AES_CBC_MAC:
-	case RTE_CRYPTO_AUTH_ZUC_EIA3:
-		DPAA_SEC_ERR("Crypto: Unsupported auth alg %u",
-			auth_xform->algo);
-		goto out;
-	default:
-		DPAA_SEC_ERR("Crypto: Undefined Auth specified %u",
-			auth_xform->algo);
-		goto out;
-	}
-
-	switch (cipher_xform->algo) {
-	case RTE_CRYPTO_CIPHER_AES_CBC:
-		session->cipher_alg = RTE_CRYPTO_CIPHER_AES_CBC;
-		break;
-	case RTE_CRYPTO_CIPHER_3DES_CBC:
-		session->cipher_alg = RTE_CRYPTO_CIPHER_3DES_CBC;
-		break;
-	case RTE_CRYPTO_CIPHER_AES_CTR:
-		session->cipher_alg = RTE_CRYPTO_CIPHER_AES_CTR;
-		break;
-	case RTE_CRYPTO_CIPHER_NULL:
-	case RTE_CRYPTO_CIPHER_SNOW3G_UEA2:
-	case RTE_CRYPTO_CIPHER_3DES_ECB:
-	case RTE_CRYPTO_CIPHER_AES_ECB:
-	case RTE_CRYPTO_CIPHER_KASUMI_F8:
-		DPAA_SEC_ERR("Crypto: Unsupported Cipher alg %u",
-			cipher_xform->algo);
-		goto out;
-	default:
-		DPAA_SEC_ERR("Crypto: Undefined Cipher specified %u",
-			cipher_xform->algo);
-		goto out;
 	}
 
 	if (ipsec_xform->direction == RTE_SECURITY_IPSEC_SA_DIR_EGRESS) {
@@ -2055,7 +2083,8 @@ dpaa_sec_set_ipsec_session(__rte_unused struct rte_cryptodev *dev,
 			(IPVERSION << PDBNH_ESP_ENCAP_SHIFT) |
 			PDBOPTS_ESP_OIHI_PDB_INL |
 			PDBOPTS_ESP_IVSRC |
-			PDBHMO_ESP_ENCAP_DTTL;
+			PDBHMO_ESP_ENCAP_DTTL |
+			PDBHMO_ESP_SNR;
 		session->encap_pdb.spi = ipsec_xform->spi;
 		session->encap_pdb.ip_hdr_len = sizeof(struct ip);
 
@@ -2068,7 +2097,9 @@ dpaa_sec_set_ipsec_session(__rte_unused struct rte_cryptodev *dev,
 	} else
 		goto out;
 	session->ctx_pool = internals->ctx_pool;
+	rte_spinlock_lock(&internals->lock);
 	session->inq = dpaa_sec_attach_rxq(internals);
+	rte_spinlock_unlock(&internals->lock);
 	if (session->inq == NULL) {
 		DPAA_SEC_ERR("unable to attach sec queue");
 		goto out;
@@ -2215,9 +2246,6 @@ dpaa_sec_dev_infos_get(struct rte_cryptodev *dev,
 		info->feature_flags = dev->feature_flags;
 		info->capabilities = dpaa_sec_capabilities;
 		info->sym.max_nb_sessions = internals->max_nb_sessions;
-		info->sym.max_nb_sessions_per_qp =
-			RTE_DPAA_SEC_PMD_MAX_NB_SESSIONS /
-			RTE_DPAA_MAX_NB_SEC_QPS;
 		info->driver_id = cryptodev_driver_id;
 	}
 }
@@ -2230,14 +2258,10 @@ static struct rte_cryptodev_ops crypto_ops = {
 	.dev_infos_get        = dpaa_sec_dev_infos_get,
 	.queue_pair_setup     = dpaa_sec_queue_pair_setup,
 	.queue_pair_release   = dpaa_sec_queue_pair_release,
-	.queue_pair_start     = dpaa_sec_queue_pair_start,
-	.queue_pair_stop      = dpaa_sec_queue_pair_stop,
 	.queue_pair_count     = dpaa_sec_queue_pair_count,
-	.session_get_size     = dpaa_sec_session_get_size,
-	.session_configure    = dpaa_sec_session_configure,
-	.session_clear        = dpaa_sec_session_clear,
-	.qp_attach_session    = dpaa_sec_qp_attach_sess,
-	.qp_detach_session    = dpaa_sec_qp_detach_sess,
+	.sym_session_get_size     = dpaa_sec_sym_session_get_size,
+	.sym_session_configure    = dpaa_sec_sym_session_configure,
+	.sym_session_clear        = dpaa_sec_sym_session_clear
 };
 
 static const struct rte_security_capability *
@@ -2246,7 +2270,7 @@ dpaa_sec_capabilities_get(void *device __rte_unused)
 	return dpaa_sec_security_cap;
 }
 
-struct rte_security_ops dpaa_sec_security_ops = {
+static const struct rte_security_ops dpaa_sec_security_ops = {
 	.session_create = dpaa_sec_security_session_create,
 	.session_update = NULL,
 	.session_stats_get = NULL,
@@ -2296,7 +2320,11 @@ dpaa_sec_dev_init(struct rte_cryptodev *cryptodev)
 			RTE_CRYPTODEV_FF_HW_ACCELERATED |
 			RTE_CRYPTODEV_FF_SYM_OPERATION_CHAINING |
 			RTE_CRYPTODEV_FF_SECURITY |
-			RTE_CRYPTODEV_FF_MBUF_SCATTER_GATHER;
+			RTE_CRYPTODEV_FF_IN_PLACE_SGL |
+			RTE_CRYPTODEV_FF_OOP_SGL_IN_SGL_OUT |
+			RTE_CRYPTODEV_FF_OOP_SGL_IN_LB_OUT |
+			RTE_CRYPTODEV_FF_OOP_LB_IN_SGL_OUT |
+			RTE_CRYPTODEV_FF_OOP_LB_IN_LB_OUT;
 
 	internals = cryptodev->data->dev_private;
 	internals->max_nb_queue_pairs = RTE_DPAA_MAX_NB_SEC_QPS;
@@ -2322,6 +2350,7 @@ dpaa_sec_dev_init(struct rte_cryptodev *cryptodev)
 	security_instance->sess_cnt = 0;
 	cryptodev->security_ctx = security_instance;
 
+	rte_spinlock_init(&internals->lock);
 	for (i = 0; i < internals->max_nb_queue_pairs; i++) {
 		/* init qman fq for queue pair */
 		qp = &internals->qps[i];
@@ -2354,7 +2383,7 @@ init_error:
 }
 
 static int
-cryptodev_dpaa_sec_probe(struct rte_dpaa_driver *dpaa_drv,
+cryptodev_dpaa_sec_probe(struct rte_dpaa_driver *dpaa_drv __rte_unused,
 				struct rte_dpaa_device *dpaa_dev)
 {
 	struct rte_cryptodev *cryptodev;
@@ -2382,7 +2411,6 @@ cryptodev_dpaa_sec_probe(struct rte_dpaa_driver *dpaa_drv,
 
 	dpaa_dev->crypto_dev = cryptodev;
 	cryptodev->device = &dpaa_dev->device;
-	cryptodev->device->driver = &dpaa_drv->driver;
 
 	/* init user callbacks */
 	TAILQ_INIT(&(cryptodev->link_intr_cbs));
@@ -2449,9 +2477,7 @@ RTE_PMD_REGISTER_DPAA(CRYPTODEV_NAME_DPAA_SEC_PMD, rte_dpaa_sec_driver);
 RTE_PMD_REGISTER_CRYPTO_DRIVER(dpaa_sec_crypto_drv, rte_dpaa_sec_driver.driver,
 		cryptodev_driver_id);
 
-RTE_INIT(dpaa_sec_init_log);
-static void
-dpaa_sec_init_log(void)
+RTE_INIT(dpaa_sec_init_log)
 {
 	dpaa_logtype_sec = rte_log_register("pmd.crypto.dpaa");
 	if (dpaa_logtype_sec >= 0)

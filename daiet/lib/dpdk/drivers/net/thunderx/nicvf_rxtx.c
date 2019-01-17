@@ -61,6 +61,14 @@ fill_sq_desc_header(union sq_entry_t *entry, struct rte_mbuf *pkt)
 	entry->buff[0] = sqe.buff[0];
 }
 
+static inline void __hot
+fill_sq_desc_header_zero_w1(union sq_entry_t *entry,
+				struct rte_mbuf *pkt)
+{
+	fill_sq_desc_header(entry, pkt);
+	entry->buff[1] = 0ULL;
+}
+
 void __hot
 nicvf_single_pool_free_xmited_buffers(struct nicvf_txq *sq)
 {
@@ -204,7 +212,7 @@ nicvf_xmit_pkts_multiseg(void *tx_queue, struct rte_mbuf **tx_pkts,
 		used_bufs += nb_segs;
 
 		txbuffs[tail] = NULL;
-		fill_sq_desc_header(desc_ptr + tail, pkt);
+		fill_sq_desc_header_zero_w1(desc_ptr + tail, pkt);
 		tail = (tail + 1) & qlen_mask;
 
 		txbuffs[tail] = pkt;
@@ -331,6 +339,20 @@ nicvf_rx_classify_pkt(cqe_rx_word0_t cqe_rx_w0)
 	return ptype_table[cqe_rx_w0.l3_type][cqe_rx_w0.l4_type];
 }
 
+static inline uint64_t __hot
+nicvf_set_olflags(const cqe_rx_word0_t cqe_rx_w0)
+{
+	static const uint64_t flag_table[3] __rte_cache_aligned = {
+		PKT_RX_IP_CKSUM_GOOD | PKT_RX_L4_CKSUM_GOOD,
+		PKT_RX_IP_CKSUM_BAD | PKT_RX_L4_CKSUM_UNKNOWN,
+		PKT_RX_IP_CKSUM_GOOD | PKT_RX_L4_CKSUM_BAD,
+	};
+
+	const uint8_t idx = (cqe_rx_w0.err_opcode == CQE_RX_ERR_L4_CHK) << 1 |
+		(cqe_rx_w0.err_opcode == CQE_RX_ERR_IP_CHK);
+	return flag_table[idx];
+}
+
 static inline int __hot
 nicvf_fill_rbdr(struct nicvf_rxq *rxq, int to_fill)
 {
@@ -389,11 +411,13 @@ nicvf_rx_offload(cqe_rx_word0_t cqe_rx_w0, cqe_rx_word2_t cqe_rx_w2,
 	if (likely(cqe_rx_w0.rss_alg)) {
 		pkt->hash.rss = cqe_rx_w2.rss_tag;
 		pkt->ol_flags |= PKT_RX_RSS_HASH;
+
 	}
 }
 
-uint16_t __hot
-nicvf_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
+static __rte_always_inline uint16_t
+nicvf_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts,
+		const uint32_t flag)
 {
 	uint32_t i, to_process;
 	struct cqe_rx_t *cqe_rx;
@@ -424,7 +448,19 @@ nicvf_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 		rb0_ptr = *((uint64_t *)cqe_rx + rbptr_offset);
 		pkt = (struct rte_mbuf *)nicvf_mbuff_phy2virt
 				(rb0_ptr - cqe_rx_w1.align_pad, mbuf_phys_off);
-		pkt->ol_flags = 0;
+
+		if (flag & NICVF_RX_OFFLOAD_NONE)
+			pkt->ol_flags = 0;
+		if (flag & NICVF_RX_OFFLOAD_CKSUM)
+			pkt->ol_flags = nicvf_set_olflags(cqe_rx_w0);
+		if (flag & NICVF_RX_OFFLOAD_VLAN_STRIP) {
+			if (unlikely(cqe_rx_w0.vlan_stripped)) {
+				pkt->ol_flags |= PKT_RX_VLAN
+							| PKT_RX_VLAN_STRIPPED;
+				pkt->vlan_tci =
+					rte_cpu_to_be_16(cqe_rx_w2.vlan_tci);
+			}
+		}
 		pkt->data_len = cqe_rx_w3.rb0_sz;
 		pkt->pkt_len = cqe_rx_w3.rb0_sz;
 		pkt->packet_type = nicvf_rx_classify_pkt(cqe_rx_w0);
@@ -449,11 +485,43 @@ nicvf_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 	return to_process;
 }
 
-static inline uint16_t __hot
+uint16_t __hot
+nicvf_recv_pkts_no_offload(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_NONE);
+}
+
+uint16_t __hot
+nicvf_recv_pkts_cksum(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_CKSUM);
+}
+
+uint16_t __hot
+nicvf_recv_pkts_vlan_strip(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_NONE | NICVF_RX_OFFLOAD_VLAN_STRIP);
+}
+
+uint16_t __hot
+nicvf_recv_pkts_cksum_vlan_strip(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_CKSUM | NICVF_RX_OFFLOAD_VLAN_STRIP);
+}
+
+static __rte_always_inline uint16_t __hot
 nicvf_process_cq_mseg_entry(struct cqe_rx_t *cqe_rx,
 			uint64_t mbuf_phys_off,
 			struct rte_mbuf **rx_pkt, uint8_t rbptr_offset,
-			uint64_t mbuf_init)
+			uint64_t mbuf_init, const uint32_t flag)
 {
 	struct rte_mbuf *pkt, *seg, *prev;
 	cqe_rx_word0_t cqe_rx_w0;
@@ -471,12 +539,22 @@ nicvf_process_cq_mseg_entry(struct cqe_rx_t *cqe_rx,
 	pkt = (struct rte_mbuf *)nicvf_mbuff_phy2virt
 			(rb_ptr[0] - cqe_rx_w1.align_pad, mbuf_phys_off);
 
-	pkt->ol_flags = 0;
 	pkt->pkt_len = cqe_rx_w1.pkt_len;
 	pkt->data_len = rb_sz[nicvf_frag_num(0)];
 	nicvf_mbuff_init_mseg_update(
 				pkt, mbuf_init, cqe_rx_w1.align_pad, nb_segs);
 	pkt->packet_type = nicvf_rx_classify_pkt(cqe_rx_w0);
+	if (flag & NICVF_RX_OFFLOAD_NONE)
+		pkt->ol_flags = 0;
+	if (flag & NICVF_RX_OFFLOAD_CKSUM)
+		pkt->ol_flags = nicvf_set_olflags(cqe_rx_w0);
+	if (flag & NICVF_RX_OFFLOAD_VLAN_STRIP) {
+		if (unlikely(cqe_rx_w0.vlan_stripped)) {
+			pkt->ol_flags |= PKT_RX_VLAN
+				| PKT_RX_VLAN_STRIPPED;
+			pkt->vlan_tci = rte_cpu_to_be_16(cqe_rx_w2.vlan_tci);
+		}
+	}
 	nicvf_rx_offload(cqe_rx_w0, cqe_rx_w2, pkt);
 
 	*rx_pkt = pkt;
@@ -495,9 +573,9 @@ nicvf_process_cq_mseg_entry(struct cqe_rx_t *cqe_rx,
 	return nb_segs;
 }
 
-uint16_t __hot
+static __rte_always_inline uint16_t __hot
 nicvf_recv_pkts_multiseg(void *rx_queue, struct rte_mbuf **rx_pkts,
-			 uint16_t nb_pkts)
+			 uint16_t nb_pkts, const uint32_t flag)
 {
 	union cq_entry_t *cq_entry;
 	struct cqe_rx_t *cqe_rx;
@@ -519,7 +597,7 @@ nicvf_recv_pkts_multiseg(void *rx_queue, struct rte_mbuf **rx_pkts,
 		cq_entry = &desc[cqe_head];
 		cqe_rx = (struct cqe_rx_t *)cq_entry;
 		nb_segs = nicvf_process_cq_mseg_entry(cqe_rx, mbuf_phys_off,
-			rx_pkts + i, rbptr_offset, mbuf_init);
+			rx_pkts + i, rbptr_offset, mbuf_init, flag);
 		buffers_consumed += nb_segs;
 		cqe_head = (cqe_head + 1) & cqe_mask;
 		nicvf_prefetch_store_keep(rx_pkts[i]);
@@ -537,6 +615,38 @@ nicvf_recv_pkts_multiseg(void *rx_queue, struct rte_mbuf **rx_pkts,
 	}
 
 	return to_process;
+}
+
+uint16_t __hot
+nicvf_recv_pkts_multiseg_no_offload(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts_multiseg(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_NONE);
+}
+
+uint16_t __hot
+nicvf_recv_pkts_multiseg_cksum(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts_multiseg(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_CKSUM);
+}
+
+uint16_t __hot
+nicvf_recv_pkts_multiseg_vlan_strip(void *rx_queue, struct rte_mbuf **rx_pkts,
+		uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts_multiseg(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_NONE | NICVF_RX_OFFLOAD_VLAN_STRIP);
+}
+
+uint16_t __hot
+nicvf_recv_pkts_multiseg_cksum_vlan_strip(void *rx_queue,
+		struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
+{
+	return nicvf_recv_pkts_multiseg(rx_queue, rx_pkts, nb_pkts,
+			NICVF_RX_OFFLOAD_CKSUM | NICVF_RX_OFFLOAD_VLAN_STRIP);
 }
 
 uint32_t

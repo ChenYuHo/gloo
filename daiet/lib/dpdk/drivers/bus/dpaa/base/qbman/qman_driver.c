@@ -20,9 +20,9 @@ u16 qm_channel_caam = QMAN_CHANNEL_CAAM;
 u16 qm_channel_pme = QMAN_CHANNEL_PME;
 
 /* Ccsr map address to access ccsrbased register */
-void *qman_ccsr_map;
+static void *qman_ccsr_map;
 /* The qman clock frequency */
-u32 qman_clk;
+static u32 qman_clk;
 
 static __thread int qmfd = -1;
 static __thread struct qm_portal_config qpcfg;
@@ -113,6 +113,11 @@ static int fsl_qman_portal_finish(void)
 	return ret;
 }
 
+int qman_thread_fd(void)
+{
+	return qmfd;
+}
+
 int qman_thread_init(void)
 {
 	/* Convert from contiguous/virtual cpu numbering to real cpu when
@@ -135,7 +140,7 @@ void qman_thread_irq(void)
 	 * rather than breaking that encapsulation I am simply hard-coding the
 	 * offset to the inhibit register here.
 	 */
-	out_be32(qpcfg.addr_virt[DPAA_PORTAL_CI] + 0xe0c, 0);
+	out_be32(qpcfg.addr_virt[DPAA_PORTAL_CI] + 0x36C0, 0);
 }
 
 struct qman_portal *fsl_qman_portal_create(void)

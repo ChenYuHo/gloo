@@ -316,7 +316,7 @@ rte_mp_sendmsg(struct rte_mp_msg *msg);
  *
  * @param reply
  *   The reply argument will be for storing all the replied messages;
- *   the caller is responsible for free reply->replies.
+ *   the caller is responsible for free reply->msgs.
  *
  * @param ts
  *   The ts argument specifies how long we can wait for the peer(s) to reply.
@@ -376,6 +376,15 @@ rte_mp_request_async(struct rte_mp_msg *req, const struct timespec *ts,
  */
 int __rte_experimental
 rte_mp_reply(struct rte_mp_msg *msg, const char *peer);
+
+/**
+ * Register all mp action callbacks for hotplug.
+ *
+ * @return
+ *   0 on success, negative on error.
+ */
+int __rte_experimental
+rte_mp_dev_hotplug_init(void);
 
 /**
  * Usage function typedef used by the application usage function.
@@ -490,27 +499,22 @@ static inline int rte_gettid(void)
 enum rte_iova_mode rte_eal_iova_mode(void);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change without prior notice
- *
  * Get user provided pool ops name for mbuf
  *
  * @return
  *   returns user provided pool ops name.
  */
-const char * __rte_experimental
+const char *
 rte_eal_mbuf_user_pool_ops(void);
 
 /**
- * @deprecated
- * Get default pool ops name for mbuf
+ * Get the runtime directory of DPDK
  *
  * @return
- *   returns default pool ops name.
+ *  The runtime directory path of DPDK
  */
-__rte_deprecated
 const char *
-rte_eal_mbuf_default_mempool_ops(void);
+rte_eal_get_runtime_dir(void);
 
 #ifdef __cplusplus
 }

@@ -329,9 +329,6 @@ eth_em_dev_uninit(struct rte_eth_dev *eth_dev)
 	eth_dev->rx_pkt_burst = NULL;
 	eth_dev->tx_pkt_burst = NULL;
 
-	rte_free(eth_dev->data->mac_addrs);
-	eth_dev->data->mac_addrs = NULL;
-
 	/* disable uio intr before callback unregister */
 	rte_intr_disable(intr_handle);
 	rte_intr_callback_unregister(intr_handle,
@@ -1444,7 +1441,8 @@ eth_em_interrupt_setup(struct rte_eth_dev *dev)
 	/* clear interrupt */
 	E1000_READ_REG(hw, E1000_ICR);
 	regval = E1000_READ_REG(hw, E1000_IMS);
-	E1000_WRITE_REG(hw, E1000_IMS, regval | E1000_ICR_LSC);
+	E1000_WRITE_REG(hw, E1000_IMS,
+			regval | E1000_ICR_LSC | E1000_ICR_OTHER);
 	return 0;
 }
 
@@ -1494,7 +1492,7 @@ em_rxq_intr_enable(struct e1000_hw *hw)
 static void
 em_lsc_intr_disable(struct e1000_hw *hw)
 {
-	E1000_WRITE_REG(hw, E1000_IMC, E1000_IMS_LSC);
+	E1000_WRITE_REG(hw, E1000_IMC, E1000_IMS_LSC | E1000_IMS_OTHER);
 	E1000_WRITE_FLUSH(hw);
 }
 
@@ -1823,9 +1821,7 @@ RTE_PMD_REGISTER_PCI_TABLE(net_e1000_em, pci_id_em_map);
 RTE_PMD_REGISTER_KMOD_DEP(net_e1000_em, "* igb_uio | uio_pci_generic | vfio-pci");
 
 /* see e1000_logs.c */
-RTE_INIT(igb_init_log);
-static void
-igb_init_log(void)
+RTE_INIT(igb_init_log)
 {
 	e1000_igb_init_log();
 }

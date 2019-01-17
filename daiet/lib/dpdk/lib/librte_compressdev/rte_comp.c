@@ -14,8 +14,12 @@ rte_comp_get_feature_name(uint64_t flag)
 		return "STATEFUL_COMPRESSION";
 	case RTE_COMP_FF_STATEFUL_DECOMPRESSION:
 		return "STATEFUL_DECOMPRESSION";
-	case RTE_COMP_FF_MBUF_SCATTER_GATHER:
-		return "MBUF_SCATTER_GATHER";
+	case RTE_COMP_FF_OOP_SGL_IN_SGL_OUT:
+		return "OOP_SGL_IN_SGL_OUT";
+	case RTE_COMP_FF_OOP_SGL_IN_LB_OUT:
+		return "OOP_SGL_IN_LB_OUT";
+	case RTE_COMP_FF_OOP_LB_IN_SGL_OUT:
+		return "OOP_LB_IN_SGL_OUT";
 	case RTE_COMP_FF_MULTI_PKT_CHECKSUM:
 		return "MULTI_PKT_CHECKSUM";
 	case RTE_COMP_FF_ADLER32_CHECKSUM:
@@ -32,6 +36,10 @@ rte_comp_get_feature_name(uint64_t flag)
 		return "SHA2_SHA256_HASH";
 	case RTE_COMP_FF_SHAREABLE_PRIV_XFORM:
 		return "SHAREABLE_PRIV_XFORM";
+	case RTE_COMP_FF_HUFFMAN_FIXED:
+		return "HUFFMAN_FIXED";
+	case RTE_COMP_FF_HUFFMAN_DYNAMIC:
+		return "HUFFMAN_DYNAMIC";
 	default:
 		return NULL;
 	}
@@ -75,8 +83,8 @@ struct rte_comp_op_pool_private {
  * @param nb_ops
  *   Number of operations to allocate
  * @return
- *   - 0: Success
- *   - -ENOENT: Not enough entries in the mempool; no ops are retrieved.
+ *   - nb_ops: Success, the nb_ops requested was allocated
+ *   - 0: Not enough entries in the mempool; no ops are retrieved.
  */
 static inline int
 rte_comp_op_raw_bulk_alloc(struct rte_mempool *mempool,
@@ -166,7 +174,7 @@ rte_comp_op_alloc(struct rte_mempool *mempool)
 	int retval;
 
 	retval = rte_comp_op_raw_bulk_alloc(mempool, &op, 1);
-	if (unlikely(retval < 0))
+	if (unlikely(retval != 1))
 		return NULL;
 
 	rte_comp_op_reset(op);
@@ -178,12 +186,12 @@ int __rte_experimental
 rte_comp_op_bulk_alloc(struct rte_mempool *mempool,
 		struct rte_comp_op **ops, uint16_t nb_ops)
 {
-	int ret;
+	int retval;
 	uint16_t i;
 
-	ret = rte_comp_op_raw_bulk_alloc(mempool, ops, nb_ops);
-	if (unlikely(ret < nb_ops))
-		return ret;
+	retval = rte_comp_op_raw_bulk_alloc(mempool, ops, nb_ops);
+	if (unlikely(retval != nb_ops))
+		return 0;
 
 	for (i = 0; i < nb_ops; i++)
 		rte_comp_op_reset(ops[i]);

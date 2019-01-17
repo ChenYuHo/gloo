@@ -38,8 +38,8 @@
 	DEV_TX_OFFLOAD_MULTI_SEGS)
 
 #define NICVF_RX_OFFLOAD_CAPA ( \
+	DEV_RX_OFFLOAD_CHECKSUM    | \
 	DEV_RX_OFFLOAD_VLAN_STRIP  | \
-	DEV_RX_OFFLOAD_CRC_STRIP   | \
 	DEV_RX_OFFLOAD_JUMBO_FRAME | \
 	DEV_RX_OFFLOAD_SCATTER)
 
@@ -51,6 +51,7 @@
 
 #define VLAN_TAG_SIZE                   4	/* 802.3ac tag */
 
+#define SKIP_DATA_BYTES "skip_data_bytes"
 static inline struct nicvf *
 nicvf_pmd_priv(struct rte_eth_dev *eth_dev)
 {

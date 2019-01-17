@@ -68,6 +68,11 @@ typedef uint16_t unaligned_uint16_t;
 /******* Macro to mark functions and fields scheduled for removal *****/
 #define __rte_deprecated	__attribute__((__deprecated__))
 
+/**
+ * Mark a function or variable to a weak reference.
+ */
+#define __rte_weak __attribute__((__weak__))
+
 /*********** Macros to eliminate unused variable warnings ********/
 
 /**
@@ -83,6 +88,7 @@ typedef uint16_t unaligned_uint16_t;
 
 #define RTE_PRIORITY_LOG 101
 #define RTE_PRIORITY_BUS 110
+#define RTE_PRIORITY_CLASS 120
 #define RTE_PRIORITY_LAST 65535
 
 #define RTE_PRIO(prio) \
@@ -112,6 +118,29 @@ static void __attribute__((constructor(RTE_PRIO(prio)), used)) func(void)
 	RTE_INIT_PRIO(func, LAST)
 
 /**
+ * Run after main() with low priority.
+ *
+ * @param func
+ *   Destructor function name.
+ * @param prio
+ *   Priority number must be above 100.
+ *   Lowest number is the last to run.
+ */
+#define RTE_FINI_PRIO(func, prio) \
+static void __attribute__((destructor(RTE_PRIO(prio)), used)) func(void)
+
+/**
+ * Run after main() with high priority.
+ *
+ * The destructor will be run *before* prioritized destructors.
+ *
+ * @param func
+ *   Destructor function name.
+ */
+#define RTE_FINI(func) \
+	RTE_FINI_PRIO(func, LAST)
+
+/**
  * Force a function to be inlined
  */
 #define __rte_always_inline inline __attribute__((always_inline))
@@ -139,6 +168,12 @@ static void __attribute__((constructor(RTE_PRIO(prio)), used)) func(void)
  * ptr1 is greater than ptr2.
  */
 #define RTE_PTR_DIFF(ptr1, ptr2) ((uintptr_t)(ptr1) - (uintptr_t)(ptr2))
+
+/**
+ * Workaround to cast a const field of a structure to non-const type.
+ */
+#define RTE_CAST_FIELD(var, field, type) \
+	(*(type *)((uintptr_t)(var) + offsetof(typeof(*(var)), field)))
 
 /*********** Macros/static functions for doing alignment ********/
 
@@ -235,16 +270,7 @@ rte_is_aligned(void *ptr, unsigned align)
 /**
  * Triggers an error at compilation time if the condition is true.
  */
-#ifndef __OPTIMIZE__
 #define RTE_BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
-#else
-extern int RTE_BUILD_BUG_ON_detected_error;
-#define RTE_BUILD_BUG_ON(condition) do {             \
-	((void)sizeof(char[1 - 2*!!(condition)]));   \
-	if (condition)                               \
-		RTE_BUILD_BUG_ON_detected_error = 1; \
-} while(0)
-#endif
 
 /**
  * Combines 32b inputs most significant set bits into the least
@@ -292,6 +318,11 @@ rte_combine64ms1b(register uint64_t v)
 }
 
 /*********** Macros to work with powers of 2 ********/
+
+/**
+ * Macro to return 1 if n is a power of 2, 0 otherwise
+ */
+#define RTE_IS_POWER_OF_2(n) ((n) && !(((n) - 1) & (n)))
 
 /**
  * Returns true if n is a power of 2
@@ -431,6 +462,48 @@ rte_log2_u32(uint32_t v)
 		return 0;
 	v = rte_align32pow2(v);
 	return rte_bsf32(v);
+}
+
+
+/**
+ * Return the last (most-significant) bit set.
+ *
+ * @note The last (most significant) bit is at position 32.
+ * @note rte_fls_u32(0) = 0, rte_fls_u32(1) = 1, rte_fls_u32(0x80000000) = 32
+ *
+ * @param x
+ *     The input parameter.
+ * @return
+ *     The last (most-significant) bit set, or 0 if the input is 0.
+ */
+static inline int
+rte_fls_u32(uint32_t x)
+{
+	return (x == 0) ? 0 : 32 - __builtin_clz(x);
+}
+
+/**
+ * Searches the input parameter for the least significant set bit
+ * (starting from zero). Safe version (checks for input parameter being zero).
+ *
+ * @warning ``pos`` must be a valid pointer. It is not checked!
+ *
+ * @param v
+ *     The input parameter.
+ * @param pos
+ *     If ``v`` was not 0, this value will contain position of least significant
+ *     bit within the input parameter.
+ * @return
+ *     Returns 0 if ``v`` was 0, otherwise returns 1.
+ */
+static inline int
+rte_bsf64_safe(uint64_t v, uint32_t *pos)
+{
+	if (v == 0)
+		return 0;
+
+	*pos = __builtin_ctzll(v);
+	return 1;
 }
 
 #ifndef offsetof

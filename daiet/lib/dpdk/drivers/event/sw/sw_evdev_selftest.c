@@ -28,6 +28,7 @@
 #define MAX_PORTS 16
 #define MAX_QIDS 16
 #define NUM_PACKETS (1<<18)
+#define DEQUEUE_DEPTH 128
 
 static int evdev;
 
@@ -147,7 +148,7 @@ init(struct test *t, int nb_queues, int nb_ports)
 			.nb_event_ports = nb_ports,
 			.nb_event_queue_flows = 1024,
 			.nb_events_limit = 4096,
-			.nb_event_port_dequeue_depth = 128,
+			.nb_event_port_dequeue_depth = DEQUEUE_DEPTH,
 			.nb_event_port_enqueue_depth = 128,
 	};
 	int ret;
@@ -1903,6 +1904,77 @@ qid_priorities(struct test *t)
 }
 
 static int
+unlink_in_progress(struct test *t)
+{
+	/* Test unlinking API, in particular that when an unlink request has
+	 * not yet been seen by the scheduler thread, that the
+	 * unlink_in_progress() function returns the number of unlinks.
+	 */
+	unsigned int i;
+	/* Create instance with 1 ports, and 3 qids */
+	if (init(t, 3, 1) < 0 ||
+			create_ports(t, 1) < 0) {
+		printf("%d: Error initializing device\n", __LINE__);
+		return -1;
+	}
+
+	for (i = 0; i < 3; i++) {
+		/* Create QID */
+		const struct rte_event_queue_conf conf = {
+			.schedule_type = RTE_SCHED_TYPE_ATOMIC,
+			/* increase priority (0 == highest), as we go */
+			.priority = RTE_EVENT_DEV_PRIORITY_NORMAL - i,
+			.nb_atomic_flows = 1024,
+			.nb_atomic_order_sequences = 1024,
+		};
+
+		if (rte_event_queue_setup(evdev, i, &conf) < 0) {
+			printf("%d: error creating qid %d\n", __LINE__, i);
+			return -1;
+		}
+		t->qid[i] = i;
+	}
+	t->nb_qids = i;
+	/* map all QIDs to port */
+	rte_event_port_link(evdev, t->port[0], NULL, NULL, 0);
+
+	if (rte_event_dev_start(evdev) < 0) {
+		printf("%d: Error with start call\n", __LINE__);
+		return -1;
+	}
+
+	/* unlink all ports to have outstanding unlink requests */
+	int ret = rte_event_port_unlink(evdev, t->port[0], NULL, 0);
+	if (ret < 0) {
+		printf("%d: Failed to unlink queues\n", __LINE__);
+		return -1;
+	}
+
+	/* get active unlinks here, expect 3 */
+	int unlinks_in_progress =
+		rte_event_port_unlinks_in_progress(evdev, t->port[0]);
+	if (unlinks_in_progress != 3) {
+		printf("%d: Expected num unlinks in progress == 3, got %d\n",
+				__LINE__, unlinks_in_progress);
+		return -1;
+	}
+
+	/* run scheduler service on this thread to ack the unlinks */
+	rte_service_run_iter_on_app_lcore(t->service_id, 1);
+
+	/* active unlinks expected as 0 as scheduler thread has acked */
+	unlinks_in_progress =
+		rte_event_port_unlinks_in_progress(evdev, t->port[0]);
+	if (unlinks_in_progress != 0) {
+		printf("%d: Expected num unlinks in progress == 0, got %d\n",
+				__LINE__, unlinks_in_progress);
+	}
+
+	cleanup(t);
+	return 0;
+}
+
+static int
 load_balancing(struct test *t)
 {
 	const int rx_enq = 0;
@@ -2807,6 +2879,78 @@ err:
 	return -1;
 }
 
+static void
+flush(uint8_t dev_id __rte_unused, struct rte_event event, void *arg)
+{
+	*((uint8_t *) arg) += (event.u64 == 0xCA11BACC) ? 1 : 0;
+}
+
+static int
+dev_stop_flush(struct test *t) /* test to check we can properly flush events */
+{
+	const struct rte_event new_ev = {
+		.op = RTE_EVENT_OP_NEW,
+		.u64 = 0xCA11BACC,
+		.queue_id = 0
+	};
+	struct rte_event ev = new_ev;
+	uint8_t count = 0;
+	int i;
+
+	if (init(t, 1, 1) < 0 ||
+	    create_ports(t, 1) < 0 ||
+	    create_atomic_qids(t, 1) < 0) {
+		printf("%d: Error initializing device\n", __LINE__);
+		return -1;
+	}
+
+	/* Link the queue so *_start() doesn't error out */
+	if (rte_event_port_link(evdev, t->port[0], NULL, NULL, 0) != 1) {
+		printf("%d: Error linking queue to port\n", __LINE__);
+		goto err;
+	}
+
+	if (rte_event_dev_start(evdev) < 0) {
+		printf("%d: Error with start call\n", __LINE__);
+		goto err;
+	}
+
+	for (i = 0; i < DEQUEUE_DEPTH + 1; i++) {
+		if (rte_event_enqueue_burst(evdev, t->port[0], &ev, 1) != 1) {
+			printf("%d: Error enqueuing events\n", __LINE__);
+			goto err;
+		}
+	}
+
+	/* Schedule the events from the port to the IQ. At least one event
+	 * should be remaining in the queue.
+	 */
+	rte_service_run_iter_on_app_lcore(t->service_id, 1);
+
+	if (rte_event_dev_stop_flush_callback_register(evdev, flush, &count)) {
+		printf("%d: Error installing the flush callback\n", __LINE__);
+		goto err;
+	}
+
+	cleanup(t);
+
+	if (count == 0) {
+		printf("%d: Error executing the flush callback\n", __LINE__);
+		goto err;
+	}
+
+	if (rte_event_dev_stop_flush_callback_register(evdev, NULL, NULL)) {
+		printf("%d: Error uninstalling the flush callback\n", __LINE__);
+		goto err;
+	}
+
+	return 0;
+err:
+	rte_event_dev_dump(evdev, stdout);
+	cleanup(t);
+	return -1;
+}
+
 static int
 worker_loopback_worker_fn(void *arg)
 {
@@ -3187,6 +3331,12 @@ test_sw_eventdev(void)
 		printf("ERROR - QID Priority test FAILED.\n");
 		goto test_fail;
 	}
+	printf("*** Running Unlink-in-progress test...\n");
+	ret = unlink_in_progress(t);
+	if (ret != 0) {
+		printf("ERROR - Unlink in progress test FAILED.\n");
+		goto test_fail;
+	}
 	printf("*** Running Ordered Reconfigure test...\n");
 	ret = ordered_reconfigure(t);
 	if (ret != 0) {
@@ -3209,6 +3359,12 @@ test_sw_eventdev(void)
 	ret = holb(t);
 	if (ret != 0) {
 		printf("ERROR - Head-of-line-blocking test FAILED.\n");
+		goto test_fail;
+	}
+	printf("*** Running Stop Flush test...\n");
+	ret = dev_stop_flush(t);
+	if (ret != 0) {
+		printf("ERROR - Stop Flush test FAILED.\n");
 		goto test_fail;
 	}
 	if (rte_lcore_count() >= 3) {

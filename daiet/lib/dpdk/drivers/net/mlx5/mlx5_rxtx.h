@@ -26,6 +26,8 @@
 #include <rte_common.h>
 #include <rte_hexdump.h>
 #include <rte_atomic.h>
+#include <rte_spinlock.h>
+#include <rte_io.h>
 
 #include "mlx5_utils.h"
 #include "mlx5.h"
@@ -33,6 +35,9 @@
 #include "mlx5_autoconf.h"
 #include "mlx5_defs.h"
 #include "mlx5_prm.h"
+
+/* Support tunnel matching. */
+#define MLX5_FLOW_TUNNEL 5
 
 struct mlx5_rxq_stats {
 	unsigned int idx; /**< Mapping index. */
@@ -92,10 +97,11 @@ struct mlx5_rxq_data {
 	volatile uint32_t *rq_db;
 	volatile uint32_t *cq_db;
 	uint16_t port_id;
-	uint16_t rq_ci;
-	uint16_t strd_ci; /* Stride index in a WQE for Multi-Packet RQ. */
-	uint16_t rq_pi;
-	uint16_t cq_ci;
+	uint32_t rq_ci;
+	uint16_t consumed_strd; /* Number of consumed strides in WQE. */
+	uint32_t rq_pi;
+	uint32_t cq_ci;
+	uint16_t rq_repl_thresh; /* Threshold for buffer replenishment. */
 	struct mlx5_mr_ctrl mr_ctrl; /* MR control descriptor. */
 	uint16_t mprq_max_memcpy_len; /* Maximum size of packet to memcpy. */
 	volatile void *wqes;
@@ -115,6 +121,10 @@ struct mlx5_rxq_data {
 	void *cq_uar; /* CQ user access region. */
 	uint32_t cqn; /* CQ number. */
 	uint8_t cq_arm_sn; /* CQ arm seq number. */
+#ifndef RTE_ARCH_64
+	rte_spinlock_t *uar_lock_cq;
+	/* CQ (UAR) access lock required for 32bit implementations */
+#endif
 	uint32_t tunnel; /* Tunnel information. */
 } __rte_cache_aligned;
 
@@ -136,9 +146,10 @@ struct mlx5_rxq_ctrl {
 	struct priv *priv; /* Back pointer to private data. */
 	struct mlx5_rxq_data rxq; /* Data path structure. */
 	unsigned int socket; /* CPU socket ID for allocations. */
-	uint32_t tunnel_types[16]; /* Tunnel type counter. */
 	unsigned int irq:1; /* Whether IRQ is enabled. */
 	uint16_t idx; /* Queue index. */
+	uint32_t flow_mark_n; /* Number of Mark/Flag flows using this Queue. */
+	uint32_t flow_tunnels_n[MLX5_FLOW_TUNNEL]; /* Tunnels counters. */
 };
 
 /* Indirection table. */
@@ -157,8 +168,6 @@ struct mlx5_hrxq {
 	struct mlx5_ind_table_ibv *ind_table; /* Indirection table. */
 	struct ibv_qp *qp; /* Verbs queue pair. */
 	uint64_t hash_fields; /* Verbs Hash fields. */
-	uint32_t tunnel; /* Tunnel type. */
-	uint32_t rss_level; /* RSS on tunnel level. */
 	uint32_t rss_key_len; /* Hash key length in bytes. */
 	uint8_t rss_key[]; /* Hash key. */
 };
@@ -196,6 +205,10 @@ struct mlx5_txq_data {
 	volatile void *bf_reg; /* Blueflame register remapped. */
 	struct rte_mbuf *(*elts)[]; /* TX elements. */
 	struct mlx5_txq_stats stats; /* TX queue counters. */
+#ifndef RTE_ARCH_64
+	rte_spinlock_t *uar_lock;
+	/* UAR access lock required for 32bit implementations */
+#endif
 } __rte_cache_aligned;
 
 /* Verbs Rx queue elements. */
@@ -225,7 +238,6 @@ struct mlx5_txq_ctrl {
 /* mlx5_rxq.c */
 
 extern uint8_t rss_hash_default_key[];
-extern const size_t rss_hash_default_key_len;
 
 int mlx5_check_mprq_support(struct rte_eth_dev *dev);
 int mlx5_rxq_mprq_enabled(struct mlx5_rxq_data *rxq);
@@ -245,6 +257,8 @@ struct mlx5_rxq_ibv *mlx5_rxq_ibv_new(struct rte_eth_dev *dev, uint16_t idx);
 struct mlx5_rxq_ibv *mlx5_rxq_ibv_get(struct rte_eth_dev *dev, uint16_t idx);
 int mlx5_rxq_ibv_release(struct mlx5_rxq_ibv *rxq_ibv);
 int mlx5_rxq_ibv_releasable(struct mlx5_rxq_ibv *rxq_ibv);
+struct mlx5_rxq_ibv *mlx5_rxq_ibv_drop_new(struct rte_eth_dev *dev);
+void mlx5_rxq_ibv_drop_release(struct rte_eth_dev *dev);
 int mlx5_rxq_ibv_verify(struct rte_eth_dev *dev);
 struct mlx5_rxq_ctrl *mlx5_rxq_new(struct rte_eth_dev *dev, uint16_t idx,
 				   uint16_t desc, unsigned int socket,
@@ -265,18 +279,21 @@ struct mlx5_ind_table_ibv *mlx5_ind_table_ibv_get(struct rte_eth_dev *dev,
 int mlx5_ind_table_ibv_release(struct rte_eth_dev *dev,
 			       struct mlx5_ind_table_ibv *ind_tbl);
 int mlx5_ind_table_ibv_verify(struct rte_eth_dev *dev);
+struct mlx5_ind_table_ibv *mlx5_ind_table_ibv_drop_new(struct rte_eth_dev *dev);
+void mlx5_ind_table_ibv_drop_release(struct rte_eth_dev *dev);
 struct mlx5_hrxq *mlx5_hrxq_new(struct rte_eth_dev *dev,
 				const uint8_t *rss_key, uint32_t rss_key_len,
 				uint64_t hash_fields,
 				const uint16_t *queues, uint32_t queues_n,
-				uint32_t tunnel, uint32_t rss_level);
+				int tunnel __rte_unused);
 struct mlx5_hrxq *mlx5_hrxq_get(struct rte_eth_dev *dev,
 				const uint8_t *rss_key, uint32_t rss_key_len,
 				uint64_t hash_fields,
-				const uint16_t *queues, uint32_t queues_n,
-				uint32_t tunnel, uint32_t rss_level);
+				const uint16_t *queues, uint32_t queues_n);
 int mlx5_hrxq_release(struct rte_eth_dev *dev, struct mlx5_hrxq *hxrq);
 int mlx5_hrxq_ibv_verify(struct rte_eth_dev *dev);
+struct mlx5_hrxq *mlx5_hrxq_drop_new(struct rte_eth_dev *dev);
+void mlx5_hrxq_drop_release(struct rte_eth_dev *dev);
 uint64_t mlx5_get_rx_port_offloads(void);
 uint64_t mlx5_get_rx_queue_offloads(struct rte_eth_dev *dev);
 
@@ -329,6 +346,7 @@ uint16_t removed_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts,
 			  uint16_t pkts_n);
 int mlx5_rx_descriptor_status(void *rx_queue, uint16_t offset);
 int mlx5_tx_descriptor_status(void *tx_queue, uint16_t offset);
+uint32_t mlx5_rx_queue_count(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 
 /* Vectorized version of mlx5_rxtx.c */
 int mlx5_check_raw_vec_tx_support(struct rte_eth_dev *dev);
@@ -346,7 +364,65 @@ uint16_t mlx5_rx_burst_vec(void *dpdk_txq, struct rte_mbuf **pkts,
 
 void mlx5_mr_flush_local_cache(struct mlx5_mr_ctrl *mr_ctrl);
 uint32_t mlx5_rx_addr2mr_bh(struct mlx5_rxq_data *rxq, uintptr_t addr);
-uint32_t mlx5_tx_addr2mr_bh(struct mlx5_txq_data *txq, uintptr_t addr);
+uint32_t mlx5_tx_mb2mr_bh(struct mlx5_txq_data *txq, struct rte_mbuf *mb);
+uint32_t mlx5_tx_update_ext_mp(struct mlx5_txq_data *txq, uintptr_t addr,
+			       struct rte_mempool *mp);
+
+/**
+ * Provide safe 64bit store operation to mlx5 UAR region for both 32bit and
+ * 64bit architectures.
+ *
+ * @param val
+ *   value to write in CPU endian format.
+ * @param addr
+ *   Address to write to.
+ * @param lock
+ *   Address of the lock to use for that UAR access.
+ */
+static __rte_always_inline void
+__mlx5_uar_write64_relaxed(uint64_t val, void *addr,
+			   rte_spinlock_t *lock __rte_unused)
+{
+#ifdef RTE_ARCH_64
+	*(uint64_t *)addr = val;
+#else /* !RTE_ARCH_64 */
+	rte_spinlock_lock(lock);
+	*(uint32_t *)addr = val;
+	rte_io_wmb();
+	*((uint32_t *)addr + 1) = val >> 32;
+	rte_spinlock_unlock(lock);
+#endif
+}
+
+/**
+ * Provide safe 64bit store operation to mlx5 UAR region for both 32bit and
+ * 64bit architectures while guaranteeing the order of execution with the
+ * code being executed.
+ *
+ * @param val
+ *   value to write in CPU endian format.
+ * @param addr
+ *   Address to write to.
+ * @param lock
+ *   Address of the lock to use for that UAR access.
+ */
+static __rte_always_inline void
+__mlx5_uar_write64(uint64_t val, void *addr, rte_spinlock_t *lock)
+{
+	rte_io_wmb();
+	__mlx5_uar_write64_relaxed(val, addr, lock);
+}
+
+/* Assist macros, used instead of directly calling the functions they wrap. */
+#ifdef RTE_ARCH_64
+#define mlx5_uar_write64_relaxed(val, dst, lock) \
+		__mlx5_uar_write64_relaxed(val, dst, NULL)
+#define mlx5_uar_write64(val, dst, lock) __mlx5_uar_write64(val, dst, NULL)
+#else
+#define mlx5_uar_write64_relaxed(val, dst, lock) \
+		__mlx5_uar_write64_relaxed(val, dst, lock)
+#define mlx5_uar_write64(val, dst, lock) __mlx5_uar_write64(val, dst, lock)
+#endif
 
 #ifndef NDEBUG
 /**
@@ -362,7 +438,7 @@ static inline int
 check_cqe_seen(volatile struct mlx5_cqe *cqe)
 {
 	static const uint8_t magic[] = "seen";
-	volatile uint8_t (*buf)[sizeof(cqe->rsvd0)] = &cqe->rsvd0;
+	volatile uint8_t (*buf)[sizeof(cqe->rsvd1)] = &cqe->rsvd1;
 	int ret = 1;
 	unsigned int i;
 
@@ -534,6 +610,24 @@ mlx5_tx_complete(struct mlx5_txq_data *txq)
 }
 
 /**
+ * Get Memory Pool (MP) from mbuf. If mbuf is indirect, the pool from which the
+ * cloned mbuf is allocated is returned instead.
+ *
+ * @param buf
+ *   Pointer to mbuf.
+ *
+ * @return
+ *   Memory pool where data is located for given mbuf.
+ */
+static inline struct rte_mempool *
+mlx5_mb2mp(struct rte_mbuf *buf)
+{
+	if (unlikely(RTE_MBUF_INDIRECT(buf)))
+		return rte_mbuf_from_indirect(buf)->pool;
+	return buf->pool;
+}
+
+/**
  * Query LKey from a packet buffer for Rx. No need to flush local caches for Rx
  * as mempool is pre-configured and static.
  *
@@ -574,9 +668,10 @@ mlx5_rx_addr2mr(struct mlx5_rxq_data *rxq, uintptr_t addr)
  *   Searched LKey on success, UINT32_MAX on no match.
  */
 static __rte_always_inline uint32_t
-mlx5_tx_addr2mr(struct mlx5_txq_data *txq, uintptr_t addr)
+mlx5_tx_mb2mr(struct mlx5_txq_data *txq, struct rte_mbuf *mb)
 {
 	struct mlx5_mr_ctrl *mr_ctrl = &txq->mr_ctrl;
+	uintptr_t addr = (uintptr_t)mb->buf_addr;
 	uint32_t lkey;
 
 	/* Check generation bit to see if there's any change on existing MRs. */
@@ -587,11 +682,9 @@ mlx5_tx_addr2mr(struct mlx5_txq_data *txq, uintptr_t addr)
 				    MLX5_MR_CACHE_N, addr);
 	if (likely(lkey != UINT32_MAX))
 		return lkey;
-	/* Take slower bottom-half (binary search) on miss. */
-	return mlx5_tx_addr2mr_bh(txq, addr);
+	/* Take slower bottom-half on miss. */
+	return mlx5_tx_mb2mr_bh(txq, mb);
 }
-
-#define mlx5_tx_mb2mr(rxq, mb) mlx5_tx_addr2mr(rxq, (uintptr_t)((mb)->buf_addr))
 
 /**
  * Ring TX queue doorbell and flush the update if requested.
@@ -614,7 +707,7 @@ mlx5_tx_dbrec_cond_wmb(struct mlx5_txq_data *txq, volatile struct mlx5_wqe *wqe,
 	*txq->qp_db = rte_cpu_to_be_32(txq->wqe_ci);
 	/* Ensure ordering between DB record and BF copy. */
 	rte_wmb();
-	*dst = *src;
+	mlx5_uar_write64_relaxed(*src, dst, txq->uar_lock);
 	if (cond)
 		rte_wmb();
 }

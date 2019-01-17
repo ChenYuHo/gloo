@@ -38,8 +38,9 @@
 #define PDUMP_MSIZE_ARG "mbuf-size"
 #define PDUMP_NUM_MBUFS_ARG "total-num-mbufs"
 
-#define VDEV_PCAP "net_pcap_%s_%d,tx_pcap=%s"
-#define VDEV_IFACE "net_pcap_%s_%d,tx_iface=%s"
+#define VDEV_NAME_FMT "net_pcap_%s_%d"
+#define VDEV_PCAP_ARGS_FMT "tx_pcap=%s"
+#define VDEV_IFACE_ARGS_FMT "tx_iface=%s"
 #define TX_STREAM_SIZE 64
 
 #define MP_NAME "pdump_pool_%d"
@@ -80,7 +81,7 @@ enum pdump_by {
 	DEVICE_ID = 2
 };
 
-const char *valid_pdump_arguments[] = {
+static const char * const valid_pdump_arguments[] = {
 	PDUMP_PORT_ARG,
 	PDUMP_PCI_ARG,
 	PDUMP_QUEUE_ARG,
@@ -118,8 +119,8 @@ struct pdump_tuples {
 
 	/* params for packet dumping */
 	enum pdump_by dump_by_type;
-	int rx_vdev_id;
-	int tx_vdev_id;
+	uint16_t rx_vdev_id;
+	uint16_t tx_vdev_id;
 	enum pcap_stream rx_vdev_stream_type;
 	enum pcap_stream tx_vdev_stream_type;
 	bool single_pdump_dev;
@@ -135,9 +136,9 @@ struct parse_val {
 	uint64_t val;
 };
 
-int num_tuples;
+static int num_tuples;
 static struct rte_eth_conf port_conf_default;
-volatile uint8_t quit_signal;
+static volatile uint8_t quit_signal;
 
 /**< display usage */
 static void
@@ -265,7 +266,7 @@ parse_pdump(const char *optarg)
 				&parse_uint_value, &v);
 		if (ret < 0)
 			goto free_kvlist;
-		pt->port = (uint8_t) v.val;
+		pt->port = (uint16_t) v.val;
 		pt->dump_by_type = PORT_ID;
 	} else if (cnt2 == 1) {
 		ret = rte_kvargs_process(kvlist, PDUMP_PCI_ARG,
@@ -434,7 +435,7 @@ disable_pdump(struct pdump_tuples *pt)
 }
 
 static inline void
-pdump_rxtx(struct rte_ring *ring, uint8_t vdev_id, struct pdump_stats *stats)
+pdump_rxtx(struct rte_ring *ring, uint16_t vdev_id, struct pdump_stats *stats)
 {
 	/* write input packets of port to vdev for pdump */
 	struct rte_mbuf *rxtx_bufs[BURST_SIZE];
@@ -461,7 +462,7 @@ pdump_rxtx(struct rte_ring *ring, uint8_t vdev_id, struct pdump_stats *stats)
 }
 
 static void
-free_ring_data(struct rte_ring *ring, uint8_t vdev_id,
+free_ring_data(struct rte_ring *ring, uint16_t vdev_id,
 		struct pdump_stats *stats)
 {
 	while (rte_ring_count(ring))
@@ -570,6 +571,7 @@ create_mp_ring_vdev(void)
 	uint16_t portid;
 	struct pdump_tuples *pt = NULL;
 	struct rte_mempool *mbuf_pool = NULL;
+	char vdev_name[SIZE];
 	char vdev_args[SIZE];
 	char ring_name[SIZE];
 	char mempool_name[SIZE];
@@ -619,16 +621,27 @@ create_mp_ring_vdev(void)
 			}
 
 			/* create vdevs */
+			snprintf(vdev_name, sizeof(vdev_name),
+				 VDEV_NAME_FMT, RX_STR, i);
 			(pt->rx_vdev_stream_type == IFACE) ?
-			snprintf(vdev_args, SIZE, VDEV_IFACE, RX_STR, i,
-			pt->rx_dev) :
-			snprintf(vdev_args, SIZE, VDEV_PCAP, RX_STR, i,
-			pt->rx_dev);
-			if (rte_eth_dev_attach(vdev_args, &portid) < 0) {
+			snprintf(vdev_args, sizeof(vdev_args),
+				 VDEV_IFACE_ARGS_FMT, pt->rx_dev) :
+			snprintf(vdev_args, sizeof(vdev_args),
+				 VDEV_PCAP_ARGS_FMT, pt->rx_dev);
+			if (rte_eal_hotplug_add("vdev", vdev_name,
+						vdev_args) < 0) {
 				cleanup_rings();
 				rte_exit(EXIT_FAILURE,
 					"vdev creation failed:%s:%d\n",
 					__func__, __LINE__);
+			}
+			if (rte_eth_dev_get_port_by_name(vdev_name,
+							 &portid) != 0) {
+				rte_eal_hotplug_remove("vdev", vdev_name);
+				cleanup_rings();
+				rte_exit(EXIT_FAILURE,
+					"cannot find added vdev %s:%s:%d\n",
+					vdev_name, __func__, __LINE__);
 			}
 			pt->rx_vdev_id = portid;
 
@@ -638,17 +651,28 @@ create_mp_ring_vdev(void)
 			if (pt->single_pdump_dev)
 				pt->tx_vdev_id = portid;
 			else {
-				(pt->tx_vdev_stream_type == IFACE) ?
-				snprintf(vdev_args, SIZE, VDEV_IFACE, TX_STR, i,
-				pt->tx_dev) :
-				snprintf(vdev_args, SIZE, VDEV_PCAP, TX_STR, i,
-				pt->tx_dev);
-				if (rte_eth_dev_attach(vdev_args,
-							&portid) < 0) {
+				snprintf(vdev_name, sizeof(vdev_name),
+					 VDEV_NAME_FMT, TX_STR, i);
+				(pt->rx_vdev_stream_type == IFACE) ?
+				snprintf(vdev_args, sizeof(vdev_args),
+					 VDEV_IFACE_ARGS_FMT, pt->tx_dev) :
+				snprintf(vdev_args, sizeof(vdev_args),
+					 VDEV_PCAP_ARGS_FMT, pt->tx_dev);
+				if (rte_eal_hotplug_add("vdev", vdev_name,
+							vdev_args) < 0) {
 					cleanup_rings();
 					rte_exit(EXIT_FAILURE,
 						"vdev creation failed:"
 						"%s:%d\n", __func__, __LINE__);
+				}
+				if (rte_eth_dev_get_port_by_name(vdev_name,
+						&portid) != 0) {
+					rte_eal_hotplug_remove("vdev",
+							       vdev_name);
+					cleanup_rings();
+					rte_exit(EXIT_FAILURE,
+						"cannot find added vdev %s:%s:%d\n",
+						vdev_name, __func__, __LINE__);
 				}
 				pt->tx_vdev_id = portid;
 
@@ -667,16 +691,27 @@ create_mp_ring_vdev(void)
 					rte_strerror(rte_errno));
 			}
 
+			snprintf(vdev_name, sizeof(vdev_name),
+				 VDEV_NAME_FMT, RX_STR, i);
 			(pt->rx_vdev_stream_type == IFACE) ?
-			snprintf(vdev_args, SIZE, VDEV_IFACE, RX_STR, i,
-				pt->rx_dev) :
-			snprintf(vdev_args, SIZE, VDEV_PCAP, RX_STR, i,
-				pt->rx_dev);
-			if (rte_eth_dev_attach(vdev_args, &portid) < 0) {
+			snprintf(vdev_args, sizeof(vdev_args),
+				 VDEV_IFACE_ARGS_FMT, pt->rx_dev) :
+			snprintf(vdev_args, sizeof(vdev_args),
+				 VDEV_PCAP_ARGS_FMT, pt->rx_dev);
+			if (rte_eal_hotplug_add("vdev", vdev_name,
+						vdev_args) < 0) {
 				cleanup_rings();
 				rte_exit(EXIT_FAILURE,
 					"vdev creation failed:%s:%d\n",
 					__func__, __LINE__);
+			}
+			if (rte_eth_dev_get_port_by_name(vdev_name,
+							 &portid) != 0) {
+				rte_eal_hotplug_remove("vdev", vdev_name);
+				cleanup_rings();
+				rte_exit(EXIT_FAILURE,
+					"cannot find added vdev %s:%s:%d\n",
+					vdev_name, __func__, __LINE__);
 			}
 			pt->rx_vdev_id = portid;
 			/* configure vdev */
@@ -693,15 +728,26 @@ create_mp_ring_vdev(void)
 					rte_strerror(rte_errno));
 			}
 
+			snprintf(vdev_name, sizeof(vdev_name),
+				 VDEV_NAME_FMT, TX_STR, i);
 			(pt->tx_vdev_stream_type == IFACE) ?
-			snprintf(vdev_args, SIZE, VDEV_IFACE, TX_STR, i,
-				pt->tx_dev) :
-			snprintf(vdev_args, SIZE, VDEV_PCAP, TX_STR, i,
-				pt->tx_dev);
-			if (rte_eth_dev_attach(vdev_args, &portid) < 0) {
+			snprintf(vdev_args, sizeof(vdev_args),
+				 VDEV_IFACE_ARGS_FMT, pt->tx_dev) :
+			snprintf(vdev_args, sizeof(vdev_args),
+				 VDEV_PCAP_ARGS_FMT, pt->tx_dev);
+			if (rte_eal_hotplug_add("vdev", vdev_name,
+						vdev_args) < 0) {
 				cleanup_rings();
 				rte_exit(EXIT_FAILURE,
 					"vdev creation failed\n");
+			}
+			if (rte_eth_dev_get_port_by_name(vdev_name,
+							 &portid) != 0) {
+				rte_eal_hotplug_remove("vdev", vdev_name);
+				cleanup_rings();
+				rte_exit(EXIT_FAILURE,
+					"cannot find added vdev %s:%s:%d\n",
+					vdev_name, __func__, __LINE__);
 			}
 			pt->tx_vdev_id = portid;
 

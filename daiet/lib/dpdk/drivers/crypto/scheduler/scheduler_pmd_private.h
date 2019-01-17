@@ -12,25 +12,11 @@
 
 #define PER_SLAVE_BUFF_SIZE			(256)
 
-#define CS_LOG_ERR(fmt, args...)					\
-	RTE_LOG(ERR, CRYPTODEV, "[%s] %s() line %u: " fmt "\n",		\
-		RTE_STR(CRYPTODEV_NAME_SCHEDULER_PMD),			\
-		__func__, __LINE__, ## args)
+extern int scheduler_logtype_driver;
 
-#ifdef RTE_LIBRTE_CRYPTO_SCHEDULER_DEBUG
-#define CS_LOG_INFO(fmt, args...)					\
-	RTE_LOG(INFO, CRYPTODEV, "[%s] %s() line %u: " fmt "\n",	\
-		RTE_STR(CRYPTODEV_NAME_SCHEDULER_PMD),			\
-		__func__, __LINE__, ## args)
-
-#define CS_LOG_DBG(fmt, args...)					\
-	RTE_LOG(DEBUG, CRYPTODEV, "[%s] %s() line %u: " fmt "\n",	\
-		RTE_STR(CRYPTODEV_NAME_SCHEDULER_PMD),			\
-		__func__, __LINE__, ## args)
-#else
-#define CS_LOG_INFO(fmt, args...)
-#define CS_LOG_DBG(fmt, args...)
-#endif
+#define CR_SCHED_LOG(level, fmt, args...) \
+	rte_log(RTE_LOG_ ## level, scheduler_logtype_driver,		\
+			"%s() line %u: "fmt "\n", __func__, __LINE__, ##args)
 
 struct scheduler_slave {
 	uint8_t dev_id;
@@ -77,7 +63,7 @@ struct scheduler_qp_ctx {
 } __rte_cache_aligned;
 
 
-extern uint8_t cryptodev_driver_id;
+extern uint8_t cryptodev_scheduler_driver_id;
 
 static __rte_always_inline uint16_t
 get_max_enqueue_order_count(struct rte_ring *order_ring, uint16_t nb_ops)

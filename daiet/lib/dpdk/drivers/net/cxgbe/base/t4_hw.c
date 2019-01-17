@@ -2480,6 +2480,46 @@ int t4_get_core_clock(struct adapter *adapter, struct vpd_params *p)
 	return 0;
 }
 
+/**
+ * t4_get_pfres - retrieve VF resource limits
+ * @adapter: the adapter
+ *
+ * Retrieves configured resource limits and capabilities for a physical
+ * function.  The results are stored in @adapter->pfres.
+ */
+int t4_get_pfres(struct adapter *adapter)
+{
+	struct pf_resources *pfres = &adapter->params.pfres;
+	struct fw_pfvf_cmd cmd, rpl;
+	u32 word;
+	int v;
+
+	/*
+	 * Execute PFVF Read command to get VF resource limits; bail out early
+	 * with error on command failure.
+	 */
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.op_to_vfn = cpu_to_be32(V_FW_CMD_OP(FW_PFVF_CMD) |
+				    F_FW_CMD_REQUEST |
+				    F_FW_CMD_READ |
+				    V_FW_PFVF_CMD_PFN(adapter->pf) |
+				    V_FW_PFVF_CMD_VFN(0));
+	cmd.retval_len16 = cpu_to_be32(FW_LEN16(cmd));
+	v = t4_wr_mbox(adapter, adapter->mbox, &cmd, sizeof(cmd), &rpl);
+	if (v != FW_SUCCESS)
+		return v;
+
+	/*
+	 * Extract PF resource limits and return success.
+	 */
+	word = be32_to_cpu(rpl.niqflint_niq);
+	pfres->niqflint = G_FW_PFVF_CMD_NIQFLINT(word);
+
+	word = be32_to_cpu(rpl.type_to_neq);
+	pfres->neq = G_FW_PFVF_CMD_NEQ(word);
+	return 0;
+}
+
 /* serial flash and firmware constants and flash config file constants */
 enum {
 	SF_ATTEMPTS = 10,             /* max retries for SF operations */
@@ -4122,6 +4162,112 @@ int t4_set_rxmode(struct adapter *adap, unsigned int mbox, unsigned int viid,
 }
 
 /**
+ *	t4_alloc_raw_mac_filt - Adds a raw mac entry in mps tcam
+ *	@adap: the adapter
+ *	@viid: the VI id
+ *	@mac: the MAC address
+ *	@mask: the mask
+ *	@idx: index at which to add this entry
+ *	@port_id: the port index
+ *	@lookup_type: MAC address for inner (1) or outer (0) header
+ *	@sleep_ok: call is allowed to sleep
+ *
+ *	Adds the mac entry at the specified index using raw mac interface.
+ *
+ *	Returns a negative error number or the allocated index for this mac.
+ */
+int t4_alloc_raw_mac_filt(struct adapter *adap, unsigned int viid,
+			  const u8 *addr, const u8 *mask, unsigned int idx,
+			  u8 lookup_type, u8 port_id, bool sleep_ok)
+{
+	int ret = 0;
+	struct fw_vi_mac_cmd c;
+	struct fw_vi_mac_raw *p = &c.u.raw;
+	u32 val;
+
+	memset(&c, 0, sizeof(c));
+	c.op_to_viid = cpu_to_be32(V_FW_CMD_OP(FW_VI_MAC_CMD) |
+				   F_FW_CMD_REQUEST | F_FW_CMD_WRITE |
+				   V_FW_VI_MAC_CMD_VIID(viid));
+	val = V_FW_CMD_LEN16(1) |
+	      V_FW_VI_MAC_CMD_ENTRY_TYPE(FW_VI_MAC_TYPE_RAW);
+	c.freemacs_to_len16 = cpu_to_be32(val);
+
+	/* Specify that this is an inner mac address */
+	p->raw_idx_pkd = cpu_to_be32(V_FW_VI_MAC_CMD_RAW_IDX(idx));
+
+	/* Lookup Type. Outer header: 0, Inner header: 1 */
+	p->data0_pkd = cpu_to_be32(V_DATALKPTYPE(lookup_type) |
+				   V_DATAPORTNUM(port_id));
+	/* Lookup mask and port mask */
+	p->data0m_pkd = cpu_to_be64(V_DATALKPTYPE(M_DATALKPTYPE) |
+				    V_DATAPORTNUM(M_DATAPORTNUM));
+
+	/* Copy the address and the mask */
+	memcpy((u8 *)&p->data1[0] + 2, addr, ETHER_ADDR_LEN);
+	memcpy((u8 *)&p->data1m[0] + 2, mask, ETHER_ADDR_LEN);
+
+	ret = t4_wr_mbox_meat(adap, adap->mbox, &c, sizeof(c), &c, sleep_ok);
+	if (ret == 0) {
+		ret = G_FW_VI_MAC_CMD_RAW_IDX(be32_to_cpu(p->raw_idx_pkd));
+		if (ret != (int)idx)
+			ret = -ENOMEM;
+	}
+
+	return ret;
+}
+
+/**
+ *	t4_free_raw_mac_filt - Frees a raw mac entry in mps tcam
+ *	@adap: the adapter
+ *	@viid: the VI id
+ *	@addr: the MAC address
+ *	@mask: the mask
+ *	@idx: index of the entry in mps tcam
+ *	@lookup_type: MAC address for inner (1) or outer (0) header
+ *	@port_id: the port index
+ *	@sleep_ok: call is allowed to sleep
+ *
+ *	Removes the mac entry at the specified index using raw mac interface.
+ *
+ *	Returns a negative error number on failure.
+ */
+int t4_free_raw_mac_filt(struct adapter *adap, unsigned int viid,
+			 const u8 *addr, const u8 *mask, unsigned int idx,
+			 u8 lookup_type, u8 port_id, bool sleep_ok)
+{
+	struct fw_vi_mac_cmd c;
+	struct fw_vi_mac_raw *p = &c.u.raw;
+	u32 raw;
+
+	memset(&c, 0, sizeof(c));
+	c.op_to_viid = cpu_to_be32(V_FW_CMD_OP(FW_VI_MAC_CMD) |
+				   F_FW_CMD_REQUEST | F_FW_CMD_WRITE |
+				   V_FW_CMD_EXEC(0) |
+				   V_FW_VI_MAC_CMD_VIID(viid));
+	raw = V_FW_VI_MAC_CMD_ENTRY_TYPE(FW_VI_MAC_TYPE_RAW);
+	c.freemacs_to_len16 = cpu_to_be32(V_FW_VI_MAC_CMD_FREEMACS(0) |
+					  raw |
+					  V_FW_CMD_LEN16(1));
+
+	p->raw_idx_pkd = cpu_to_be32(V_FW_VI_MAC_CMD_RAW_IDX(idx) |
+				     FW_VI_MAC_ID_BASED_FREE);
+
+	/* Lookup Type. Outer header: 0, Inner header: 1 */
+	p->data0_pkd = cpu_to_be32(V_DATALKPTYPE(lookup_type) |
+				   V_DATAPORTNUM(port_id));
+	/* Lookup mask and port mask */
+	p->data0m_pkd = cpu_to_be64(V_DATALKPTYPE(M_DATALKPTYPE) |
+				    V_DATAPORTNUM(M_DATAPORTNUM));
+
+	/* Copy the address and the mask */
+	memcpy((u8 *)&p->data1[0] + 2, addr, ETHER_ADDR_LEN);
+	memcpy((u8 *)&p->data1m[0] + 2, mask, ETHER_ADDR_LEN);
+
+	return t4_wr_mbox_meat(adap, adap->mbox, &c, sizeof(c), &c, sleep_ok);
+}
+
+/**
  * t4_change_mac - modifies the exact-match filter for a MAC address
  * @adap: the adapter
  * @mbox: mailbox to use for the FW command
@@ -4488,6 +4634,31 @@ static void t4_handle_get_port_info(struct port_info *pi, const __be64 *rpl)
 			lc->autoneg = AUTONEG_DISABLE;
 		}
 	}
+}
+
+/**
+ * t4_ctrl_eq_free - free a control egress queue
+ * @adap: the adapter
+ * @mbox: mailbox to use for the FW command
+ * @pf: the PF owning the queue
+ * @vf: the VF owning the queue
+ * @eqid: egress queue id
+ *
+ * Frees a control egress queue.
+ */
+int t4_ctrl_eq_free(struct adapter *adap, unsigned int mbox, unsigned int pf,
+		    unsigned int vf, unsigned int eqid)
+{
+	struct fw_eq_ctrl_cmd c;
+
+	memset(&c, 0, sizeof(c));
+	c.op_to_vfn = cpu_to_be32(V_FW_CMD_OP(FW_EQ_CTRL_CMD) |
+				  F_FW_CMD_REQUEST | F_FW_CMD_EXEC |
+				  V_FW_EQ_CTRL_CMD_PFN(pf) |
+				  V_FW_EQ_CTRL_CMD_VFN(vf));
+	c.alloc_to_len16 = cpu_to_be32(F_FW_EQ_CTRL_CMD_FREE | FW_LEN16(c));
+	c.cmpliqid_eqid = cpu_to_be32(V_FW_EQ_CTRL_CMD_EQID(eqid));
+	return t4_wr_mbox(adap, mbox, &c, sizeof(c), NULL);
 }
 
 /**
@@ -5078,6 +5249,10 @@ int t4_init_tp_params(struct adapter *adap)
 	adap->params.tp.port_shift = t4_filter_field_shift(adap, F_PORT);
 	adap->params.tp.protocol_shift = t4_filter_field_shift(adap,
 							       F_PROTOCOL);
+	adap->params.tp.ethertype_shift = t4_filter_field_shift(adap,
+								F_ETHERTYPE);
+	adap->params.tp.macmatch_shift = t4_filter_field_shift(adap,
+							       F_MACMATCH);
 
 	/*
 	 * If TP_INGRESS_CONFIG.VNID == 0, then TP_VLAN_PRI_MAP.VNIC_ID
@@ -5085,6 +5260,11 @@ int t4_init_tp_params(struct adapter *adap)
 	 */
 	if ((adap->params.tp.ingress_config & F_VNIC) == 0)
 		adap->params.tp.vnic_shift = -1;
+
+	v = t4_read_reg(adap, LE_3_DB_HASH_MASK_GEN_IPV4_T6_A);
+	adap->params.tp.hash_filter_mask = v;
+	v = t4_read_reg(adap, LE_4_DB_HASH_MASK_GEN_IPV4_T6_A);
+	adap->params.tp.hash_filter_mask |= ((u64)v << 32);
 
 	return 0;
 }
@@ -5260,4 +5440,213 @@ int t4_port_init(struct adapter *adap, int mbox, int pf, int vf)
 		j++;
 	}
 	return 0;
+}
+
+/**
+ * t4_memory_rw_addr - read/write adapter memory via PCIE memory window
+ * @adap: the adapter
+ * @win: PCI-E Memory Window to use
+ * @addr: address within adapter memory
+ * @len: amount of memory to transfer
+ * @hbuf: host memory buffer
+ * @dir: direction of transfer T4_MEMORY_READ (1) or T4_MEMORY_WRITE (0)
+ *
+ * Reads/writes an [almost] arbitrary memory region in the firmware: the
+ * firmware memory address and host buffer must be aligned on 32-bit
+ * boudaries; the length may be arbitrary.
+ *
+ * NOTES:
+ *  1. The memory is transferred as a raw byte sequence from/to the
+ *     firmware's memory.  If this memory contains data structures which
+ *     contain multi-byte integers, it's the caller's responsibility to
+ *     perform appropriate byte order conversions.
+ *
+ *  2. It is the Caller's responsibility to ensure that no other code
+ *     uses the specified PCI-E Memory Window while this routine is
+ *     using it.  This is typically done via the use of OS-specific
+ *     locks, etc.
+ */
+int t4_memory_rw_addr(struct adapter *adap, int win, u32 addr,
+		      u32 len, void *hbuf, int dir)
+{
+	u32 pos, offset, resid;
+	u32 win_pf, mem_reg, mem_aperture, mem_base;
+	u32 *buf;
+
+	/* Argument sanity checks ...*/
+	if (addr & 0x3 || (uintptr_t)hbuf & 0x3)
+		return -EINVAL;
+	buf = (u32 *)hbuf;
+
+	/* It's convenient to be able to handle lengths which aren't a
+	 * multiple of 32-bits because we often end up transferring files to
+	 * the firmware.  So we'll handle that by normalizing the length here
+	 * and then handling any residual transfer at the end.
+	 */
+	resid = len & 0x3;
+	len -= resid;
+
+	/* Each PCI-E Memory Window is programmed with a window size -- or
+	 * "aperture" -- which controls the granularity of its mapping onto
+	 * adapter memory.  We need to grab that aperture in order to know
+	 * how to use the specified window.  The window is also programmed
+	 * with the base address of the Memory Window in BAR0's address
+	 * space.  For T4 this is an absolute PCI-E Bus Address.  For T5
+	 * the address is relative to BAR0.
+	 */
+	mem_reg = t4_read_reg(adap,
+			      PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_BASE_WIN,
+						  win));
+	mem_aperture = 1 << (G_WINDOW(mem_reg) + X_WINDOW_SHIFT);
+	mem_base = G_PCIEOFST(mem_reg) << X_PCIEOFST_SHIFT;
+
+	win_pf = is_t4(adap->params.chip) ? 0 : V_PFNUM(adap->pf);
+
+	/* Calculate our initial PCI-E Memory Window Position and Offset into
+	 * that Window.
+	 */
+	pos = addr & ~(mem_aperture - 1);
+	offset = addr - pos;
+
+	/* Set up initial PCI-E Memory Window to cover the start of our
+	 * transfer.  (Read it back to ensure that changes propagate before we
+	 * attempt to use the new value.)
+	 */
+	t4_write_reg(adap,
+		     PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_OFFSET, win),
+		     pos | win_pf);
+	t4_read_reg(adap,
+		    PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_OFFSET, win));
+
+	/* Transfer data to/from the adapter as long as there's an integral
+	 * number of 32-bit transfers to complete.
+	 *
+	 * A note on Endianness issues:
+	 *
+	 * The "register" reads and writes below from/to the PCI-E Memory
+	 * Window invoke the standard adapter Big-Endian to PCI-E Link
+	 * Little-Endian "swizzel."  As a result, if we have the following
+	 * data in adapter memory:
+	 *
+	 *     Memory:  ... | b0 | b1 | b2 | b3 | ...
+	 *     Address:      i+0  i+1  i+2  i+3
+	 *
+	 * Then a read of the adapter memory via the PCI-E Memory Window
+	 * will yield:
+	 *
+	 *     x = readl(i)
+	 *         31                  0
+	 *         [ b3 | b2 | b1 | b0 ]
+	 *
+	 * If this value is stored into local memory on a Little-Endian system
+	 * it will show up correctly in local memory as:
+	 *
+	 *     ( ..., b0, b1, b2, b3, ... )
+	 *
+	 * But on a Big-Endian system, the store will show up in memory
+	 * incorrectly swizzled as:
+	 *
+	 *     ( ..., b3, b2, b1, b0, ... )
+	 *
+	 * So we need to account for this in the reads and writes to the
+	 * PCI-E Memory Window below by undoing the register read/write
+	 * swizzels.
+	 */
+	while (len > 0) {
+		if (dir == T4_MEMORY_READ)
+			*buf++ = le32_to_cpu((__le32)t4_read_reg(adap,
+								 mem_base +
+								 offset));
+		else
+			t4_write_reg(adap, mem_base + offset,
+				     (u32)cpu_to_le32(*buf++));
+		offset += sizeof(__be32);
+		len -= sizeof(__be32);
+
+		/* If we've reached the end of our current window aperture,
+		 * move the PCI-E Memory Window on to the next.  Note that
+		 * doing this here after "len" may be 0 allows us to set up
+		 * the PCI-E Memory Window for a possible final residual
+		 * transfer below ...
+		 */
+		if (offset == mem_aperture) {
+			pos += mem_aperture;
+			offset = 0;
+			t4_write_reg(adap,
+				PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_OFFSET,
+						    win), pos | win_pf);
+			t4_read_reg(adap,
+				PCIE_MEM_ACCESS_REG(A_PCIE_MEM_ACCESS_OFFSET,
+						    win));
+		}
+	}
+
+	/* If the original transfer had a length which wasn't a multiple of
+	 * 32-bits, now's where we need to finish off the transfer of the
+	 * residual amount.  The PCI-E Memory Window has already been moved
+	 * above (if necessary) to cover this final transfer.
+	 */
+	if (resid) {
+		union {
+			u32 word;
+			char byte[4];
+		} last;
+		unsigned char *bp;
+		int i;
+
+		if (dir == T4_MEMORY_READ) {
+			last.word = le32_to_cpu((__le32)t4_read_reg(adap,
+								    mem_base +
+								    offset));
+			for (bp = (unsigned char *)buf, i = resid; i < 4; i++)
+				bp[i] = last.byte[i];
+		} else {
+			last.word = *buf;
+			for (i = resid; i < 4; i++)
+				last.byte[i] = 0;
+			t4_write_reg(adap, mem_base + offset,
+				     (u32)cpu_to_le32(last.word));
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * t4_memory_rw_mtype -read/write EDC 0, EDC 1 or MC via PCIE memory window
+ * @adap: the adapter
+ * @win: PCI-E Memory Window to use
+ * @mtype: memory type: MEM_EDC0, MEM_EDC1 or MEM_MC
+ * @maddr: address within indicated memory type
+ * @len: amount of memory to transfer
+ * @hbuf: host memory buffer
+ * @dir: direction of transfer T4_MEMORY_READ (1) or T4_MEMORY_WRITE (0)
+ *
+ * Reads/writes adapter memory using t4_memory_rw_addr().  This routine
+ * provides an (memory type, address within memory type) interface.
+ */
+int t4_memory_rw_mtype(struct adapter *adap, int win, int mtype, u32 maddr,
+		       u32 len, void *hbuf, int dir)
+{
+	u32 mtype_offset;
+	u32 edc_size, mc_size;
+
+	/* Offset into the region of memory which is being accessed
+	 * MEM_EDC0 = 0
+	 * MEM_EDC1 = 1
+	 * MEM_MC   = 2 -- MEM_MC for chips with only 1 memory controller
+	 * MEM_MC1  = 3 -- for chips with 2 memory controllers (e.g. T5)
+	 */
+	edc_size  = G_EDRAM0_SIZE(t4_read_reg(adap, A_MA_EDRAM0_BAR));
+	if (mtype != MEM_MC1) {
+		mtype_offset = (mtype * (edc_size * 1024 * 1024));
+	} else {
+		mc_size = G_EXT_MEM0_SIZE(t4_read_reg(adap,
+						      A_MA_EXT_MEMORY0_BAR));
+		mtype_offset = (MEM_MC0 * edc_size + mc_size) * 1024 * 1024;
+	}
+
+	return t4_memory_rw_addr(adap, win,
+				 mtype_offset + maddr, len,
+				 hbuf, dir);
 }

@@ -73,8 +73,6 @@ struct rte_rawdev_global {
 	uint16_t nb_devs;
 };
 
-extern struct rte_rawdev_global *rte_rawdev_globals;
-/** Pointer to global raw devices data structure. */
 extern struct rte_rawdev *rte_rawdevs;
 /** The pool of rte_rawdev structures. */
 
@@ -249,6 +247,24 @@ typedef int (*rawdev_queue_setup_t)(struct rte_rawdev *dev,
  */
 typedef int (*rawdev_queue_release_t)(struct rte_rawdev *dev,
 				      uint16_t queue_id);
+
+/**
+ * Get the count of number of queues configured on this device.
+ *
+ * Another way to fetch this information is to fetch the device configuration.
+ * But, that assumes that the device configuration managed by the driver has
+ * that kind of information.
+ *
+ * This function helps in getting queue count supported, independently. It
+ * can help in cases where iterator needs to be implemented.
+ *
+ * @param
+ *   Raw device pointer
+ * @return
+ *   Number of queues; 0 is assumed to be a valid response.
+ *
+ */
+typedef uint16_t (*rawdev_queue_count_t)(struct rte_rawdev *dev);
 
 /**
  * Enqueue an array of raw buffers to the device.
@@ -506,6 +522,8 @@ struct rte_rawdev_ops {
 	rawdev_queue_setup_t queue_setup;
 	/**< Release an raw queue. */
 	rawdev_queue_release_t queue_release;
+	/**< Get the number of queues attached to the device */
+	rawdev_queue_count_t queue_count;
 
 	/**< Enqueue an array of raw buffers to device. */
 	rawdev_enqueue_bufs_t enqueue_bufs;
@@ -556,7 +574,7 @@ struct rte_rawdev_ops {
  * @return
  *   - Slot in the rte_dev_devices array for a new device;
  */
-struct rte_rawdev * __rte_experimental
+struct rte_rawdev *
 rte_rawdev_pmd_allocate(const char *name, size_t dev_private_size,
 			int socket_id);
 
@@ -568,7 +586,7 @@ rte_rawdev_pmd_allocate(const char *name, size_t dev_private_size,
  * @return
  *   - 0 on success, negative on error
  */
-int __rte_experimental
+int
 rte_rawdev_pmd_release(struct rte_rawdev *rawdev);
 
 /**
@@ -585,7 +603,7 @@ rte_rawdev_pmd_release(struct rte_rawdev *rawdev);
  *   - Raw device pointer if device is successfully created.
  *   - NULL if device cannot be created.
  */
-struct rte_rawdev * __rte_experimental
+struct rte_rawdev *
 rte_rawdev_pmd_init(const char *name, size_t dev_private_size,
 		    int socket_id);
 
@@ -597,7 +615,7 @@ rte_rawdev_pmd_init(const char *name, size_t dev_private_size,
  * @return
  *   - 0 on success, negative on error
  */
-int __rte_experimental
+int
 rte_rawdev_pmd_uninit(const char *name);
 
 #ifdef __cplusplus

@@ -4,7 +4,10 @@
 include $(RTE_SDK)/mk/rte.vars.mk
 
 DIRS-y += librte_compat
+DIRS-$(CONFIG_RTE_LIBRTE_KVARGS) += librte_kvargs
+DEPDIRS-librte_kvargs := librte_compat
 DIRS-$(CONFIG_RTE_LIBRTE_EAL) += librte_eal
+DEPDIRS-librte_eal := librte_kvargs
 DIRS-$(CONFIG_RTE_LIBRTE_PCI) += librte_pci
 DEPDIRS-librte_pci := librte_eal
 DIRS-$(CONFIG_RTE_LIBRTE_RING) += librte_ring
@@ -22,6 +25,7 @@ DIRS-$(CONFIG_RTE_LIBRTE_ETHER) += librte_ethdev
 DEPDIRS-librte_ethdev := librte_net librte_eal librte_mempool librte_ring
 DEPDIRS-librte_ethdev += librte_mbuf
 DEPDIRS-librte_ethdev += librte_kvargs
+DEPDIRS-librte_ethdev += librte_cmdline
 DIRS-$(CONFIG_RTE_LIBRTE_BBDEV) += librte_bbdev
 DEPDIRS-librte_bbdev := librte_eal librte_mempool librte_mbuf
 DIRS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += librte_cryptodev
@@ -47,7 +51,7 @@ DEPDIRS-librte_hash := librte_eal librte_ring
 DIRS-$(CONFIG_RTE_LIBRTE_EFD) += librte_efd
 DEPDIRS-librte_efd := librte_eal librte_ring librte_hash
 DIRS-$(CONFIG_RTE_LIBRTE_LPM) += librte_lpm
-DEPDIRS-librte_lpm := librte_eal
+DEPDIRS-librte_lpm := librte_eal librte_hash
 DIRS-$(CONFIG_RTE_LIBRTE_ACL) += librte_acl
 DEPDIRS-librte_acl := librte_eal
 DIRS-$(CONFIG_RTE_LIBRTE_MEMBER) += librte_member
@@ -68,7 +72,7 @@ DEPDIRS-librte_bitratestats := librte_eal librte_metrics librte_ethdev
 DIRS-$(CONFIG_RTE_LIBRTE_LATENCY_STATS) += librte_latencystats
 DEPDIRS-librte_latencystats := librte_eal librte_metrics librte_ethdev librte_mbuf
 DIRS-$(CONFIG_RTE_LIBRTE_POWER) += librte_power
-DEPDIRS-librte_power := librte_eal
+DEPDIRS-librte_power := librte_eal librte_timer
 DIRS-$(CONFIG_RTE_LIBRTE_METER) += librte_meter
 DEPDIRS-librte_meter := librte_eal
 DIRS-$(CONFIG_RTE_LIBRTE_FLOW_CLASSIFY) += librte_flow_classify
@@ -76,8 +80,6 @@ DEPDIRS-librte_flow_classify :=  librte_net librte_table librte_acl
 DIRS-$(CONFIG_RTE_LIBRTE_SCHED) += librte_sched
 DEPDIRS-librte_sched := librte_eal librte_mempool librte_mbuf librte_net
 DEPDIRS-librte_sched += librte_timer
-DIRS-$(CONFIG_RTE_LIBRTE_KVARGS) += librte_kvargs
-DEPDIRS-librte_kvargs := librte_eal
 DIRS-$(CONFIG_RTE_LIBRTE_DISTRIBUTOR) += librte_distributor
 DEPDIRS-librte_distributor := librte_eal librte_mbuf librte_ethdev
 DIRS-$(CONFIG_RTE_LIBRTE_PORT) += librte_port
@@ -104,6 +106,8 @@ DEPDIRS-librte_gso := librte_eal librte_mbuf librte_ethdev librte_net
 DEPDIRS-librte_gso += librte_mempool
 DIRS-$(CONFIG_RTE_LIBRTE_BPF) += librte_bpf
 DEPDIRS-librte_bpf := librte_eal librte_mempool librte_mbuf librte_ethdev
+DIRS-$(CONFIG_RTE_LIBRTE_TELEMETRY) += librte_telemetry
+DEPDIRS-librte_telemetry := librte_eal librte_metrics librte_ethdev
 
 ifeq ($(CONFIG_RTE_EXEC_ENV_LINUXAPP),y)
 DIRS-$(CONFIG_RTE_LIBRTE_KNI) += librte_kni

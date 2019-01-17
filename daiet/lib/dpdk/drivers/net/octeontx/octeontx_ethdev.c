@@ -46,9 +46,7 @@ int otx_net_logtype_mbox;
 int otx_net_logtype_init;
 int otx_net_logtype_driver;
 
-RTE_INIT(otx_net_init_log);
-static void
-otx_net_init_log(void)
+RTE_INIT(otx_net_init_log)
 {
 	otx_net_logtype_mbox = rte_log_register("pmd.net.octeontx.mbox");
 	if (otx_net_logtype_mbox >= 0)
@@ -281,11 +279,6 @@ octeontx_dev_configure(struct rte_eth_dev *dev)
 		rxmode->mq_mode != ETH_MQ_RX_RSS) {
 		octeontx_log_err("unsupported rx qmode %d", rxmode->mq_mode);
 		return -EINVAL;
-	}
-
-	if (!(rxmode->offloads & DEV_RX_OFFLOAD_CRC_STRIP)) {
-		PMD_INIT_LOG(NOTICE, "can't disable hw crc strip");
-		rxmode->offloads |= DEV_RX_OFFLOAD_CRC_STRIP;
 	}
 
 	if (!(txmode->offloads & DEV_TX_OFFLOAD_MT_LOCKFREE)) {
@@ -851,10 +844,11 @@ octeontx_dev_rx_queue_setup(struct rte_eth_dev *dev, uint16_t qidx,
 		pktbuf_conf.mmask.f_cache_mode = 1;
 
 		pktbuf_conf.wqe_skip = OCTTX_PACKET_WQE_SKIP;
-		pktbuf_conf.first_skip = OCTTX_PACKET_FIRST_SKIP;
+		pktbuf_conf.first_skip = OCTTX_PACKET_FIRST_SKIP(mb_pool);
 		pktbuf_conf.later_skip = OCTTX_PACKET_LATER_SKIP;
 		pktbuf_conf.mbuff_size = (mb_pool->elt_size -
 					RTE_PKTMBUF_HEADROOM -
+					rte_pktmbuf_priv_size(mb_pool) -
 					sizeof(struct rte_mbuf));
 
 		pktbuf_conf.cache_mode = PKI_OPC_MODE_STF2_STT;
@@ -1022,12 +1016,22 @@ octeontx_create(struct rte_vdev_device *dev, int port, uint8_t evdev,
 		return 0;
 	}
 
+	/* Reserve an ethdev entry */
+	eth_dev = rte_eth_dev_allocate(octtx_name);
+	if (eth_dev == NULL) {
+		octeontx_log_err("failed to allocate rte_eth_dev");
+		res = -ENOMEM;
+		goto err;
+	}
+	data = eth_dev->data;
+
 	nic = rte_zmalloc_socket(octtx_name, sizeof(*nic), 0, socket_id);
 	if (nic == NULL) {
 		octeontx_log_err("failed to allocate nic structure");
 		res = -ENOMEM;
 		goto err;
 	}
+	data->dev_private = nic;
 
 	nic->port_id = port;
 	nic->evdev = evdev;
@@ -1044,21 +1048,11 @@ octeontx_create(struct rte_vdev_device *dev, int port, uint8_t evdev,
 		goto err;
 	}
 
-	/* Reserve an ethdev entry */
-	eth_dev = rte_eth_dev_allocate(octtx_name);
-	if (eth_dev == NULL) {
-		octeontx_log_err("failed to allocate rte_eth_dev");
-		res = -ENOMEM;
-		goto err;
-	}
-
 	eth_dev->device = &dev->device;
 	eth_dev->intr_handle = NULL;
 	eth_dev->data->kdrv = RTE_KDRV_NONE;
 	eth_dev->data->numa_node = dev->device.numa_node;
 
-	data = eth_dev->data;
-	data->dev_private = nic;
 	data->port_id = eth_dev->data->port_id;
 
 	nic->ev_queues = 1;
@@ -1110,12 +1104,7 @@ err:
 	if (nic)
 		octeontx_port_close(nic);
 
-	if (eth_dev != NULL) {
-		rte_free(eth_dev->data->mac_addrs);
-		rte_free(data);
-		rte_free(nic);
-		rte_eth_dev_release_port(eth_dev);
-	}
+	rte_eth_dev_release_port(eth_dev);
 
 	return res;
 }
@@ -1140,15 +1129,21 @@ octeontx_remove(struct rte_vdev_device *dev)
 		if (eth_dev == NULL)
 			return -ENODEV;
 
+		if (rte_eal_process_type() != RTE_PROC_PRIMARY) {
+			rte_eth_dev_release_port(eth_dev);
+			continue;
+		}
+
 		nic = octeontx_pmd_priv(eth_dev);
 		rte_event_dev_stop(nic->evdev);
 		PMD_INIT_LOG(INFO, "Closing octeontx device %s", octtx_name);
 
-		rte_free(eth_dev->data->mac_addrs);
-		rte_free(eth_dev->data->dev_private);
 		rte_eth_dev_release_port(eth_dev);
 		rte_event_dev_close(nic->evdev);
 	}
+
+	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
+		return 0;
 
 	/* Free FC resource */
 	octeontx_pko_fc_free();
@@ -1243,15 +1238,8 @@ octeontx_probe(struct rte_vdev_device *dev)
 		res = -EINVAL;
 		goto parse_error;
 	}
-	if (pnum > qnum) {
-		/*
-		 * We don't poll on event ports
-		 * that do not have any queues assigned.
-		 */
-		pnum = qnum;
-		PMD_INIT_LOG(INFO,
-			"reducing number of active event ports to %d", pnum);
-	}
+
+	/* Enable all queues available */
 	for (i = 0; i < qnum; i++) {
 		res = rte_event_queue_setup(evdev, i, NULL);
 		if (res < 0) {
@@ -1261,6 +1249,7 @@ octeontx_probe(struct rte_vdev_device *dev)
 		}
 	}
 
+	/* Enable all ports available */
 	for (i = 0; i < pnum; i++) {
 		res = rte_event_port_setup(evdev, i, NULL);
 		if (res < 0) {
@@ -1269,6 +1258,14 @@ octeontx_probe(struct rte_vdev_device *dev)
 						i, res);
 			goto parse_error;
 		}
+	}
+
+	/*
+	 * Do 1:1 links for ports & queues. All queues would be mapped to
+	 * one port. If there are more ports than queues, then some ports
+	 * won't be linked to any queue.
+	 */
+	for (i = 0; i < qnum; i++) {
 		/* Link one queue to one event port */
 		qlist = i;
 		res = rte_event_port_link(evdev, i, &qlist, NULL, 1);

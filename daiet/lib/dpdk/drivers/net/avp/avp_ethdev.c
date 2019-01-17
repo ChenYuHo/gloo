@@ -383,7 +383,7 @@ avp_dev_translate_address(struct rte_eth_dev *eth_dev,
 			(host_phys_addr < (map->phys_addr + map->length))) {
 			/* address is within this segment */
 			offset += (host_phys_addr - map->phys_addr);
-			addr = RTE_PTR_ADD(addr, offset);
+			addr = RTE_PTR_ADD(addr, (uintptr_t)offset);
 
 			PMD_DRV_LOG(DEBUG, "Translating host physical 0x%" PRIx64 " to guest virtual 0x%p\n",
 				    host_phys_addr, addr);
@@ -1034,11 +1034,6 @@ eth_avp_dev_uninit(struct rte_eth_dev *eth_dev)
 	if (ret != 0) {
 		PMD_DRV_LOG(ERR, "Failed to disable interrupts, ret=%d\n", ret);
 		return ret;
-	}
-
-	if (eth_dev->data->mac_addrs != NULL) {
-		rte_free(eth_dev->data->mac_addrs);
-		eth_dev->data->mac_addrs = NULL;
 	}
 
 	return 0;
@@ -2270,9 +2265,7 @@ avp_dev_stats_reset(struct rte_eth_dev *eth_dev)
 RTE_PMD_REGISTER_PCI(net_avp, rte_avp_pmd);
 RTE_PMD_REGISTER_PCI_TABLE(net_avp, pci_id_avp_map);
 
-RTE_INIT(avp_init_log);
-static void
-avp_init_log(void)
+RTE_INIT(avp_init_log)
 {
 	avp_logtype_driver = rte_log_register("pmd.net.avp.driver");
 	if (avp_logtype_driver >= 0)

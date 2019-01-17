@@ -175,7 +175,7 @@ scheduler_config_qp(struct rte_cryptodev *dev, uint16_t qp_id)
 	rr_qp_ctx = rte_zmalloc_socket(NULL, sizeof(*rr_qp_ctx), 0,
 			rte_socket_id());
 	if (!rr_qp_ctx) {
-		CS_LOG_ERR("failed allocate memory for private queue pair");
+		CR_SCHED_LOG(ERR, "failed allocate memory for private queue pair");
 		return -ENOMEM;
 	}
 
@@ -190,7 +190,7 @@ scheduler_create_private_ctx(__rte_unused struct rte_cryptodev *dev)
 	return 0;
 }
 
-struct rte_cryptodev_scheduler_ops scheduler_rr_ops = {
+static struct rte_cryptodev_scheduler_ops scheduler_rr_ops = {
 	slave_attach,
 	slave_detach,
 	scheduler_start,
@@ -201,7 +201,7 @@ struct rte_cryptodev_scheduler_ops scheduler_rr_ops = {
 	NULL	/* option_get */
 };
 
-struct rte_cryptodev_scheduler scheduler = {
+static struct rte_cryptodev_scheduler scheduler = {
 		.name = "roundrobin-scheduler",
 		.description = "scheduler which will round robin burst across "
 				"slave crypto devices",
@@ -209,4 +209,4 @@ struct rte_cryptodev_scheduler scheduler = {
 		.ops = &scheduler_rr_ops
 };
 
-struct rte_cryptodev_scheduler *roundrobin_scheduler = &scheduler;
+struct rte_cryptodev_scheduler *crypto_scheduler_roundrobin = &scheduler;

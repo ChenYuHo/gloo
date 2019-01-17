@@ -102,25 +102,6 @@ static inline void bnxt_reuse_rx_mbuf(struct bnxt_rx_ring_info *rxr,
 	rxr->rx_prod = prod;
 }
 
-#ifdef BNXT_DEBUG
-static void bnxt_reuse_ag_mbuf(struct bnxt_rx_ring_info *rxr, uint16_t cons,
-			       struct rte_mbuf *mbuf)
-{
-	uint16_t prod = rxr->ag_prod;
-	struct bnxt_sw_rx_bd *prod_rx_buf;
-	struct rx_prod_pkt_bd *prod_bd, *cons_bd;
-
-	prod_rx_buf = &rxr->ag_buf_ring[prod];
-
-	prod_rx_buf->mbuf = mbuf;
-
-	prod_bd = &rxr->ag_desc_ring[prod];
-	cons_bd = &rxr->ag_desc_ring[cons];
-
-	prod_bd->address = cons_bd->addr;
-}
-#endif
-
 static inline
 struct rte_mbuf *bnxt_consume_rx_buf(struct bnxt_rx_ring_info *rxr,
 				     uint16_t cons)
@@ -377,9 +358,6 @@ static int bnxt_rx_pkt(struct rte_mbuf **rx_pkt,
 	uint32_t tmp_raw_cons = *raw_cons;
 	uint16_t cons, prod, cp_cons =
 	    RING_CMP(cpr->cp_ring_struct, tmp_raw_cons);
-#ifdef BNXT_DEBUG
-	uint16_t ag_cons;
-#endif
 	struct rte_mbuf *mbuf;
 	int rc = 0;
 	uint8_t agg_buf = 0;
@@ -482,8 +460,6 @@ static int bnxt_rx_pkt(struct rte_mbuf **rx_pkt,
 	if (rxcmp1->errors_v2 & RX_CMP_L2_ERRORS) {
 		/* Re-install the mbuf back to the rx ring */
 		bnxt_reuse_rx_mbuf(rxr, cons, mbuf);
-		if (agg_buf)
-			bnxt_reuse_ag_mbuf(rxr, ag_cons, mbuf);
 
 		rc = -EIO;
 		goto next_rx;
@@ -540,8 +516,10 @@ uint16_t bnxt_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 	int rc = 0;
 	bool evt = false;
 
-	/* If Rx Q was stopped return */
-	if (rxq->rx_deferred_start)
+	/* If Rx Q was stopped return. RxQ0 cannot be stopped. */
+	if (unlikely(((rxq->rx_deferred_start ||
+		       !rte_spinlock_trylock(&rxq->lock)) &&
+		      rxq->queue_id)))
 		return 0;
 
 	/* Handle RX burst request */
@@ -572,24 +550,28 @@ uint16_t bnxt_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 		raw_cons = NEXT_RAW_CMP(raw_cons);
 		if (nb_rx_pkts == nb_pkts || evt)
 			break;
+		/* Post some Rx buf early in case of larger burst processing */
+		if (nb_rx_pkts == BNXT_RX_POST_THRESH)
+			B_RX_DB(rxr->rx_doorbell, rxr->rx_prod);
 	}
 
 	cpr->cp_raw_cons = raw_cons;
-	if ((prod == rxr->rx_prod && ag_prod == rxr->ag_prod) && !evt) {
+	if (!nb_rx_pkts && !evt) {
 		/*
 		 * For PMD, there is no need to keep on pushing to REARM
 		 * the doorbell if there are no new completions
 		 */
-		return nb_rx_pkts;
+		goto done;
 	}
 
-	B_CP_DIS_DB(cpr, cpr->cp_raw_cons);
 	if (prod != rxr->rx_prod)
 		B_RX_DB(rxr->rx_doorbell, rxr->rx_prod);
 
 	/* Ring the AGG ring DB */
 	if (ag_prod != rxr->ag_prod)
 		B_RX_DB(rxr->ag_doorbell, rxr->ag_prod);
+
+	B_CP_DIS_DB(cpr, cpr->cp_raw_cons);
 
 	/* Attempt to alloc Rx buf in case of a previous allocation failure. */
 	if (rc == -ENOMEM) {
@@ -614,16 +596,22 @@ uint16_t bnxt_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 		}
 	}
 
+done:
+	rte_spinlock_unlock(&rxq->lock);
+
 	return nb_rx_pkts;
 }
 
 void bnxt_free_rx_rings(struct bnxt *bp)
 {
 	int i;
+	struct bnxt_rx_queue *rxq;
+
+	if (!bp->rx_queues)
+		return;
 
 	for (i = 0; i < (int)bp->rx_nr_rings; i++) {
-		struct bnxt_rx_queue *rxq = bp->rx_queues[i];
-
+		rxq = bp->rx_queues[i];
 		if (!rxq)
 			continue;
 

@@ -78,7 +78,7 @@ could be done by:
 .. code-block:: console
 
    modprobe uio_pci_generic
-   $RTE_SDK/usertools/dpdk-devbind.py -b=uio_pci_generic 0000:00:04.0
+   $RTE_SDK/usertools/dpdk-devbind.py -b uio_pci_generic 0000:00:04.0
 
 Then start testpmd for packet forwarding testing.
 
@@ -158,6 +158,10 @@ when disabling VLAN strip. Such feature, which heavily depends on hardware,
 should be removed from this example to reduce confusion. Now, VLAN strip is
 enabled and cannot be disabled.
 
+**--builtin-net-driver**
+A very simple vhost-user net driver which demonstrates how to use the generic
+vhost APIs will be used when this option is given. It is disabled by default.
+
 Common Issues
 -------------
 
@@ -192,3 +196,8 @@ Common Issues
   according to the NIC's property. ::
 
       make EXTRA_CFLAGS="-DMAX_QUEUES=320"
+
+* Option "builtin-net-driver" is incompatible with QEMU
+
+  QEMU vhost net device start will fail if protocol feature is not negotiated.
+  DPDK virtio-user pmd can be the replacement of QEMU.

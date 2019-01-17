@@ -8,11 +8,13 @@ common_objs = []
 common_sources = files(
 	'eal_common_bus.c',
 	'eal_common_cpuflags.c',
+	'eal_common_class.c',
 	'eal_common_devargs.c',
 	'eal_common_dev.c',
 	'eal_common_errno.c',
 	'eal_common_fbarray.c',
 	'eal_common_hexdump.c',
+	'eal_common_hypervisor.c',
 	'eal_common_launch.c',
 	'eal_common_lcore.c',
 	'eal_common_log.c',
@@ -25,11 +27,14 @@ common_sources = files(
 	'eal_common_tailqs.c',
 	'eal_common_thread.c',
 	'eal_common_timer.c',
+	'eal_common_uuid.c',
+	'hotplug_mp.c',
 	'malloc_elem.c',
 	'malloc_heap.c',
 	'malloc_mp.c',
 	'rte_keepalive.c',
 	'rte_malloc.c',
+	'rte_option.c',
 	'rte_reciprocal.c',
 	'rte_service.c'
 )
@@ -46,6 +51,7 @@ common_headers = files(
 	'include/rte_branch_prediction.h',
 	'include/rte_bus.h',
 	'include/rte_bitmap.h',
+	'include/rte_class.h',
 	'include/rte_common.h',
 	'include/rte_debug.h',
 	'include/rte_devargs.h',
@@ -56,6 +62,7 @@ common_headers = files(
 	'include/rte_errno.h',
 	'include/rte_fbarray.h',
 	'include/rte_hexdump.h',
+	'include/rte_hypervisor.h',
 	'include/rte_interrupts.h',
 	'include/rte_keepalive.h',
 	'include/rte_launch.h',
@@ -65,6 +72,7 @@ common_headers = files(
 	'include/rte_malloc_heap.h',
 	'include/rte_memory.h',
 	'include/rte_memzone.h',
+	'include/rte_option.h',
 	'include/rte_pci_dev_feature_defs.h',
 	'include/rte_pci_dev_features.h',
 	'include/rte_per_lcore.h',
@@ -75,6 +83,7 @@ common_headers = files(
 	'include/rte_string_fns.h',
 	'include/rte_tailq.h',
 	'include/rte_time.h',
+	'include/rte_uuid.h',
 	'include/rte_version.h')
 
 # special case install the generic headers, since they go in a subdir

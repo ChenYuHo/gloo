@@ -123,14 +123,22 @@ static struct rte_mbuf *
 sfc_ef10_essb_next_mbuf(const struct sfc_ef10_essb_rxq *rxq,
 			struct rte_mbuf *mbuf)
 {
-	return (struct rte_mbuf *)((uintptr_t)mbuf + rxq->buf_stride);
+	struct rte_mbuf *m;
+
+	m = (struct rte_mbuf *)((uintptr_t)mbuf + rxq->buf_stride);
+	MBUF_RAW_ALLOC_CHECK(m);
+	return m;
 }
 
 static struct rte_mbuf *
 sfc_ef10_essb_mbuf_by_index(const struct sfc_ef10_essb_rxq *rxq,
 			    struct rte_mbuf *mbuf, unsigned int idx)
 {
-	return (struct rte_mbuf *)((uintptr_t)mbuf + idx * rxq->buf_stride);
+	struct rte_mbuf *m;
+
+	m = (struct rte_mbuf *)((uintptr_t)mbuf + idx * rxq->buf_stride);
+	MBUF_RAW_ALLOC_CHECK(m);
+	return m;
 }
 
 static struct rte_mbuf *
@@ -324,7 +332,7 @@ sfc_ef10_essb_rx_get_pending(struct sfc_ef10_essb_rxq *rxq,
 
 			/* Buffers to be discarded have 0 in packet type */
 			if (unlikely(m->packet_type == 0)) {
-				rte_mempool_put(rxq->refill_mb_pool, m);
+				rte_mbuf_raw_free(m);
 				goto next_buf;
 			}
 
@@ -411,21 +419,45 @@ sfc_ef10_essb_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 
 static sfc_dp_rx_qdesc_npending_t sfc_ef10_essb_rx_qdesc_npending;
 static unsigned int
-sfc_ef10_essb_rx_qdesc_npending(__rte_unused struct sfc_dp_rxq *dp_rxq)
+sfc_ef10_essb_rx_qdesc_npending(struct sfc_dp_rxq *dp_rxq)
 {
-	/*
-	 * Correct implementation requires EvQ polling and events
-	 * processing.
-	 */
-	return -ENOTSUP;
+	struct sfc_ef10_essb_rxq *rxq = sfc_ef10_essb_rxq_by_dp_rxq(dp_rxq);
+	const unsigned int evq_old_read_ptr = rxq->evq_read_ptr;
+	efx_qword_t rx_ev;
+
+	if (unlikely(rxq->flags & (SFC_EF10_ESSB_RXQ_NOT_RUNNING |
+				   SFC_EF10_ESSB_RXQ_EXCEPTION)))
+		return rxq->bufs_pending;
+
+	while (sfc_ef10_essb_rx_event_get(rxq, &rx_ev)) {
+		/*
+		 * DROP_EVENT is an internal to the NIC, software should
+		 * never see it and, therefore, may ignore it.
+		 */
+		sfc_ef10_essb_rx_process_ev(rxq, rx_ev);
+	}
+
+	sfc_ef10_ev_qclear(rxq->evq_hw_ring, rxq->evq_ptr_mask,
+			   evq_old_read_ptr, rxq->evq_read_ptr);
+
+	return rxq->bufs_pending;
 }
 
 static sfc_dp_rx_qdesc_status_t sfc_ef10_essb_rx_qdesc_status;
 static int
-sfc_ef10_essb_rx_qdesc_status(__rte_unused struct sfc_dp_rxq *dp_rxq,
-			      __rte_unused uint16_t offset)
+sfc_ef10_essb_rx_qdesc_status(struct sfc_dp_rxq *dp_rxq, uint16_t offset)
 {
-	return -ENOTSUP;
+	struct sfc_ef10_essb_rxq *rxq = sfc_ef10_essb_rxq_by_dp_rxq(dp_rxq);
+	unsigned int pending = sfc_ef10_essb_rx_qdesc_npending(dp_rxq);
+
+	if (offset < pending)
+		return RTE_ETH_RX_DESC_DONE;
+
+	if (offset < (rxq->added - rxq->completed) * rxq->block_size +
+		     rxq->left_in_completed - rxq->block_size)
+		return RTE_ETH_RX_DESC_AVAIL;
+
+	return RTE_ETH_RX_DESC_UNAVAIL;
 }
 
 static sfc_dp_rx_get_dev_info_t sfc_ef10_essb_rx_get_dev_info;
@@ -663,7 +695,7 @@ sfc_ef10_essb_rx_qpurge(struct sfc_dp_rxq *dp_rxq)
 		m = sfc_ef10_essb_mbuf_by_index(rxq, rxd->first_mbuf,
 				rxq->block_size - rxq->left_in_completed);
 		while (rxq->left_in_completed > 0) {
-			rte_mempool_put(rxq->refill_mb_pool, m);
+			rte_mbuf_raw_free(m);
 			m = sfc_ef10_essb_next_mbuf(rxq, m);
 			rxq->left_in_completed--;
 		}
@@ -681,7 +713,8 @@ struct sfc_dp_rx sfc_ef10_essb_rx = {
 				  SFC_DP_HW_FW_CAP_RX_ES_SUPER_BUFFER,
 	},
 	.features		= SFC_DP_RX_FEAT_FLOW_FLAG |
-				  SFC_DP_RX_FEAT_FLOW_MARK,
+				  SFC_DP_RX_FEAT_FLOW_MARK |
+				  SFC_DP_RX_FEAT_CHECKSUM,
 	.get_dev_info		= sfc_ef10_essb_rx_get_dev_info,
 	.pool_ops_supported	= sfc_ef10_essb_rx_pool_ops_supported,
 	.qsize_up_rings		= sfc_ef10_essb_rx_qsize_up_rings,

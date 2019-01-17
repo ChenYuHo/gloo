@@ -666,10 +666,8 @@ rte_pmd_ring_remove(struct rte_vdev_device *dev)
 		}
 	}
 
-	rte_free(eth_dev->data->rx_queues);
-	rte_free(eth_dev->data->tx_queues);
-	rte_free(eth_dev->data->dev_private);
-
+	/* mac_addrs must not be freed alone because part of dev_private */
+	eth_dev->data->mac_addrs = NULL;
 	rte_eth_dev_release_port(eth_dev);
 	return 0;
 }
@@ -684,9 +682,7 @@ RTE_PMD_REGISTER_ALIAS(net_ring, eth_ring);
 RTE_PMD_REGISTER_PARAM_STRING(net_ring,
 	ETH_RING_NUMA_NODE_ACTION_ARG "=name:node:action(ATTACH|CREATE)");
 
-RTE_INIT(eth_ring_init_log);
-static void
-eth_ring_init_log(void)
+RTE_INIT(eth_ring_init_log)
 {
 	eth_ring_logtype = rte_log_register("pmd.net.ring");
 	if (eth_ring_logtype >= 0)

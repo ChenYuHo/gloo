@@ -4,6 +4,7 @@
 # override default name to drop the hyphen
 name = 'testpmd'
 allow_experimental_apis = true
+cflags += '-Wno-deprecated-declarations'
 sources = files('cmdline.c',
 	'cmdline_flow.c',
 	'cmdline_mtr.c',
@@ -16,14 +17,19 @@ sources = files('cmdline.c',
 	'iofwd.c',
 	'macfwd.c',
 	'macswap.c',
+	'noisy_vnf.c',
 	'parameters.c',
 	'rxonly.c',
 	'testpmd.c',
-	'txonly.c')
+	'txonly.c',
+	'util.c')
 
-deps = ['ethdev', 'gro', 'gso', 'cmdline', 'metrics', 'meter', 'bus_pci']
+deps += ['ethdev', 'gro', 'gso', 'cmdline', 'metrics', 'meter', 'bus_pci']
 if dpdk_conf.has('RTE_LIBRTE_PDUMP')
 	deps += 'pdump'
+endif
+if dpdk_conf.has('RTE_LIBRTE_BNXT_PMD')
+	deps += 'pmd_bnxt'
 endif
 if dpdk_conf.has('RTE_LIBRTE_I40E_PMD')
 	deps += 'pmd_i40e'
@@ -32,7 +38,7 @@ if dpdk_conf.has('RTE_LIBRTE_IXGBE_PMD')
 	deps += 'pmd_ixgbe'
 endif
 if dpdk_conf.has('RTE_LIBRTE_SOFTNIC_PMD')
-	sources += files('tm.c')
+	sources += files('softnicfwd.c')
 	deps += 'pmd_softnic'
 endif
 if dpdk_conf.has('RTE_LIBRTE_DPAA_PMD')

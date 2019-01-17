@@ -338,7 +338,7 @@ i40e_vsi_set_tx_loopback(struct i40e_vsi *vsi, uint8_t on)
 	hw = I40E_VSI_TO_HW(vsi);
 
 	/* Use the FW API if FW >= v5.0 */
-	if (hw->aq.fw_maj_ver < 5) {
+	if (hw->aq.fw_maj_ver < 5 && hw->mac.type != I40E_MAC_X722) {
 		PMD_INIT_LOG(ERR, "FW < v5.0, cannot enable loopback");
 		return -ENOTSUP;
 	}
@@ -3163,8 +3163,6 @@ rte_pmd_i40e_inset_set(uint16_t port, uint8_t pctype,
 			i40e_check_write_global_reg(hw,
 						  I40E_GLQF_HASH_MSK(i, pctype),
 						  mask_reg[i]);
-		i40e_global_cfg_warning(I40E_WARNING_HASH_INSET);
-		i40e_global_cfg_warning(I40E_WARNING_HASH_MSK);
 		break;
 	case INSET_FDIR:
 		i40e_check_write_reg(hw, I40E_PRTQF_FD_INSET(pctype, 0),
@@ -3176,7 +3174,6 @@ rte_pmd_i40e_inset_set(uint16_t port, uint8_t pctype,
 			i40e_check_write_global_reg(hw,
 						    I40E_GLQF_FD_MSK(i, pctype),
 						    mask_reg[i]);
-		i40e_global_cfg_warning(I40E_WARNING_FD_MSK);
 		break;
 	case INSET_FDIR_FLX:
 		i40e_check_write_reg(hw, I40E_PRTQF_FD_FLXINSET(pctype),

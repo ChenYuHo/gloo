@@ -8,6 +8,7 @@
 
 #include <rte_bus.h>
 #include <rte_mempool.h>
+#include <dpaax_iova_table.h>
 
 #include <fsl_usd.h>
 #include <fsl_qman.h>
@@ -110,6 +111,11 @@ extern struct dpaa_memseg_list rte_dpaa_memsegs;
 static inline void *rte_dpaa_mem_ptov(phys_addr_t paddr)
 {
 	struct dpaa_memseg *ms;
+	void *va;
+
+	va = dpaax_iova_table_get_va(paddr);
+	if (likely(va != NULL))
+		return va;
 
 	/* Check if the address is already part of the memseg list internally
 	 * maintained by the dpaa driver.
@@ -164,8 +170,7 @@ void dpaa_portal_finish(void *arg);
 
 /** Helper for DPAA device registration from driver (eth, crypto) instance */
 #define RTE_PMD_REGISTER_DPAA(nm, dpaa_drv) \
-RTE_INIT(dpaainitfn_ ##nm); \
-static void dpaainitfn_ ##nm(void) \
+RTE_INIT(dpaainitfn_ ##nm) \
 {\
 	(dpaa_drv).driver.name = RTE_STR(nm);\
 	rte_dpaa_driver_register(&dpaa_drv); \

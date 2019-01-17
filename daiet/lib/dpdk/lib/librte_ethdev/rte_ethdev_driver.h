@@ -58,10 +58,17 @@ struct rte_eth_dev *rte_eth_dev_attach_secondary(const char *name);
 
 /**
  * @internal
- * Release the specified ethdev port.
+ * Notify RTE_ETH_EVENT_DESTROY and release the specified ethdev port.
+ *
+ * The following PMD-managed data fields will be freed:
+ *   - dev_private
+ *   - mac_addrs
+ *   - hash_mac_addrs
+ * If one of these fields should not be freed,
+ * it must be reset to NULL by the PMD, typically in dev_close method.
  *
  * @param eth_dev
- * The *eth_dev* pointer is the address of the *rte_eth_dev* structure.
+ * Device to be detached.
  * @return
  *   - 0 on success, negative on error
  */

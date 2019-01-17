@@ -48,6 +48,12 @@ struct dummy_vect8 {
 #define TEST_JCC_3	5678
 #define TEST_JCC_4	TEST_FILL_1
 
+#define TEST_IMM_1	UINT64_MAX
+#define TEST_IMM_2	((uint64_t)INT64_MIN)
+#define TEST_IMM_3	((uint64_t)INT64_MAX + INT32_MAX)
+#define TEST_IMM_4	((uint64_t)UINT32_MAX)
+#define TEST_IMM_5	((uint64_t)UINT32_MAX + 1)
+
 struct bpf_test {
 	const char *name;
 	size_t arg_sz;
@@ -267,6 +273,94 @@ test_load1_check(uint64_t rc, const void *arg)
 
 	return cmp_res(__func__, v, rc, dft, dft, sizeof(*dft));
 }
+
+/* load immediate test-cases */
+static const struct ebpf_insn test_ldimm1_prog[] = {
+
+	{
+		.code = (BPF_LD | BPF_IMM | EBPF_DW),
+		.dst_reg = EBPF_REG_0,
+		.imm = (uint32_t)TEST_IMM_1,
+	},
+	{
+		.imm = TEST_IMM_1 >> 32,
+	},
+	{
+		.code = (BPF_LD | BPF_IMM | EBPF_DW),
+		.dst_reg = EBPF_REG_3,
+		.imm = (uint32_t)TEST_IMM_2,
+	},
+	{
+		.imm = TEST_IMM_2 >> 32,
+	},
+	{
+		.code = (BPF_LD | BPF_IMM | EBPF_DW),
+		.dst_reg = EBPF_REG_5,
+		.imm = (uint32_t)TEST_IMM_3,
+	},
+	{
+		.imm = TEST_IMM_3 >> 32,
+	},
+	{
+		.code = (BPF_LD | BPF_IMM | EBPF_DW),
+		.dst_reg = EBPF_REG_7,
+		.imm = (uint32_t)TEST_IMM_4,
+	},
+	{
+		.imm = TEST_IMM_4 >> 32,
+	},
+	{
+		.code = (BPF_LD | BPF_IMM | EBPF_DW),
+		.dst_reg = EBPF_REG_9,
+		.imm = (uint32_t)TEST_IMM_5,
+	},
+	{
+		.imm = TEST_IMM_5 >> 32,
+	},
+	/* return sum */
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_3,
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_5,
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_7,
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_9,
+	},
+	{
+		.code = (BPF_JMP | EBPF_EXIT),
+	},
+};
+
+static int
+test_ldimm1_check(uint64_t rc, const void *arg)
+{
+	uint64_t v1, v2;
+
+	v1 = TEST_IMM_1;
+	v2 = TEST_IMM_2;
+	v1 += v2;
+	v2 = TEST_IMM_3;
+	v1 += v2;
+	v2 = TEST_IMM_4;
+	v1 += v2;
+	v2 = TEST_IMM_5;
+	v1 += v2;
+
+	return cmp_res(__func__, v1, rc, arg, arg, 0);
+}
+
 
 /* alu mul test-cases */
 static const struct ebpf_insn test_mul1_prog[] = {
@@ -1530,7 +1624,156 @@ static const struct rte_bpf_xsym test_call1_xsym[] = {
 	{
 		.name = RTE_STR(dummy_func1),
 		.type = RTE_BPF_XTYPE_FUNC,
-		.func = (void *)dummy_func1,
+		.func = {
+			.val = (void *)dummy_func1,
+			.nb_args = 3,
+			.args = {
+				[0] = {
+					.type = RTE_BPF_ARG_PTR,
+					.size = sizeof(struct dummy_offset),
+				},
+				[1] = {
+					.type = RTE_BPF_ARG_PTR,
+					.size = sizeof(uint32_t),
+				},
+				[2] = {
+					.type = RTE_BPF_ARG_PTR,
+					.size = sizeof(uint64_t),
+				},
+			},
+		},
+	},
+};
+
+static const struct ebpf_insn test_call2_prog[] = {
+
+	{
+		.code = (EBPF_ALU64 | EBPF_MOV | BPF_X),
+		.dst_reg = EBPF_REG_1,
+		.src_reg = EBPF_REG_10,
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_K),
+		.dst_reg = EBPF_REG_1,
+		.imm = -(int32_t)sizeof(struct dummy_offset),
+	},
+	{
+		.code = (EBPF_ALU64 | EBPF_MOV | BPF_X),
+		.dst_reg = EBPF_REG_2,
+		.src_reg = EBPF_REG_10,
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_K),
+		.dst_reg = EBPF_REG_2,
+		.imm = -2 * (int32_t)sizeof(struct dummy_offset),
+	},
+	{
+		.code = (BPF_JMP | EBPF_CALL),
+		.imm = 0,
+	},
+	{
+		.code = (BPF_LDX | BPF_MEM | EBPF_DW),
+		.dst_reg = EBPF_REG_1,
+		.src_reg = EBPF_REG_10,
+		.off = -(int32_t)(sizeof(struct dummy_offset) -
+			offsetof(struct dummy_offset, u64)),
+	},
+	{
+		.code = (BPF_LDX | BPF_MEM | BPF_W),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_10,
+		.off = -(int32_t)(sizeof(struct dummy_offset) -
+			offsetof(struct dummy_offset, u32)),
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_1,
+	},
+	{
+		.code = (BPF_LDX | BPF_MEM | BPF_H),
+		.dst_reg = EBPF_REG_1,
+		.src_reg = EBPF_REG_10,
+		.off = -(int32_t)(2 * sizeof(struct dummy_offset) -
+			offsetof(struct dummy_offset, u16)),
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_1,
+	},
+	{
+		.code = (BPF_LDX | BPF_MEM | BPF_B),
+		.dst_reg = EBPF_REG_1,
+		.src_reg = EBPF_REG_10,
+		.off = -(int32_t)(2 * sizeof(struct dummy_offset) -
+			offsetof(struct dummy_offset, u8)),
+	},
+	{
+		.code = (EBPF_ALU64 | BPF_ADD | BPF_X),
+		.dst_reg = EBPF_REG_0,
+		.src_reg = EBPF_REG_1,
+	},
+	{
+		.code = (BPF_JMP | EBPF_EXIT),
+	},
+
+};
+
+static void
+dummy_func2(struct dummy_offset *a, struct dummy_offset *b)
+{
+	uint64_t v;
+
+	v = 0;
+	a->u64 = v++;
+	a->u32 = v++;
+	a->u16 = v++;
+	a->u8 = v++;
+	b->u64 = v++;
+	b->u32 = v++;
+	b->u16 = v++;
+	b->u8 = v++;
+}
+
+static int
+test_call2_check(uint64_t rc, const void *arg)
+{
+	uint64_t v;
+	struct dummy_offset a, b;
+
+	RTE_SET_USED(arg);
+
+	dummy_func2(&a, &b);
+	v = a.u64 + a.u32 + b.u16 + b.u8;
+
+	if (v != rc) {
+		printf("%s@%d: invalid return value "
+			"expected=0x%" PRIx64 ", actual=0x%" PRIx64 "\n",
+			__func__, __LINE__, v, rc);
+		return -1;
+	}
+	return 0;
+}
+
+static const struct rte_bpf_xsym test_call2_xsym[] = {
+	{
+		.name = RTE_STR(dummy_func2),
+		.type = RTE_BPF_XTYPE_FUNC,
+		.func = {
+			.val = (void *)dummy_func2,
+			.nb_args = 2,
+			.args = {
+				[0] = {
+					.type = RTE_BPF_ARG_PTR,
+					.size = sizeof(struct dummy_offset),
+				},
+				[1] = {
+					.type = RTE_BPF_ARG_PTR,
+					.size = sizeof(struct dummy_offset),
+				},
+			},
+		},
 	},
 };
 
@@ -1576,6 +1819,20 @@ static const struct bpf_test tests[] = {
 		},
 		.prepare = test_load1_prepare,
 		.check_result = test_load1_check,
+	},
+	{
+		.name = "test_ldimm1",
+		.arg_sz = sizeof(struct dummy_offset),
+		.prm = {
+			.ins = test_ldimm1_prog,
+			.nb_ins = RTE_DIM(test_ldimm1_prog),
+			.prog_arg = {
+				.type = RTE_BPF_ARG_PTR,
+				.size = sizeof(struct dummy_offset),
+			},
+		},
+		.prepare = test_store1_prepare,
+		.check_result = test_ldimm1_check,
 	},
 	{
 		.name = "test_mul1",
@@ -1690,6 +1947,24 @@ static const struct bpf_test tests[] = {
 		},
 		.prepare = test_load1_prepare,
 		.check_result = test_call1_check,
+		/* for now don't support function calls on 32 bit platform */
+		.allow_fail = (sizeof(uint64_t) != sizeof(uintptr_t)),
+	},
+	{
+		.name = "test_call2",
+		.arg_sz = sizeof(struct dummy_offset),
+		.prm = {
+			.ins = test_call2_prog,
+			.nb_ins = RTE_DIM(test_call2_prog),
+			.prog_arg = {
+				.type = RTE_BPF_ARG_PTR,
+				.size = sizeof(struct dummy_offset),
+			},
+			.xsym = test_call2_xsym,
+			.nb_xsym = RTE_DIM(test_call2_xsym),
+		},
+		.prepare = test_store1_prepare,
+		.check_result = test_call2_check,
 		/* for now don't support function calls on 32 bit platform */
 		.allow_fail = (sizeof(uint64_t) != sizeof(uintptr_t)),
 	},

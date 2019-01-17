@@ -14,6 +14,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 /*
  * determine if VFIO is present on the system
  */
@@ -22,6 +24,9 @@ extern "C" {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
 #define VFIO_PRESENT
 #endif /* kernel version >= 3.6.0 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0)
+#define HAVE_VFIO_DEV_REQ_INTERFACE
+#endif /* kernel version >= 4.0.0 */
 #endif /* RTE_EAL_VFIO */
 
 #ifdef VFIO_PRESENT
@@ -42,6 +47,30 @@ extern "C" {
 #define RTE_VFIO_NOIOMMU VFIO_NOIOMMU_IOMMU
 #else
 #define RTE_VFIO_NOIOMMU 8
+#endif
+
+/*
+ * capabilities are only supported on kernel 4.6+. there were also some API
+ * changes as well, so add a macro to get cap offset.
+ */
+#ifdef VFIO_REGION_INFO_FLAG_CAPS
+#define RTE_VFIO_INFO_FLAG_CAPS VFIO_REGION_INFO_FLAG_CAPS
+#define VFIO_CAP_OFFSET(x) (x->cap_offset)
+#else
+#define RTE_VFIO_INFO_FLAG_CAPS (1 << 3)
+#define VFIO_CAP_OFFSET(x) (x->resv)
+struct vfio_info_cap_header {
+	uint16_t id;
+	uint16_t version;
+	uint32_t next;
+};
+#endif
+
+/* kernels 4.16+ can map BAR containing MSI-X table */
+#ifdef VFIO_REGION_INFO_CAP_MSIX_MAPPABLE
+#define RTE_VFIO_CAP_MSIX_MAPPABLE VFIO_REGION_INFO_CAP_MSIX_MAPPABLE
+#else
+#define RTE_VFIO_CAP_MSIX_MAPPABLE 3
 #endif
 
 #else /* not VFIO_PRESENT */
@@ -179,7 +208,7 @@ rte_vfio_clear_group(int vfio_group_fd);
  *   0 if success.
  *   -1 on error.
  */
-int  __rte_experimental
+int
 rte_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len);
 
 
@@ -200,7 +229,7 @@ rte_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len);
  *   -1 on error.
  */
 
-int __rte_experimental
+int
 rte_vfio_dma_unmap(uint64_t vaddr, uint64_t iova, uint64_t len);
 /**
  * Parse IOMMU group number for a device
@@ -222,12 +251,12 @@ rte_vfio_dma_unmap(uint64_t vaddr, uint64_t iova, uint64_t len);
  *   0 for non-existent group or VFIO
  *  <0 for errors
  */
-int __rte_experimental
+int
 rte_vfio_get_group_num(const char *sysfs_base,
 		      const char *dev_addr, int *iommu_group_num);
 
 /**
- * Open VFIO container fd or get an existing one
+ * Open a new VFIO container fd
  *
  * This function is only relevant to linux and will return
  * an error on BSD.
@@ -236,7 +265,7 @@ rte_vfio_get_group_num(const char *sysfs_base,
  *  > 0 container fd
  *  < 0 for errors
  */
-int __rte_experimental
+int
 rte_vfio_get_container_fd(void);
 
 /**
@@ -252,13 +281,10 @@ rte_vfio_get_container_fd(void);
  *  > 0 group fd
  *  < 0 for errors
  */
-int __rte_experimental
+int
 rte_vfio_get_group_fd(int iommu_group_num);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change, or be removed, without prior notice
- *
  * Create a new container for device binding.
  *
  * @note Any newly allocated DPDK memory will not be mapped into these
@@ -269,13 +295,10 @@ rte_vfio_get_group_fd(int iommu_group_num);
  *   the container fd if successful
  *   <0 if failed
  */
-int __rte_experimental
+int
 rte_vfio_container_create(void);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change, or be removed, without prior notice
- *
  * Destroy the container, unbind all vfio groups within it.
  *
  * @param container_fd
@@ -285,13 +308,10 @@ rte_vfio_container_create(void);
  *    0 if successful
  *   <0 if failed
  */
-int __rte_experimental
+int
 rte_vfio_container_destroy(int container_fd);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change, or be removed, without prior notice
- *
  * Bind a IOMMU group to a container.
  *
  * @param container_fd
@@ -304,13 +324,10 @@ rte_vfio_container_destroy(int container_fd);
  *   group fd if successful
  *   <0 if failed
  */
-int __rte_experimental
+int
 rte_vfio_container_group_bind(int container_fd, int iommu_group_num);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change, or be removed, without prior notice
- *
  * Unbind a IOMMU group from a container.
  *
  * @param container_fd
@@ -323,13 +340,10 @@ rte_vfio_container_group_bind(int container_fd, int iommu_group_num);
  *    0 if successful
  *   <0 if failed
  */
-int __rte_experimental
+int
 rte_vfio_container_group_unbind(int container_fd, int iommu_group_num);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change, or be removed, without prior notice
- *
  * Perform DMA mapping for devices in a container.
  *
  * @param container_fd
@@ -348,14 +362,11 @@ rte_vfio_container_group_unbind(int container_fd, int iommu_group_num);
  *    0 if successful
  *   <0 if failed
  */
-int __rte_experimental
+int
 rte_vfio_container_dma_map(int container_fd, uint64_t vaddr,
 		uint64_t iova, uint64_t len);
 
 /**
- * @warning
- * @b EXPERIMENTAL: this API may change, or be removed, without prior notice
- *
  * Perform DMA unmapping for devices in a container.
  *
  * @param container_fd
@@ -374,7 +385,7 @@ rte_vfio_container_dma_map(int container_fd, uint64_t vaddr,
  *    0 if successful
  *   <0 if failed
  */
-int __rte_experimental
+int
 rte_vfio_container_dma_unmap(int container_fd, uint64_t vaddr,
 		uint64_t iova, uint64_t len);
 

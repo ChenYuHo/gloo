@@ -18,10 +18,11 @@ CFLAGS += $(WERROR_FLAGS) -O3
 LDLIBS += -lexecinfo
 LDLIBS += -lpthread
 LDLIBS += -lgcc_s
+LDLIBS += -lrte_kvargs
 
 EXPORT_MAP := ../../rte_eal_version.map
 
-LIBABIVER := 7
+LIBABIVER := 9
 
 # specific to bsdapp exec-env
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) := eal.c
@@ -52,17 +53,21 @@ SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_hypervisor.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_string_fns.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_hexdump.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_devargs.c
+SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_class.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_bus.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_dev.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_options.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_thread.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_proc.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_fbarray.c
+SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += eal_common_uuid.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += rte_malloc.c
+SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += hotplug_mp.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += malloc_elem.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += malloc_heap.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += malloc_mp.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += rte_keepalive.c
+SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += rte_option.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += rte_service.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_BSDAPP) += rte_reciprocal.c
 
@@ -73,11 +78,6 @@ SRCS-$(CONFIG_RTE_ARCH_X86) += rte_spinlock.c
 SRCS-y += rte_cycles.c
 
 CFLAGS_eal_common_cpuflags.o := $(CPUFLAGS_LIST)
-
-CFLAGS_eal.o := -D_GNU_SOURCE
-#CFLAGS_eal_thread.o := -D_GNU_SOURCE
-CFLAGS_eal_log.o := -D_GNU_SOURCE
-CFLAGS_eal_common_log.o := -D_GNU_SOURCE
 
 # workaround for a gcc bug with noreturn attribute
 # http://gcc.gnu.org/bugzilla/show_bug.cgi?id=12603

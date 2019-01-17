@@ -1,9 +1,7 @@
-/*
+/* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2016 - 2018 Cavium Inc.
  * All rights reserved.
  * www.cavium.com
- *
- * See LICENSE.qede_pmd for copyright and licensing details.
  */
 
 #include <rte_memzone.h>
@@ -19,7 +17,7 @@
 /* Array of memzone pointers */
 static const struct rte_memzone *ecore_mz_mapping[RTE_MAX_MEMZONE];
 /* Counter to track current memzone allocated */
-uint16_t ecore_mz_count;
+static uint16_t ecore_mz_count;
 
 unsigned long qede_log2_align(unsigned long n)
 {

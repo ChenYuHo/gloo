@@ -30,9 +30,9 @@ static const struct rte_cryptodev_capabilities
 					.increment = 1
 				},
 				.digest_size = {
-					.min = 16,
+					.min = 12,
 					.max = 16,
-					.increment = 0
+					.increment = 4
 				},
 			}, }
 		}, }
@@ -50,9 +50,9 @@ static const struct rte_cryptodev_capabilities
 						.increment = 0
 					},
 					.digest_size = {
-						.min = 16,
+						.min = 12,
 						.max = 16,
-						.increment = 0
+						.increment = 4
 					},
 				}, }
 			}, }
@@ -70,9 +70,9 @@ static const struct rte_cryptodev_capabilities
 						.increment = 1
 					},
 					.digest_size = {
-						.min = 20,
+						.min = 12,
 						.max = 20,
-						.increment = 0
+						.increment = 4
 					},
 				}, }
 			}, }
@@ -90,8 +90,29 @@ static const struct rte_cryptodev_capabilities
 					.increment = 0
 				},
 				.digest_size = {
-					.min = 20,
+					.min = 12,
 					.max = 20,
+					.increment = 4
+				},
+			}, }
+		}, }
+	},
+	{
+		/* SHA224 HMAC */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_SHA224_HMAC,
+				.block_size = 64,
+				.key_size = {
+					.min = 1,
+					.max = 64,
+					.increment = 1
+				},
+				.digest_size = {
+					.min = 28,
+					.max = 28,
 					.increment = 0
 				},
 			}, }
@@ -110,9 +131,9 @@ static const struct rte_cryptodev_capabilities
 					.increment = 0
 				},
 				.digest_size = {
-					.min = 28,
+					.min = 12,
 					.max = 28,
-					.increment = 0
+					.increment = 4
 				},
 			}, }
 		}, }
@@ -130,9 +151,9 @@ static const struct rte_cryptodev_capabilities
 						.increment = 1
 					},
 					.digest_size = {
-						.min = 32,
+						.min = 12,
 						.max = 32,
-						.increment = 0
+						.increment = 4
 					},
 				}, }
 			}, }
@@ -150,9 +171,9 @@ static const struct rte_cryptodev_capabilities
 						.increment = 0
 					},
 					.digest_size = {
-						.min = 32,
+						.min = 12,
 						.max = 32,
-						.increment = 0
+						.increment = 4
 					},
 				}, }
 			}, }
@@ -170,9 +191,9 @@ static const struct rte_cryptodev_capabilities
 					.increment = 1
 				},
 				.digest_size = {
-					.min = 48,
+					.min = 12,
 					.max = 48,
-					.increment = 0
+					.increment = 4
 				},
 			}, }
 		}, }
@@ -190,9 +211,9 @@ static const struct rte_cryptodev_capabilities
 					.increment = 0
 				},
 				.digest_size = {
-					.min = 48,
+					.min = 12,
 					.max = 48,
-					.increment = 0
+					.increment = 4
 				},
 			}, }
 		}, }
@@ -210,9 +231,9 @@ static const struct rte_cryptodev_capabilities
 					.increment = 1
 				},
 				.digest_size = {
-					.min = 64,
-					.max = 64,
-					.increment = 0
+					.min = 12,
+					.max = 48,
+					.increment = 4
 				},
 			}, }
 		}, }
@@ -230,8 +251,8 @@ static const struct rte_cryptodev_capabilities
 					.increment = 0
 				},
 				.digest_size = {
-					.min = 64,
-					.max = 64,
+					.min = 12,
+					.max = 48,
 					.increment = 0
 				},
 			}, }
@@ -272,6 +293,26 @@ static const struct rte_cryptodev_capabilities
 				.iv_size = {
 					.min = 16,
 					.max = 16,
+					.increment = 0
+				}
+			}, }
+		}, }
+	},
+	{	/* AES ECB */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_AES_ECB,
+				.block_size = 16,
+				.key_size = {
+					.min = 16,
+					.max = 32,
+					.increment = 8
+				},
+				.iv_size = {
+					.min = 0,
+					.max = 0,
 					.increment = 0
 				}
 			}, }
@@ -370,6 +411,71 @@ static const struct rte_cryptodev_capabilities
 					.increment = 0
 				}
 			}, }
+		}, }
+	},
+	{	/* 3DES ECB */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_3DES_ECB,
+				.block_size = 8,
+				.key_size = {
+					.min = 24,
+					.max = 24,
+					.increment = 0
+				},
+				.iv_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				}
+			}, }
+		}, }
+	},
+	{	/* NULL (AUTH) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_NULL,
+				.block_size = 1,
+				.key_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				},
+				.digest_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				},
+				.iv_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				}
+			}, },
+		}, },
+	},
+	{	/* NULL (CIPHER) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_NULL,
+				.block_size = 1,
+				.key_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				},
+				.iv_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				}
+			}, },
 		}, }
 	},
 
@@ -551,7 +657,7 @@ mrvl_crypto_pmd_qp_setup(struct rte_cryptodev *dev, uint16_t qp_id,
 		 */
 		int num = sam_get_num_inst();
 		if (num == 0) {
-			MRVL_CRYPTO_LOG_ERR("No crypto engines detected.\n");
+			MRVL_LOG(ERR, "No crypto engines detected!");
 			return -1;
 		}
 
@@ -595,32 +701,6 @@ mrvl_crypto_pmd_qp_setup(struct rte_cryptodev *dev, uint16_t qp_id,
 	return -1;
 }
 
-/** Start queue pair (PMD ops callback) - not supported.
- *
- * @param dev Pointer to the device structure.
- * @param qp_id ID of the Queue Pair.
- * @returns -ENOTSUP. Always.
- */
-static int
-mrvl_crypto_pmd_qp_start(__rte_unused struct rte_cryptodev *dev,
-		__rte_unused uint16_t queue_pair_id)
-{
-	return -ENOTSUP;
-}
-
-/** Stop queue pair (PMD ops callback) - not supported.
- *
- * @param dev Pointer to the device structure.
- * @param qp_id ID of the Queue Pair.
- * @returns -ENOTSUP. Always.
- */
-static int
-mrvl_crypto_pmd_qp_stop(__rte_unused struct rte_cryptodev *dev,
-		__rte_unused uint16_t queue_pair_id)
-{
-	return -ENOTSUP;
-}
-
 /** Return the number of allocated queue pairs (PMD ops callback).
  *
  * @param dev Pointer to the device structure.
@@ -638,7 +718,7 @@ mrvl_crypto_pmd_qp_count(struct rte_cryptodev *dev)
  * @returns Size of Marvell crypto session.
  */
 static unsigned
-mrvl_crypto_pmd_session_get_size(__rte_unused struct rte_cryptodev *dev)
+mrvl_crypto_pmd_sym_session_get_size(__rte_unused struct rte_cryptodev *dev)
 {
 	return sizeof(struct mrvl_crypto_session);
 }
@@ -651,7 +731,7 @@ mrvl_crypto_pmd_session_get_size(__rte_unused struct rte_cryptodev *dev)
  * @returns 0 upon success, negative value otherwise.
  */
 static int
-mrvl_crypto_pmd_session_configure(__rte_unused struct rte_cryptodev *dev,
+mrvl_crypto_pmd_sym_session_configure(__rte_unused struct rte_cryptodev *dev,
 		struct rte_crypto_sym_xform *xform,
 		struct rte_cryptodev_sym_session *sess,
 		struct rte_mempool *mp)
@@ -661,7 +741,7 @@ mrvl_crypto_pmd_session_configure(__rte_unused struct rte_cryptodev *dev,
 	int ret;
 
 	if (sess == NULL) {
-		MRVL_CRYPTO_LOG_ERR("Invalid session struct.");
+		MRVL_LOG(ERR, "Invalid session struct!");
 		return -EINVAL;
 	}
 
@@ -672,19 +752,19 @@ mrvl_crypto_pmd_session_configure(__rte_unused struct rte_cryptodev *dev,
 
 	ret = mrvl_crypto_set_session_parameters(sess_private_data, xform);
 	if (ret != 0) {
-		MRVL_CRYPTO_LOG_ERR("Failed to configure session parameters.");
+		MRVL_LOG(ERR, "Failed to configure session parameters!");
 
 		/* Return session to mempool */
 		rte_mempool_put(mp, sess_private_data);
 		return ret;
 	}
 
-	set_session_private_data(sess, dev->driver_id, sess_private_data);
+	set_sym_session_private_data(sess, dev->driver_id, sess_private_data);
 
 	mrvl_sess = (struct mrvl_crypto_session *)sess_private_data;
 	if (sam_session_create(&mrvl_sess->sam_sess_params,
 				&mrvl_sess->sam_sess) < 0) {
-		MRVL_CRYPTO_LOG_DBG("Failed to create session!");
+		MRVL_LOG(DEBUG, "Failed to create session!");
 		return -EIO;
 	}
 
@@ -698,12 +778,12 @@ mrvl_crypto_pmd_session_configure(__rte_unused struct rte_cryptodev *dev,
  * @returns 0. Always.
  */
 static void
-mrvl_crypto_pmd_session_clear(struct rte_cryptodev *dev,
+mrvl_crypto_pmd_sym_session_clear(struct rte_cryptodev *dev,
 		struct rte_cryptodev_sym_session *sess)
 {
 
 	uint8_t index = dev->driver_id;
-	void *sess_priv = get_session_private_data(sess, index);
+	void *sess_priv = get_sym_session_private_data(sess, index);
 
 	/* Zero out the whole structure */
 	if (sess_priv) {
@@ -712,12 +792,12 @@ mrvl_crypto_pmd_session_clear(struct rte_cryptodev *dev,
 
 		if (mrvl_sess->sam_sess &&
 		    sam_session_destroy(mrvl_sess->sam_sess) < 0) {
-			MRVL_CRYPTO_LOG_INFO("Error while destroying session!");
+			MRVL_LOG(ERR, "Error while destroying session!");
 		}
 
 		memset(sess, 0, sizeof(struct mrvl_crypto_session));
 		struct rte_mempool *sess_mp = rte_mempool_from_obj(sess_priv);
-		set_session_private_data(sess, index, NULL);
+		set_sym_session_private_data(sess, index, NULL);
 		rte_mempool_put(sess_mp, sess_priv);
 	}
 }
@@ -738,13 +818,11 @@ static struct rte_cryptodev_ops mrvl_crypto_pmd_ops = {
 
 		.queue_pair_setup	= mrvl_crypto_pmd_qp_setup,
 		.queue_pair_release	= mrvl_crypto_pmd_qp_release,
-		.queue_pair_start	= mrvl_crypto_pmd_qp_start,
-		.queue_pair_stop	= mrvl_crypto_pmd_qp_stop,
 		.queue_pair_count	= mrvl_crypto_pmd_qp_count,
 
-		.session_get_size	= mrvl_crypto_pmd_session_get_size,
-		.session_configure	= mrvl_crypto_pmd_session_configure,
-		.session_clear		= mrvl_crypto_pmd_session_clear
+		.sym_session_get_size	= mrvl_crypto_pmd_sym_session_get_size,
+		.sym_session_configure	= mrvl_crypto_pmd_sym_session_configure,
+		.sym_session_clear	= mrvl_crypto_pmd_sym_session_clear
 };
 
 struct rte_cryptodev_ops *rte_mrvl_crypto_pmd_ops = &mrvl_crypto_pmd_ops;

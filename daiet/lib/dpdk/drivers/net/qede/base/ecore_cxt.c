@@ -1,9 +1,7 @@
-/*
+/* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2016 - 2018 Cavium Inc.
  * All rights reserved.
  * www.cavium.com
- *
- * See LICENSE.qede_pmd for copyright and licensing details.
  */
 
 #include "bcm_osal.h"
@@ -1135,6 +1133,9 @@ enum _ecore_status_t ecore_cxt_mngr_alloc(struct ecore_hwfn *p_hwfn)
 		return ECORE_NOMEM;
 	}
 
+	/* Set the cxt mangr pointer prior to further allocations */
+	p_hwfn->p_cxt_mngr = p_mngr;
+
 	/* Initialize ILT client registers */
 	clients = p_mngr->clients;
 	clients[ILT_CLI_CDUC].first.reg = ILT_CFG_REG(CDUC, FIRST_ILT);
@@ -1176,12 +1177,12 @@ enum _ecore_status_t ecore_cxt_mngr_alloc(struct ecore_hwfn *p_hwfn)
 
 	/* Initialize the dynamic ILT allocation mutex */
 #ifdef CONFIG_ECORE_LOCK_ALLOC
-	OSAL_MUTEX_ALLOC(p_hwfn, &p_mngr->mutex);
+	if (OSAL_MUTEX_ALLOC(p_hwfn, &p_mngr->mutex)) {
+		DP_NOTICE(p_hwfn, false, "Failed to alloc p_mngr->mutex\n");
+		return ECORE_NOMEM;
+	}
 #endif
 	OSAL_MUTEX_INIT(&p_mngr->mutex);
-
-	/* Set the cxt mangr pointer priori to further allocations */
-	p_hwfn->p_cxt_mngr = p_mngr;
 
 	return ECORE_SUCCESS;
 }
@@ -2113,7 +2114,7 @@ ecore_cxt_dynamic_ilt_alloc(struct ecore_hwfn *p_hwfn,
 
 	ecore_dmae_host2grc(p_hwfn, p_ptt, (u64)(osal_uintptr_t)&ilt_hw_entry,
 			    reg_offset, sizeof(ilt_hw_entry) / sizeof(u32),
-			    0 /* no flags */);
+			    OSAL_NULL /* default parameters */);
 
 	if (elem_type == ECORE_ELEM_CXT) {
 		u32 last_cid_allocated = (1 + (iid / elems_per_p)) *
@@ -2220,7 +2221,7 @@ ecore_cxt_free_ilt_range(struct ecore_hwfn *p_hwfn,
 				    (u64)(osal_uintptr_t)&ilt_hw_entry,
 				    reg_offset,
 				    sizeof(ilt_hw_entry) / sizeof(u32),
-				    0 /* no flags */);
+				    OSAL_NULL /* default parameters */);
 	}
 
 	ecore_ptt_release(p_hwfn, p_ptt);

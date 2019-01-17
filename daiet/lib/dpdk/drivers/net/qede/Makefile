@@ -1,8 +1,7 @@
+#    SPDX-License-Identifier: BSD-3-Clause
 #    Copyright (c) 2016 - 2018 Cavium Inc.
 #    All rights reserved.
 #    www.cavium.com
-#
-#    See LICENSE.qede_pmd for copyright and licensing details.
 
 include $(RTE_SDK)/mk/rte.vars.mk
 
@@ -106,6 +105,6 @@ SRCS-$(CONFIG_RTE_LIBRTE_QEDE_PMD) += ecore_vf.c
 SRCS-$(CONFIG_RTE_LIBRTE_QEDE_PMD) += qede_ethdev.c
 SRCS-$(CONFIG_RTE_LIBRTE_QEDE_PMD) += qede_main.c
 SRCS-$(CONFIG_RTE_LIBRTE_QEDE_PMD) += qede_rxtx.c
-SRCS-$(CONFIG_RTE_LIBRTE_QEDE_PMD) += qede_fdir.c
+SRCS-$(CONFIG_RTE_LIBRTE_QEDE_PMD) += qede_filter.c
 
 include $(RTE_SDK)/mk/rte.lib.mk

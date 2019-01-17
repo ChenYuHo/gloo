@@ -139,7 +139,7 @@ scheduler_start(struct rte_cryptodev *dev)
 	uint16_t i;
 
 	if (sched_ctx->nb_slaves < 2) {
-		CS_LOG_ERR("Number of slaves shall no less than 2");
+		CR_SCHED_LOG(ERR, "Number of slaves shall no less than 2");
 		return -ENOMEM;
 	}
 
@@ -182,7 +182,7 @@ scheduler_config_qp(struct rte_cryptodev *dev, uint16_t qp_id)
 	fo_qp_ctx = rte_zmalloc_socket(NULL, sizeof(*fo_qp_ctx), 0,
 			rte_socket_id());
 	if (!fo_qp_ctx) {
-		CS_LOG_ERR("failed allocate memory for private queue pair");
+		CR_SCHED_LOG(ERR, "failed allocate memory for private queue pair");
 		return -ENOMEM;
 	}
 
@@ -197,7 +197,7 @@ scheduler_create_private_ctx(__rte_unused struct rte_cryptodev *dev)
 	return 0;
 }
 
-struct rte_cryptodev_scheduler_ops scheduler_fo_ops = {
+static struct rte_cryptodev_scheduler_ops scheduler_fo_ops = {
 	slave_attach,
 	slave_detach,
 	scheduler_start,
@@ -208,7 +208,7 @@ struct rte_cryptodev_scheduler_ops scheduler_fo_ops = {
 	NULL	/*option_get */
 };
 
-struct rte_cryptodev_scheduler fo_scheduler = {
+static struct rte_cryptodev_scheduler fo_scheduler = {
 		.name = "failover-scheduler",
 		.description = "scheduler which enqueues to the primary slave, "
 				"and only then enqueues to the secondary slave "
@@ -217,4 +217,4 @@ struct rte_cryptodev_scheduler fo_scheduler = {
 		.ops = &scheduler_fo_ops
 };
 
-struct rte_cryptodev_scheduler *failover_scheduler = &fo_scheduler;
+struct rte_cryptodev_scheduler *crypto_scheduler_failover = &fo_scheduler;

@@ -45,6 +45,14 @@
 #define MPS_T5_CLS_SRAM_H(idx) (A_MPS_T5_CLS_SRAM_H + (idx) * 8)
 #define NUM_MPS_T5_CLS_SRAM_H_INSTANCES 512
 
+#define S_DATAPORTNUM    12
+#define M_DATAPORTNUM    0xfU
+#define V_DATAPORTNUM(x) ((x) << S_DATAPORTNUM)
+
+#define S_DATALKPTYPE    10
+#define M_DATALKPTYPE    0x3U
+#define V_DATALKPTYPE(x) ((x) << S_DATALKPTYPE)
+
 /* registers for module SGE */
 #define SGE_BASE_ADDR 0x1000
 
@@ -458,6 +466,7 @@
 #define F_CRXPKTENC    V_CRXPKTENC(1U)
 
 #define TP_BASE_ADDR 0x7d00
+#define A_TP_CMM_TCB_BASE 0x7d10
 
 #define A_TP_TIMER_RESOLUTION 0x7d90
 
@@ -573,6 +582,21 @@
 
 #define S_RM_OVLAN	9
 #define V_RM_OVLAN(x)	((x) << S_RM_OVLAN)
+
+/* registers for module MA */
+#define A_MA_EDRAM0_BAR 0x77c0
+
+#define S_EDRAM0_SIZE    0
+#define M_EDRAM0_SIZE    0xfffU
+#define V_EDRAM0_SIZE(x) ((x) << S_EDRAM0_SIZE)
+#define G_EDRAM0_SIZE(x) (((x) >> S_EDRAM0_SIZE) & M_EDRAM0_SIZE)
+
+#define A_MA_EXT_MEMORY0_BAR 0x77c8
+
+#define S_EXT_MEM0_SIZE    0
+#define M_EXT_MEM0_SIZE    0xfffU
+#define V_EXT_MEM0_SIZE(x) ((x) << S_EXT_MEM0_SIZE)
+#define G_EXT_MEM0_SIZE(x) (((x) >> S_EXT_MEM0_SIZE) & M_EXT_MEM0_SIZE)
 
 /* registers for module MPS */
 #define MPS_BASE_ADDR 0x9000
@@ -924,3 +948,15 @@
 #define M_REV    0xfU
 #define V_REV(x) ((x) << S_REV)
 #define G_REV(x) (((x) >> S_REV) & M_REV)
+
+/* registers for module LE */
+#define A_LE_DB_CONFIG 0x19c04
+
+#define S_HASHEN    20
+#define V_HASHEN(x) ((x) << S_HASHEN)
+#define F_HASHEN    V_HASHEN(1U)
+
+#define A_LE_DB_TID_HASHBASE 0x19df8
+
+#define LE_3_DB_HASH_MASK_GEN_IPV4_T6_A 0x19eac
+#define LE_4_DB_HASH_MASK_GEN_IPV4_T6_A 0x19eb0

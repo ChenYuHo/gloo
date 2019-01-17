@@ -49,11 +49,12 @@ libibverbs.
 Features
 --------
 
-- Multi arch support: x86_64, POWER8, ARMv8.
+- Multi arch support: x86_64, POWER8, ARMv8, i686.
 - Multiple TX and RX queues.
 - Support for scattered TX and RX frames.
 - IPv4, IPv6, TCPv4, TCPv6, UDPv4 and UDPv6 RSS on any number of queues.
 - Several RSS hash keys, one for each flow type.
+- Default RSS operation with no hash key specification.
 - Configurable RETA table.
 - Support for multiple MAC addresses.
 - VLAN filtering.
@@ -131,6 +132,40 @@ Limitations
   Rx mbufs must be freed before the device is closed. Otherwise, the mempool of
   the external buffers will be freed by PMD and the application which still
   holds the external buffers may be corrupted.
+
+- If Multi-Packet Rx queue is configured (``mprq_en``) and Rx CQE compression is
+  enabled (``rxq_cqe_comp_en``) at the same time, RSS hash result is not fully
+  supported. Some Rx packets may not have PKT_RX_RSS_HASH.
+
+- IPv6 Multicast messages are not supported on VM, while promiscuous mode
+  and allmulticast mode are both set to off.
+  To receive IPv6 Multicast messages on VM, explicitly set the relevant
+  MAC address using rte_eth_dev_mac_addr_add() API.
+
+- E-Switch VXLAN tunnel is not supported together with outer VLAN.
+
+- E-Switch Flows with VNI pattern must include the VXLAN decapsulation action.
+
+- E-Switch VXLAN decapsulation Flow:
+
+  - can be appiled to PF port only.
+  - must specify VF port action (packet redirection from PF to VF).
+  - must specify tunnel outer UDP local (destination) port, wildcards not allowed.
+  - must specify tunnel outer VNI, wildcards not allowed.
+  - must specify tunnel outer local (destination)  IPv4 or IPv6 address, wildcards not allowed.
+  - optionally may specify tunnel outer remote (source) IPv4 or IPv6, wildcards or group IPs allowed.
+  - optionally may specify tunnel inner source and destination MAC addresses.
+
+- E-Switch VXLAN encapsulation Flow:
+
+  - can be applied to VF ports only.
+  - must specify PF port action (packet redirection from VF to PF).
+  - must specify the VXLAN item with tunnel outer parameters.
+  - must specify the tunnel outer VNI in the VXLAN item.
+  - must specify the tunnel outer remote (destination) UDP port in the VXLAN item.
+  - must specify the tunnel outer local (source) IPv4 or IPv6 in the , this address will locally (with scope link) assigned to the outer network interace, wildcards not allowed.
+  - must specify the tunnel outer remote (destination) IPv4 or IPv6 in the VXLAN item, group IPs allowed.
+  - must specify the tunnel outer destination MAC address in the VXLAN item, this address will be used to create neigh rule.
 
 Statistics
 ----------
@@ -242,6 +277,24 @@ Run-time configuration
   - x86_64 with ConnectX-4, ConnectX-4 LX, ConnectX-5 and Bluefield.
   - POWER8 and ARMv8 with ConnectX-4 LX, ConnectX-5 and Bluefield.
 
+- ``rxq_cqe_pad_en`` parameter [int]
+
+  A nonzero value enables 128B padding of CQE on RX side. The size of CQE
+  is aligned with the size of a cacheline of the core. If cacheline size is
+  128B, the CQE size is configured to be 128B even though the device writes
+  only 64B data on the cacheline. This is to avoid unnecessary cache
+  invalidation by device's two consecutive writes on to one cacheline.
+  However in some architecture, it is more beneficial to update entire
+  cacheline with padding the rest 64B rather than striding because
+  read-modify-write could drop performance a lot. On the other hand,
+  writing extra data will consume more PCIe bandwidth and could also drop
+  the maximum throughput. It is recommended to empirically set this
+  parameter. Disabled by default.
+
+  Supported on:
+
+  - CPU having 128B cacheline with ConnectX-5 and Bluefield.
+
 - ``mprq_en`` parameter [int]
 
   A nonzero value enables configuring Multi-Packet Rx queues. Rx queue is
@@ -316,6 +369,20 @@ Run-time configuration
 
         - Set to 8 by default.
 
+- ``txqs_max_vec`` parameter [int]
+
+  Enable vectorized Tx only when the number of TX queues is less than or
+  equal to this value. Effective only when ``tx_vec_en`` is enabled.
+
+  On ConnectX-5:
+
+        - Set to 8 by default on ARMv8.
+        - Set to 4 by default otherwise.
+
+  On Bluefield
+
+        - Set to 16 by default.
+
 - ``txq_mpw_en`` parameter [int]
 
   A nonzero value enables multi-packet send (MPS) for ConnectX-4 Lx and
@@ -335,7 +402,12 @@ Run-time configuration
   When those offloads are requested the MPS send function will not be used.
 
   It is currently only supported on the ConnectX-4 Lx, ConnectX-5 and Bluefield
-  families of adapters. Enabled by default.
+  families of adapters.
+  On ConnectX-4 Lx the MPW is considered un-secure hence disabled by default.
+  Users which enable the MPW should be aware that application which provides incorrect
+  mbuf descriptors in the Tx burst can lead to serious errors in the host including, on some cases,
+  NIC to get stuck.
+  On ConnectX-5 and Bluefield the MPW is secure and enabled by default.
 
 - ``txq_mpw_hdr_dseg_en`` parameter [int]
 
@@ -356,7 +428,7 @@ Run-time configuration
 - ``tx_vec_en`` parameter [int]
 
   A nonzero value enables Tx vector on ConnectX-5 and Bluefield NICs if the number of
-  global Tx queues on the port is lesser than MLX5_VPMD_MIN_TXQS.
+  global Tx queues on the port is less than ``txqs_max_vec``.
 
   This option cannot be used with certain offloads such as ``DEV_TX_OFFLOAD_TCP_TSO,
   DEV_TX_OFFLOAD_VXLAN_TNL_TSO, DEV_TX_OFFLOAD_GRE_TNL_TSO, DEV_TX_OFFLOAD_VLAN_INSERT``.
@@ -387,6 +459,26 @@ Run-time configuration
   parameter. This is a prerequisite to receive this kind of traffic.
 
   Disabled by default.
+
+- ``dv_flow_en`` parameter [int]
+
+  A nonzero value enables the DV flow steering assuming it is supported
+  by the driver.
+  The DV flow steering is not supported on switchdev mode.
+
+  Disabled by default.
+
+- ``representor`` parameter [list]
+
+  This parameter can be used to instantiate DPDK Ethernet devices from
+  existing port (or VF) representors configured on the device.
+
+  It is a standard parameter whose format is described in
+  :ref:`ethernet_device_standard_device_arguments`.
+
+  For instance, to probe port representors 0 through 2::
+
+    representor=[0-2]
 
 Firmware configuration
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -432,6 +524,12 @@ DPDK and must be installed separately:
   This library basically implements send/receive calls to the hardware
   queues.
 
+- **libmnl**
+
+  Minimalistic Netlink library mainly relied on to manage E-Switch flow
+  rules (i.e. those with the "transfer" attribute and typically involving
+  port representors).
+
 - **Kernel modules**
 
   They provide the kernel-side Verbs API and low level device drivers that
@@ -473,6 +571,10 @@ RMDA Core with Linux Kernel
 - Minimal kernel version : v4.14 or the most recent 4.14-rc (see `Linux installation documentation`_)
 - Minimal rdma-core version: v15+ commit 0c5f5765213a ("Merge pull request #227 from yishaih/tm")
   (see `RDMA Core installation documentation`_)
+- When building for i686 use:
+
+  - rdma-core version 18.0 or above built with 32bit support.
+  - Kernel version 4.14.41 or above.
 
 .. _`Linux installation documentation`: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git/plain/Documentation/admin-guide/README.rst
 .. _`RDMA Core installation documentation`: https://raw.githubusercontent.com/linux-rdma/rdma-core/master/README.md
@@ -480,7 +582,7 @@ RMDA Core with Linux Kernel
 Mellanox OFED
 ^^^^^^^^^^^^^
 
-- Mellanox OFED version: **4.2, 4.3**.
+- Mellanox OFED version: **4.4, 4.5**.
 - firmware version:
 
   - ConnectX-4: **12.21.1000** and above.
@@ -505,6 +607,19 @@ required from that distribution.
    Several versions of Mellanox OFED are available. Installing the version
    this DPDK release was developed and tested against is strongly
    recommended. Please check the `prerequisites`_.
+
+Libmnl
+^^^^^^
+
+Minimal version for libmnl is **1.0.3**.
+
+As a dependency of the **iproute2** suite, this library is often installed
+by default. It is otherwise readily available through standard system
+packages.
+
+Its development headers must be installed in order to compile this PMD.
+These packages are usually named **libmnl-dev** or **libmnl-devel**
+depending on the Linux distribution.
 
 Supported NICs
 --------------

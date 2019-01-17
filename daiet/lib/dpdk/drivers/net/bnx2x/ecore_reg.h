@@ -1,5 +1,5 @@
-/*-
- * Copyright (c) 2007-2013 Cavium Inc. All rights reserved.
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) 2007-2013 Broadcom Corporation.
  *
  * Eric Davis        <edavis@broadcom.com>
  * David Christensen <davidch@broadcom.com>
@@ -8,8 +8,6 @@
  * Copyright (c) 2014-2018 Cavium Inc.
  * All rights reserved.
  * www.cavium.com
- *
- * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #ifndef ECORE_REG_H
@@ -1969,6 +1967,7 @@
 #define HW_LOCK_MAX_RESOURCE_VALUE		 31
 #define HW_LOCK_RESOURCE_DRV_FLAGS		 10
 #define HW_LOCK_RESOURCE_GPIO			 1
+#define HW_LOCK_RESOURCE_MDIO			 0
 #define HW_LOCK_RESOURCE_NVRAM			 12
 #define HW_LOCK_RESOURCE_PORT0_ATT_MASK		 3
 #define HW_LOCK_RESOURCE_RECOVERY_LEADER_0	 8

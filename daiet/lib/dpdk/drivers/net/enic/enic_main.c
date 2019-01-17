@@ -69,12 +69,12 @@ enic_rxmbuf_queue_release(__rte_unused struct enic *enic, struct vnic_rq *rq)
 	}
 }
 
-static void enic_free_wq_buf(struct vnic_wq_buf *buf)
+static void enic_free_wq_buf(struct rte_mbuf **buf)
 {
-	struct rte_mbuf *mbuf = (struct rte_mbuf *)buf->mb;
+	struct rte_mbuf *mbuf = *buf;
 
 	rte_pktmbuf_free_seg(mbuf);
-	buf->mb = NULL;
+	*buf = NULL;
 }
 
 static void enic_log_q_error(struct enic *enic)
@@ -493,11 +493,83 @@ static void enic_rxq_intr_deinit(struct enic *enic)
 	}
 }
 
+static void enic_prep_wq_for_simple_tx(struct enic *enic, uint16_t queue_idx)
+{
+	struct wq_enet_desc *desc;
+	struct vnic_wq *wq;
+	unsigned int i;
+
+	/*
+	 * Fill WQ descriptor fields that never change. Every descriptor is
+	 * one packet, so set EOP. Also set CQ_ENTRY every ENIC_WQ_CQ_THRESH
+	 * descriptors (i.e. request one completion update every 32 packets).
+	 */
+	wq = &enic->wq[queue_idx];
+	desc = (struct wq_enet_desc *)wq->ring.descs;
+	for (i = 0; i < wq->ring.desc_count; i++, desc++) {
+		desc->header_length_flags = 1 << WQ_ENET_FLAGS_EOP_SHIFT;
+		if (i % ENIC_WQ_CQ_THRESH == ENIC_WQ_CQ_THRESH - 1)
+			desc->header_length_flags |=
+				(1 << WQ_ENET_FLAGS_CQ_ENTRY_SHIFT);
+	}
+}
+
+/*
+ * The 'strong' version is in enic_rxtx_vec_avx2.c. This weak version is used
+ * used when that file is not compiled.
+ */
+__rte_weak bool
+enic_use_vector_rx_handler(__rte_unused struct enic *enic)
+{
+	return false;
+}
+
+static void pick_rx_handler(struct enic *enic)
+{
+	struct rte_eth_dev *eth_dev;
+
+	/*
+	 * Preference order:
+	 * 1. The vectorized handler if possible and requested.
+	 * 2. The non-scatter, simplified handler if scatter Rx is not used.
+	 * 3. The default handler as a fallback.
+	 */
+	eth_dev = enic->rte_dev;
+	if (enic_use_vector_rx_handler(enic))
+		return;
+	if (enic->rq_count > 0 && enic->rq[0].data_queue_enable == 0) {
+		PMD_INIT_LOG(DEBUG, " use the non-scatter Rx handler");
+		eth_dev->rx_pkt_burst = &enic_noscatter_recv_pkts;
+	} else {
+		PMD_INIT_LOG(DEBUG, " use the normal Rx handler");
+		eth_dev->rx_pkt_burst = &enic_recv_pkts;
+	}
+}
+
 int enic_enable(struct enic *enic)
 {
 	unsigned int index;
 	int err;
 	struct rte_eth_dev *eth_dev = enic->rte_dev;
+	uint64_t simple_tx_offloads;
+	uintptr_t p;
+
+	if (enic->enable_avx2_rx) {
+		struct rte_mbuf mb_def = { .buf_addr = 0 };
+
+		/*
+		 * mbuf_initializer contains const-after-init fields of
+		 * receive mbufs (i.e. 64 bits of fields from rearm_data).
+		 * It is currently used by the vectorized handler.
+		 */
+		mb_def.nb_segs = 1;
+		mb_def.data_off = RTE_PKTMBUF_HEADROOM;
+		mb_def.port = enic->port_id;
+		rte_mbuf_refcnt_set(&mb_def, 1);
+		rte_compiler_barrier();
+		p = (uintptr_t)&mb_def.rearm_data;
+		enic->mbuf_initializer = *(uint64_t *)p;
+	}
 
 	eth_dev->data->dev_link.link_speed = vnic_dev_port_speed(enic->vdev);
 	eth_dev->data->dev_link.link_duplex = ETH_LINK_FULL_DUPLEX;
@@ -534,6 +606,29 @@ int enic_enable(struct enic *enic)
 			return err;
 		}
 	}
+
+	/*
+	 * Use the simple TX handler if possible. Only checksum offloads
+	 * and vlan insertion are supported.
+	 */
+	simple_tx_offloads = enic->tx_offload_capa &
+		(DEV_TX_OFFLOAD_OUTER_IPV4_CKSUM |
+		 DEV_TX_OFFLOAD_VLAN_INSERT |
+		 DEV_TX_OFFLOAD_IPV4_CKSUM |
+		 DEV_TX_OFFLOAD_UDP_CKSUM |
+		 DEV_TX_OFFLOAD_TCP_CKSUM);
+	if ((eth_dev->data->dev_conf.txmode.offloads &
+	     ~simple_tx_offloads) == 0) {
+		PMD_INIT_LOG(DEBUG, " use the simple tx handler");
+		eth_dev->tx_pkt_burst = &enic_simple_xmit_pkts;
+		for (index = 0; index < enic->wq_count; index++)
+			enic_prep_wq_for_simple_tx(enic, index);
+	} else {
+		PMD_INIT_LOG(DEBUG, " use the default tx handler");
+		eth_dev->tx_pkt_burst = &enic_xmit_pkts;
+	}
+
+	pick_rx_handler(enic);
 
 	for (index = 0; index < enic->wq_count; index++)
 		enic_start_wq(enic, index);
@@ -586,6 +681,19 @@ void enic_free_rq(void *rxq)
 	rq_sop = (struct vnic_rq *)rxq;
 	enic = vnic_dev_priv(rq_sop->vdev);
 	rq_data = &enic->rq[rq_sop->data_queue_idx];
+
+	if (rq_sop->free_mbufs) {
+		struct rte_mbuf **mb;
+		int i;
+
+		mb = rq_sop->free_mbufs;
+		for (i = ENIC_RX_BURST_MAX - rq_sop->num_free_mbufs;
+		     i < ENIC_RX_BURST_MAX; i++)
+			rte_pktmbuf_free(mb[i]);
+		rte_free(rq_sop->free_mbufs);
+		rq_sop->free_mbufs = NULL;
+		rq_sop->num_free_mbufs = 0;
+	}
 
 	enic_rxmbuf_queue_release(enic, rq_sop);
 	if (rq_data->in_use)
@@ -743,20 +851,20 @@ int enic_alloc_rq(struct enic *enic, uint16_t queue_idx,
 	}
 
 	/* number of descriptors have to be a multiple of 32 */
-	nb_sop_desc = (nb_desc / mbufs_per_pkt) & ~0x1F;
-	nb_data_desc = (nb_desc - nb_sop_desc) & ~0x1F;
+	nb_sop_desc = (nb_desc / mbufs_per_pkt) & ENIC_ALIGN_DESCS_MASK;
+	nb_data_desc = (nb_desc - nb_sop_desc) & ENIC_ALIGN_DESCS_MASK;
 
 	rq_sop->max_mbufs_per_pkt = mbufs_per_pkt;
 	rq_data->max_mbufs_per_pkt = mbufs_per_pkt;
 
 	if (mbufs_per_pkt > 1) {
-		min_sop = 64;
+		min_sop = ENIC_RX_BURST_MAX;
 		max_sop = ((enic->config.rq_desc_count /
-			    (mbufs_per_pkt - 1)) & ~0x1F);
+			    (mbufs_per_pkt - 1)) & ENIC_ALIGN_DESCS_MASK);
 		min_data = min_sop * (mbufs_per_pkt - 1);
 		max_data = enic->config.rq_desc_count;
 	} else {
-		min_sop = 64;
+		min_sop = ENIC_RX_BURST_MAX;
 		max_sop = enic->config.rq_desc_count;
 		min_data = 0;
 		max_data = 0;
@@ -827,10 +935,21 @@ int enic_alloc_rq(struct enic *enic, uint16_t queue_idx,
 			goto err_free_sop_mbuf;
 	}
 
+	rq_sop->free_mbufs = (struct rte_mbuf **)
+		rte_zmalloc_socket("rq->free_mbufs",
+				   sizeof(struct rte_mbuf *) *
+				   ENIC_RX_BURST_MAX,
+				   RTE_CACHE_LINE_SIZE, rq_sop->socket_id);
+	if (rq_sop->free_mbufs == NULL)
+		goto err_free_data_mbuf;
+	rq_sop->num_free_mbufs = 0;
+
 	rq_sop->tot_nb_desc = nb_desc; /* squirl away for MTU update function */
 
 	return 0;
 
+err_free_data_mbuf:
+	rte_free(rq_data->mbuf_ring);
 err_free_sop_mbuf:
 	rte_free(rq_sop->mbuf_ring);
 err_free_cq:
@@ -870,19 +989,11 @@ int enic_alloc_wq(struct enic *enic, uint16_t queue_idx,
 	static int instance;
 
 	wq->socket_id = socket_id;
-	if (nb_desc > enic->config.wq_desc_count) {
-		dev_warning(enic,
-			    "WQ %d - number of tx desc in cmd line (%d) "
-			    "is greater than that in the UCSM/CIMC adapter "
-			    "policy.  Applying the value in the adapter "
-			    "policy (%d)\n",
-			    queue_idx, nb_desc, enic->config.wq_desc_count);
-		nb_desc = enic->config.wq_desc_count;
-	} else if (nb_desc != enic->config.wq_desc_count) {
-		dev_info(enic,
-			 "TX Queues - effective number of descs:%d\n",
-			 nb_desc);
-	}
+	/*
+	 * rte_eth_tx_queue_setup() checks min, max, and alignment. So just
+	 * print an info message for diagnostics.
+	 */
+	dev_info(enic, "TX Queues - effective number of descs:%d\n", nb_desc);
 
 	/* Allocate queue resources */
 	err = vnic_wq_alloc(enic->vdev, &enic->wq[queue_idx], queue_idx,
@@ -1490,7 +1601,7 @@ int enic_set_mtu(struct enic *enic, uint16_t new_mtu)
 
 	/* put back the real receive function */
 	rte_mb();
-	eth_dev->rx_pkt_burst = enic_recv_pkts;
+	pick_rx_handler(enic);
 	rte_mb();
 
 	/* restart Rx traffic */
@@ -1571,11 +1682,25 @@ static int enic_dev_init(struct enic *enic)
 
 	LIST_INIT(&enic->flows);
 	rte_spinlock_init(&enic->flows_lock);
+	enic->max_flow_counter = -1;
 
 	/* set up link status checking */
 	vnic_dev_notify_set(enic->vdev, -1); /* No Intr for notify */
 
 	enic->overlay_offload = false;
+	if (enic->disable_overlay && enic->vxlan) {
+		/*
+		 * Explicitly disable overlay offload as the setting is
+		 * sticky, and resetting vNIC does not disable it.
+		 */
+		if (vnic_dev_overlay_offload_ctrl(enic->vdev,
+						  OVERLAY_FEATURE_VXLAN,
+						  OVERLAY_OFFLOAD_DISABLE)) {
+			dev_err(enic, "failed to disable overlay offload\n");
+		} else {
+			dev_info(enic, "Overlay offload is disabled\n");
+		}
+	}
 	if (!enic->disable_overlay && enic->vxlan &&
 	    /* 'VXLAN feature' enables VXLAN, NVGRE, and GENEVE. */
 	    vnic_dev_overlay_offload_ctrl(enic->vdev,
@@ -1585,15 +1710,24 @@ static int enic_dev_init(struct enic *enic)
 			DEV_TX_OFFLOAD_OUTER_IPV4_CKSUM |
 			DEV_TX_OFFLOAD_GENEVE_TNL_TSO |
 			DEV_TX_OFFLOAD_VXLAN_TNL_TSO;
-		/*
-		 * Do not add PKT_TX_OUTER_{IPV4,IPV6} as they are not
-		 * 'offload' flags (i.e. not part of PKT_TX_OFFLOAD_MASK).
-		 */
 		enic->tx_offload_mask |=
+			PKT_TX_OUTER_IPV6 |
+			PKT_TX_OUTER_IPV4 |
 			PKT_TX_OUTER_IP_CKSUM |
 			PKT_TX_TUNNEL_MASK;
 		enic->overlay_offload = true;
+		enic->vxlan_port = ENIC_DEFAULT_VXLAN_PORT;
 		dev_info(enic, "Overlay offload is enabled\n");
+		/*
+		 * Reset the vxlan port to the default, as the NIC firmware
+		 * does not reset it automatically and keeps the old setting.
+		 */
+		if (vnic_dev_overlay_offload_cfg(enic->vdev,
+						 OVERLAY_CFG_VXLAN_PORT_UPDATE,
+						 ENIC_DEFAULT_VXLAN_PORT)) {
+			dev_err(enic, "failed to update vxlan port\n");
+			return -EINVAL;
+		}
 	}
 
 	return 0;
@@ -1629,14 +1763,20 @@ int enic_probe(struct enic *enic)
 		enic_free_consistent);
 
 	/*
-	 * Allocate the consistent memory for stats upfront so both primary and
-	 * secondary processes can dump stats.
+	 * Allocate the consistent memory for stats and counters upfront so
+	 * both primary and secondary processes can access them.
 	 */
 	err = vnic_dev_alloc_stats_mem(enic->vdev);
 	if (err) {
 		dev_err(enic, "Failed to allocate cmd memory, aborting\n");
 		goto err_out_unregister;
 	}
+	err = vnic_dev_alloc_counter_mem(enic->vdev);
+	if (err) {
+		dev_err(enic, "Failed to allocate counter memory, aborting\n");
+		goto err_out_unregister;
+	}
+
 	/* Issue device open to get device in known state */
 	err = enic_dev_open(enic);
 	if (err) {
@@ -1645,8 +1785,10 @@ int enic_probe(struct enic *enic)
 	}
 
 	/* Set ingress vlan rewrite mode before vnic initialization */
+	dev_debug(enic, "Set ig_vlan_rewrite_mode=%u\n",
+		  enic->ig_vlan_rewrite_mode);
 	err = vnic_dev_set_ig_vlan_rewrite_mode(enic->vdev,
-		IG_VLAN_REWRITE_MODE_PASS_THRU);
+		enic->ig_vlan_rewrite_mode);
 	if (err) {
 		dev_err(enic,
 			"Failed to set ingress vlan rewrite mode, aborting.\n");

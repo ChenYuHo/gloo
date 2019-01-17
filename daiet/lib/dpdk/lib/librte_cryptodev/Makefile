@@ -7,7 +7,7 @@ include $(RTE_SDK)/mk/rte.vars.mk
 LIB = librte_cryptodev.a
 
 # library version
-LIBABIVER := 4
+LIBABIVER := 5
 
 # build flags
 CFLAGS += -O3
@@ -23,6 +23,7 @@ SYMLINK-y-include += rte_crypto.h
 SYMLINK-y-include += rte_crypto_sym.h
 SYMLINK-y-include += rte_cryptodev.h
 SYMLINK-y-include += rte_cryptodev_pmd.h
+SYMLINK-y-include += rte_crypto_asym.h
 
 # versioning export map
 EXPORT_MAP := rte_cryptodev_version.map

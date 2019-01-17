@@ -12,6 +12,7 @@
 #include <rte_malloc.h>
 #include <rte_random.h>
 #include <rte_spinlock.h>
+#include <rte_jhash.h>
 
 #include "test.h"
 
@@ -38,8 +39,8 @@ struct {
 	struct rte_hash *h;
 } tbl_multiwriter_test_params;
 
-const uint32_t nb_entries = 16*1024*1024;
-const uint32_t nb_total_tsx_insertion = 15*1024*1024;
+const uint32_t nb_entries = 5*1024*1024;
+const uint32_t nb_total_tsx_insertion = 4.5*1024*1024;
 uint32_t rounded_nb_total_tsx_insertion;
 
 static rte_atomic64_t gcycles;
@@ -108,7 +109,7 @@ test_hash_multiwriter(void)
 	struct rte_hash_parameters hash_params = {
 		.entries = nb_entries,
 		.key_len = sizeof(uint32_t),
-		.hash_func = rte_hash_crc,
+		.hash_func = rte_jhash,
 		.hash_func_init_val = 0,
 		.socket_id = rte_socket_id(),
 	};
@@ -129,6 +130,7 @@ test_hash_multiwriter(void)
 
 	uint32_t duplicated_keys = 0;
 	uint32_t lost_keys = 0;
+	uint32_t count;
 
 	snprintf(name, 32, "test%u", calledCount++);
 	hash_params.name = name;
@@ -194,6 +196,13 @@ test_hash_multiwriter(void)
 	rte_eal_mp_remote_launch(test_hash_multiwriter_worker,
 				 enabled_core_ids, CALL_MASTER);
 	rte_eal_mp_wait_lcore();
+
+	count = rte_hash_count(handle);
+	if (count != rounded_nb_total_tsx_insertion) {
+		printf("rte_hash_count returned wrong value %u, %d\n",
+				rounded_nb_total_tsx_insertion, count);
+		goto err3;
+	}
 
 	while (rte_hash_iterate(handle, &next_key, &next_data, &iter) >= 0) {
 		/* Search for the key in the list of keys added .*/

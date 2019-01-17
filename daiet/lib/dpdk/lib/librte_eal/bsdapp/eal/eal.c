@@ -42,6 +42,7 @@
 #include <rte_devargs.h>
 #include <rte_version.h>
 #include <rte_vfio.h>
+#include <rte_option.h>
 #include <rte_atomic.h>
 #include <malloc_heap.h>
 
@@ -141,25 +142,15 @@ eal_create_runtime_dir(void)
 }
 
 const char *
-eal_get_runtime_dir(void)
+rte_eal_get_runtime_dir(void)
 {
 	return runtime_dir;
 }
 
 /* Return user provided mbuf pool ops name */
-const char * __rte_experimental
+const char *
 rte_eal_mbuf_user_pool_ops(void)
 {
-	return internal_config.user_mbuf_pool_ops_name;
-}
-
-/* Return mbuf pool ops name */
-const char *
-rte_eal_mbuf_default_mempool_ops(void)
-{
-	if (internal_config.user_mbuf_pool_ops_name == NULL)
-		return RTE_MBUF_DEFAULT_MEMPOOL_OPS;
-
 	return internal_config.user_mbuf_pool_ops_name;
 }
 
@@ -286,12 +277,17 @@ eal_proc_type_detect(void)
 	enum rte_proc_type_t ptype = RTE_PROC_PRIMARY;
 	const char *pathname = eal_runtime_config_path();
 
-	/* if we can open the file but not get a write-lock we are a secondary
-	 * process. NOTE: if we get a file handle back, we keep that open
-	 * and don't close it to prevent a race condition between multiple opens */
-	if (((mem_cfg_fd = open(pathname, O_RDWR)) >= 0) &&
-			(fcntl(mem_cfg_fd, F_SETLK, &wr_lock) < 0))
-		ptype = RTE_PROC_SECONDARY;
+	/* if there no shared config, there can be no secondary processes */
+	if (!internal_config.no_shconf) {
+		/* if we can open the file but not get a write-lock we are a
+		 * secondary process. NOTE: if we get a file handle back, we
+		 * keep that open and don't close it to prevent a race condition
+		 * between multiple opens.
+		 */
+		if (((mem_cfg_fd = open(pathname, O_RDWR)) >= 0) &&
+				(fcntl(mem_cfg_fd, F_SETLK, &wr_lock) < 0))
+			ptype = RTE_PROC_SECONDARY;
+	}
 
 	RTE_LOG(INFO, EAL, "Auto-detected process type: %s\n",
 			ptype == RTE_PROC_PRIMARY ? "PRIMARY" : "SECONDARY");
@@ -419,12 +415,20 @@ eal_parse_args(int argc, char **argv)
 	argvopt = argv;
 	optind = 1;
 	optreset = 1;
+	opterr = 0;
 
 	while ((opt = getopt_long(argc, argvopt, eal_short_options,
 				  eal_long_options, &option_index)) != EOF) {
 
-		/* getopt is not happy, stop right now */
+		/*
+		 * getopt didn't recognise the option, lets parse the
+		 * registered options to see if the flag is valid
+		 */
 		if (opt == '?') {
+			ret = rte_option_parse(argv[optind-1]);
+			if (ret == 0)
+				continue;
+
 			eal_usage(prgname);
 			ret = -1;
 			goto out;
@@ -468,6 +472,14 @@ eal_parse_args(int argc, char **argv)
 		}
 	}
 
+	/* create runtime data directory */
+	if (internal_config.no_shconf == 0 &&
+			eal_create_runtime_dir() < 0) {
+		RTE_LOG(ERR, EAL, "Cannot create runtime directory\n");
+		ret = -1;
+		goto out;
+	}
+
 	if (eal_adjust_config(&internal_config) != 0) {
 		ret = -1;
 		goto out;
@@ -498,6 +510,9 @@ static int
 check_socket(const struct rte_memseg_list *msl, void *arg)
 {
 	int *socket_id = arg;
+
+	if (msl->external)
+		return 0;
 
 	if (msl->socket_id == *socket_id && msl->memseg_arr.count != 0)
 		return 1;
@@ -541,9 +556,11 @@ int rte_eal_has_hugepages(void)
 int
 rte_eal_iopl_init(void)
 {
-	static int fd;
+	static int fd = -1;
 
-	fd = open("/dev/io", O_RDWR);
+	if (fd < 0)
+		fd = open("/dev/io", O_RDWR);
+
 	if (fd < 0)
 		return -1;
 	/* keep fd open for iopl */
@@ -600,18 +617,11 @@ rte_eal_init(int argc, char **argv)
 		return -1;
 	}
 
-	/* create runtime data directory */
-	if (eal_create_runtime_dir() < 0) {
-		rte_eal_init_alert("Cannot create runtime directory\n");
-		rte_errno = EACCES;
-		return -1;
-	}
-
 	/* FreeBSD always uses legacy memory model */
 	internal_config.legacy_mem = true;
 
 	if (eal_plugins_init() < 0) {
-		rte_eal_init_alert("Cannot init plugins\n");
+		rte_eal_init_alert("Cannot init plugins");
 		rte_errno = EINVAL;
 		rte_atomic32_clear(&run_once);
 		return -1;
@@ -625,11 +635,16 @@ rte_eal_init(int argc, char **argv)
 
 	rte_config_init();
 
+	if (rte_eal_intr_init() < 0) {
+		rte_eal_init_alert("Cannot init interrupt-handling thread");
+		return -1;
+	}
+
 	/* Put mp channel init before bus scan so that we can init the vdev
 	 * bus through mp channel in the secondary process before the bus scan.
 	 */
 	if (rte_mp_channel_init() < 0) {
-		rte_eal_init_alert("failed to init mp channel\n");
+		rte_eal_init_alert("failed to init mp channel");
 		if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
 			rte_errno = EFAULT;
 			return -1;
@@ -637,14 +652,21 @@ rte_eal_init(int argc, char **argv)
 	}
 
 	if (rte_bus_scan()) {
-		rte_eal_init_alert("Cannot scan the buses for devices\n");
+		rte_eal_init_alert("Cannot scan the buses for devices");
 		rte_errno = ENODEV;
 		rte_atomic32_clear(&run_once);
 		return -1;
 	}
 
-	/* autodetect the iova mapping mode (default is iova_pa) */
-	rte_eal_get_configuration()->iova_mode = rte_bus_get_iommu_class();
+	/* if no EAL option "--iova-mode=<pa|va>", use bus IOVA scheme */
+	if (internal_config.iova_mode == RTE_IOVA_DC) {
+		/* autodetect the IOVA mapping mode (default is RTE_IOVA_PA) */
+		rte_eal_get_configuration()->iova_mode =
+			rte_bus_get_iommu_class();
+	} else {
+		rte_eal_get_configuration()->iova_mode =
+			internal_config.iova_mode;
+	}
 
 	if (internal_config.no_hugetlbfs == 0) {
 		/* rte_config isn't initialized yet */
@@ -684,42 +706,37 @@ rte_eal_init(int argc, char **argv)
 	 * initialize memzones first.
 	 */
 	if (rte_eal_memzone_init() < 0) {
-		rte_eal_init_alert("Cannot init memzone\n");
+		rte_eal_init_alert("Cannot init memzone");
 		rte_errno = ENODEV;
 		return -1;
 	}
 
 	if (rte_eal_memory_init() < 0) {
-		rte_eal_init_alert("Cannot init memory\n");
+		rte_eal_init_alert("Cannot init memory");
 		rte_errno = ENOMEM;
 		return -1;
 	}
 
 	if (rte_eal_malloc_heap_init() < 0) {
-		rte_eal_init_alert("Cannot init malloc heap\n");
+		rte_eal_init_alert("Cannot init malloc heap");
 		rte_errno = ENODEV;
 		return -1;
 	}
 
 	if (rte_eal_tailqs_init() < 0) {
-		rte_eal_init_alert("Cannot init tail queues for objects\n");
+		rte_eal_init_alert("Cannot init tail queues for objects");
 		rte_errno = EFAULT;
 		return -1;
 	}
 
 	if (rte_eal_alarm_init() < 0) {
-		rte_eal_init_alert("Cannot init interrupt-handling thread\n");
+		rte_eal_init_alert("Cannot init interrupt-handling thread");
 		/* rte_eal_alarm_init sets rte_errno on failure. */
 		return -1;
 	}
 
-	if (rte_eal_intr_init() < 0) {
-		rte_eal_init_alert("Cannot init interrupt-handling thread\n");
-		return -1;
-	}
-
 	if (rte_eal_timer_init() < 0) {
-		rte_eal_init_alert("Cannot init HPET or TSC timers\n");
+		rte_eal_init_alert("Cannot init HPET or TSC timers");
 		rte_errno = ENOTSUP;
 		return -1;
 	}
@@ -769,14 +786,14 @@ rte_eal_init(int argc, char **argv)
 	/* initialize services so vdevs register service during bus_probe. */
 	ret = rte_service_init();
 	if (ret) {
-		rte_eal_init_alert("rte_service_init() failed\n");
+		rte_eal_init_alert("rte_service_init() failed");
 		rte_errno = ENOEXEC;
 		return -1;
 	}
 
 	/* Probe all the buses and devices/drivers on them */
 	if (rte_bus_probe()) {
-		rte_eal_init_alert("Cannot probe devices\n");
+		rte_eal_init_alert("Cannot probe devices");
 		rte_errno = ENOTSUP;
 		return -1;
 	}
@@ -791,6 +808,9 @@ rte_eal_init(int argc, char **argv)
 	}
 
 	rte_eal_mcfg_complete();
+
+	/* Call each registered callback, if enabled */
+	rte_option_init();
 
 	return fctret;
 }
@@ -866,21 +886,21 @@ int rte_vfio_clear_group(__rte_unused int vfio_group_fd)
 	return 0;
 }
 
-int __rte_experimental
+int
 rte_vfio_dma_map(uint64_t __rte_unused vaddr, __rte_unused uint64_t iova,
 		  __rte_unused uint64_t len)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_dma_unmap(uint64_t __rte_unused vaddr, uint64_t __rte_unused iova,
 		    __rte_unused uint64_t len)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_get_group_num(__rte_unused const char *sysfs_base,
 		       __rte_unused const char *dev_addr,
 		       __rte_unused int *iommu_group_num)
@@ -888,45 +908,45 @@ rte_vfio_get_group_num(__rte_unused const char *sysfs_base,
 	return -1;
 }
 
-int  __rte_experimental
+int
 rte_vfio_get_container_fd(void)
 {
 	return -1;
 }
 
-int  __rte_experimental
+int
 rte_vfio_get_group_fd(__rte_unused int iommu_group_num)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_container_create(void)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_container_destroy(__rte_unused int container_fd)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_container_group_bind(__rte_unused int container_fd,
 		__rte_unused int iommu_group_num)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_container_group_unbind(__rte_unused int container_fd,
 		__rte_unused int iommu_group_num)
 {
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_container_dma_map(__rte_unused int container_fd,
 			__rte_unused uint64_t vaddr,
 			__rte_unused uint64_t iova,
@@ -935,7 +955,7 @@ rte_vfio_container_dma_map(__rte_unused int container_fd,
 	return -1;
 }
 
-int __rte_experimental
+int
 rte_vfio_container_dma_unmap(__rte_unused int container_fd,
 			__rte_unused uint64_t vaddr,
 			__rte_unused uint64_t iova,

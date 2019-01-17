@@ -83,9 +83,6 @@ struct rte_afu_device {
 #define RTE_DEV_TO_AFU(ptr) \
 	container_of(ptr, struct rte_afu_device, device)
 
-#define RTE_DRV_TO_AFU_CONST(ptr) \
-	container_of(ptr, const struct rte_afu_driver, driver)
-
 /**
  * Initialization function for the driver called during FPGA BUS probing.
  */
@@ -134,9 +131,8 @@ void rte_ifpga_driver_register(struct rte_afu_driver *driver);
 void rte_ifpga_driver_unregister(struct rte_afu_driver *driver);
 
 #define RTE_PMD_REGISTER_AFU(nm, afudrv)\
-RTE_INIT(afudrvinitfn_ ##afudrv);\
 static const char *afudrvinit_ ## nm ## _alias;\
-static void afudrvinitfn_ ##afudrv(void)\
+RTE_INIT(afudrvinitfn_ ##afudrv)\
 {\
 	(afudrv).driver.name = RTE_STR(nm);\
 	(afudrv).driver.alias = afudrvinit_ ## nm ## _alias;\

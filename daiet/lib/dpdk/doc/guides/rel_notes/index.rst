@@ -8,7 +8,8 @@ Release Notes
     :maxdepth: 1
     :numbered:
 
-    rel_description
+    release_18_11
+    release_18_08
     release_18_05
     release_18_02
     release_17_11

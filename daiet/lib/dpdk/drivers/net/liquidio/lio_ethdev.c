@@ -2038,13 +2038,10 @@ lio_eth_dev_uninit(struct rte_eth_dev *eth_dev)
 	PMD_INIT_FUNC_TRACE();
 
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
-		return -EPERM;
+		return 0;
 
 	/* lio_free_sc_buffer_pool */
 	lio_free_sc_buffer_pool(lio_dev);
-
-	rte_free(eth_dev->data->mac_addrs);
-	eth_dev->data->mac_addrs = NULL;
 
 	eth_dev->dev_ops = NULL;
 	eth_dev->rx_pkt_burst = NULL;
@@ -2143,9 +2140,7 @@ RTE_PMD_REGISTER_PCI(net_liovf, rte_liovf_pmd);
 RTE_PMD_REGISTER_PCI_TABLE(net_liovf, pci_id_liovf_map);
 RTE_PMD_REGISTER_KMOD_DEP(net_liovf, "* igb_uio | vfio-pci");
 
-RTE_INIT(lio_init_log);
-static void
-lio_init_log(void)
+RTE_INIT(lio_init_log)
 {
 	lio_logtype_init = rte_log_register("pmd.net.liquidio.init");
 	if (lio_logtype_init >= 0)

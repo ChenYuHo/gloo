@@ -39,8 +39,6 @@ struct sfc_dp_tx_qcreate_info {
 	unsigned int		max_fill_level;
 	/** Minimum number of unused Tx descriptors to do reap */
 	unsigned int		free_thresh;
-	/** Transmit queue configuration flags */
-	unsigned int		flags;
 	/** Offloads enabled on the transmit queue */
 	uint64_t		offloads;
 	/** Tx queue size */
@@ -59,6 +57,11 @@ struct sfc_dp_tx_qcreate_info {
 	volatile void		*mem_bar;
 	/** VI window size shift */
 	unsigned int		vi_window_shift;
+	/**
+	 * Maximum number of bytes into the packet the TCP header can start for
+	 * the hardware to apply TSO packet edits.
+	 */
+	uint16_t		tso_tcp_header_offset_limit;
 };
 
 /**

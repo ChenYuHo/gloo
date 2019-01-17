@@ -70,6 +70,8 @@ SRCS-y += test_memzone.c
 SRCS-y += test_bitmap.c
 SRCS-y += test_reciprocal_division.c
 SRCS-y += test_reciprocal_division_perf.c
+SRCS-y += test_fbarray.c
+SRCS-y += test_external_mem.c
 
 SRCS-y += test_ring.c
 SRCS-y += test_ring_perf.c
@@ -111,8 +113,9 @@ SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash.c
 SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_thash.c
 SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash_perf.c
 SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash_functions.c
-SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash_scaling.c
 SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash_multiwriter.c
+SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash_readwrite.c
+SRCS-$(CONFIG_RTE_LIBRTE_HASH) += test_hash_readwrite_lf.c
 
 SRCS-$(CONFIG_RTE_LIBRTE_LPM) += test_lpm.c
 SRCS-$(CONFIG_RTE_LIBRTE_LPM) += test_lpm_perf.c
@@ -179,6 +182,9 @@ SRCS-$(CONFIG_RTE_LIBRTE_PMD_RING) += test_pmd_ring_perf.c
 
 SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev_blockcipher.c
 SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev.c
+SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev_asym.c
+
+SRCS-$(CONFIG_RTE_LIBRTE_METRICS) += test_metrics.c
 
 ifeq ($(CONFIG_RTE_COMPRESSDEV_TEST),y)
 SRCS-$(CONFIG_RTE_LIBRTE_COMPRESSDEV) += test_compressdev.c
@@ -188,6 +194,7 @@ ifeq ($(CONFIG_RTE_LIBRTE_EVENTDEV),y)
 SRCS-y += test_eventdev.c
 SRCS-y += test_event_ring.c
 SRCS-y += test_event_eth_rx_adapter.c
+SRCS-y += test_event_eth_tx_adapter.c
 SRCS-y += test_event_timer_adapter.c
 SRCS-y += test_event_crypto_adapter.c
 endif
@@ -204,8 +211,6 @@ CFLAGS += -DALLOW_EXPERIMENTAL_API
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
-
-CFLAGS += -D_GNU_SOURCE
 
 LDLIBS += -lm
 ifeq ($(CONFIG_RTE_COMPRESSDEV_TEST),y)

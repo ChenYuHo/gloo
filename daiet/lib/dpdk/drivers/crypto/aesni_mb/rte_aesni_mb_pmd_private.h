@@ -10,31 +10,20 @@
 #define CRYPTODEV_NAME_AESNI_MB_PMD	crypto_aesni_mb
 /**< AES-NI Multi buffer PMD device name */
 
-#define MB_LOG_ERR(fmt, args...) \
-	RTE_LOG(ERR, CRYPTODEV, "[%s] %s() line %u: " fmt "\n",  \
-			RTE_STR(CRYPTODEV_NAME_AESNI_MB_PMD), \
-			__func__, __LINE__, ## args)
+/** AESNI_MB PMD LOGTYPE DRIVER */
+int aesni_mb_logtype_driver;
 
-#ifdef RTE_LIBRTE_AESNI_MB_DEBUG
-#define MB_LOG_INFO(fmt, args...) \
-	RTE_LOG(INFO, CRYPTODEV, "[%s] %s() line %u: " fmt "\n", \
-			CRYPTODEV_NAME_AESNI_MB_PMD, \
-			__func__, __LINE__, ## args)
+#define AESNI_MB_LOG(level, fmt, ...)  \
+	rte_log(RTE_LOG_ ## level, aesni_mb_logtype_driver,  \
+			"%s() line %u: " fmt "\n", __func__, __LINE__,  \
+					## __VA_ARGS__)
 
-#define MB_LOG_DBG(fmt, args...) \
-	RTE_LOG(DEBUG, CRYPTODEV, "[%s] %s() line %u: " fmt "\n", \
-			CRYPTODEV_NAME_AESNI_MB_PMD, \
-			__func__, __LINE__, ## args)
-#else
-#define MB_LOG_INFO(fmt, args...)
-#define MB_LOG_DBG(fmt, args...)
-#endif
 
 #define HMAC_IPAD_VALUE			(0x36)
 #define HMAC_OPAD_VALUE			(0x5C)
 
-/* Maximum length for digest (SHA-512 truncated needs 32 bytes) */
-#define DIGEST_LENGTH_MAX 32
+/* Maximum length for digest */
+#define DIGEST_LENGTH_MAX 64
 static const unsigned auth_blocksize[] = {
 		[MD5]		= 64,
 		[SHA1]		= 64,
@@ -66,7 +55,7 @@ static const unsigned auth_truncated_digest_byte_lengths[] = {
 		[SHA_384]	= 24,
 		[SHA_512]	= 32,
 		[AES_XCBC]	= 12,
-		[AES_CMAC]	= 16,
+		[AES_CMAC]	= 12,
 		[AES_CCM]	= 8,
 		[NULL_HASH]	= 0
 };
@@ -93,11 +82,13 @@ static const unsigned auth_digest_byte_lengths[] = {
 		[SHA_512]	= 64,
 		[AES_XCBC]	= 16,
 		[AES_CMAC]	= 16,
+		[AES_GMAC]	= 12,
 		[NULL_HASH]		= 0
 };
 
 /**
- * Get the output digest size in bytes for a specified authentication algorithm
+ * Get the full digest size in bytes for a specified authentication algorithm
+ * (if available in the Multi-buffer library)
  *
  * @Note: this function will not return a valid value for a non-valid
  * authentication algorithm
@@ -124,8 +115,6 @@ struct aesni_mb_private {
 	/**< CPU vector instruction set mode */
 	unsigned max_nb_queue_pairs;
 	/**< Max number of queue pairs supported by device */
-	unsigned max_nb_sessions;
-	/**< Max number of sessions supported by device */
 };
 
 /** AESNI Multi buffer queue pair */
@@ -136,7 +125,7 @@ struct aesni_mb_qp {
 	/**< Unique Queue Pair Name */
 	const struct aesni_mb_op_fns *op_fns;
 	/**< Vector mode dependent pointer table of the multi-buffer APIs */
-	MB_MGR mb_mgr;
+	MB_MGR *mb_mgr;
 	/**< Multi-buffer instance */
 	struct rte_ring *ingress_queue;
        /**< Ring for placing operations ready for processing */
@@ -173,12 +162,20 @@ struct aesni_mb_session {
 
 		uint64_t key_length_in_bytes;
 
-		struct {
-			uint32_t encode[60] __rte_aligned(16);
-			/**< encode key */
-			uint32_t decode[60] __rte_aligned(16);
-			/**< decode key */
-		} expanded_aes_keys;
+		union {
+			struct {
+				uint32_t encode[60] __rte_aligned(16);
+				/**< encode key */
+				uint32_t decode[60] __rte_aligned(16);
+				/**< decode key */
+			} expanded_aes_keys;
+			struct {
+				const void *ks_ptr[3];
+				uint64_t key[3][16];
+			} exp_3des_keys;
+
+			struct gcm_key_data gcm_key;
+		};
 		/**< Expanded AES keys - Allocating space to
 		 * contain the maximum expanded key size which
 		 * is 240 bytes for 256 bit AES, calculate by:
@@ -224,8 +221,10 @@ struct aesni_mb_session {
 			} cmac;
 			/**< Expanded XCBC authentication keys */
 		};
-	/** digest size */
-	uint16_t digest_len;
+	/** Generated digest size by the Multi-buffer library */
+	uint16_t gen_digest_len;
+	/** Requested digest size from Cryptodev */
+	uint16_t req_digest_len;
 
 	} auth;
 	struct {

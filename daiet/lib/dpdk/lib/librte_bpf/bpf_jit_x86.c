@@ -113,20 +113,6 @@ union bpf_jit_imm {
 	uint8_t u8[4];
 };
 
-static size_t
-bpf_size(uint32_t bpf_op_sz)
-{
-	if (bpf_op_sz == BPF_B)
-		return sizeof(uint8_t);
-	else if (bpf_op_sz == BPF_H)
-		return sizeof(uint16_t);
-	else if (bpf_op_sz == BPF_W)
-		return sizeof(uint32_t);
-	else if (bpf_op_sz == EBPF_DW)
-		return sizeof(uint64_t);
-	return 0;
-}
-
 /*
  * In many cases for imm8 we can produce shorter code.
  */
@@ -221,6 +207,19 @@ emit_sib(struct bpf_jit_state *st, uint32_t scale, uint32_t idx, uint32_t base)
 	v = scale << 6 | (idx & 7) << 3 | (base & 7);
 	emit_bytes(st, &v, sizeof(v));
 }
+
+/*
+ * emit OPCODE+REGIDX byte
+ */
+static void
+emit_opcode(struct bpf_jit_state *st, uint8_t ops, uint32_t reg)
+{
+	uint8_t v;
+
+	v = ops | (reg & 7);
+	emit_bytes(st, &v, sizeof(v));
+}
+
 
 /*
  * emit xchg %<sreg>, %<dreg>
@@ -486,19 +485,18 @@ static void
 emit_ld_imm64(struct bpf_jit_state *st, uint32_t dreg, uint32_t imm0,
 	uint32_t imm1)
 {
+	uint32_t op;
+
 	const uint8_t ops = 0xB8;
 
-	if (imm1 == 0) {
-		emit_mov_imm(st, EBPF_ALU64 | EBPF_MOV | BPF_K, dreg, imm0);
-		return;
-	}
+	op = (imm1 == 0) ? BPF_ALU : EBPF_ALU64;
 
-	emit_rex(st, EBPF_ALU64, 0, dreg);
-	emit_bytes(st, &ops, sizeof(ops));
-	emit_modregrm(st, MOD_DIRECT, 0, dreg);
+	emit_rex(st, op, 0, dreg);
+	emit_opcode(st, ops, dreg);
 
 	emit_imm(st, imm0, sizeof(imm0));
-	emit_imm(st, imm1, sizeof(imm1));
+	if (imm1 != 0)
+		emit_imm(st, imm1, sizeof(imm1));
 }
 
 /*
@@ -1294,7 +1292,8 @@ emit(struct bpf_jit_state *st, const struct rte_bpf *bpf)
 			break;
 		/* call instructions */
 		case (BPF_JMP | EBPF_CALL):
-			emit_call(st, (uintptr_t)bpf->prm.xsym[ins->imm].func);
+			emit_call(st,
+				(uintptr_t)bpf->prm.xsym[ins->imm].func.val);
 			break;
 		/* return instruction */
 		case (BPF_JMP | EBPF_EXIT):

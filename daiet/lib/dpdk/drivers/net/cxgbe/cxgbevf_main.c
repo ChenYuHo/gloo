@@ -11,6 +11,7 @@
 #include "t4_regs.h"
 #include "t4_msg.h"
 #include "cxgbe.h"
+#include "mps_tcam.h"
 
 /*
  * Figure out how many Ports and Queue Sets we can support.  This depends on
@@ -20,7 +21,7 @@
 static void size_nports_qsets(struct adapter *adapter)
 {
 	struct vf_resources *vfres = &adapter->params.vfres;
-	unsigned int ethqsets, pmask_nports;
+	unsigned int pmask_nports;
 
 	/*
 	 * The number of "ports" which we support is equal to the number of
@@ -49,23 +50,7 @@ static void size_nports_qsets(struct adapter *adapter)
 		adapter->params.nports = pmask_nports;
 	}
 
-	/*
-	 * We need to reserve an Ingress Queue for the Asynchronous Firmware
-	 * Event Queue.
-	 *
-	 * For each Queue Set, we'll need the ability to allocate two Egress
-	 * Contexts -- one for the Ingress Queue Free List and one for the TX
-	 * Ethernet Queue.
-	 */
-	ethqsets = vfres->niqflint - 1;
-	if (vfres->nethctrl != ethqsets)
-		ethqsets = min(vfres->nethctrl, ethqsets);
-	if (vfres->neq < ethqsets * 2)
-		ethqsets = vfres->neq / 2;
-	if (ethqsets > MAX_ETH_QSETS)
-		ethqsets = MAX_ETH_QSETS;
-	adapter->sge.max_ethqsets = ethqsets;
-
+	configure_max_ethqsets(adapter);
 	if (adapter->sge.max_ethqsets < adapter->params.nports) {
 		dev_warn(adapter->pdev_dev, "only using %d of %d available"
 			 " virtual interfaces (too few Queue Sets)\n",
@@ -287,6 +272,11 @@ allocate_mac:
 	print_adapter_info(adapter);
 	print_port_info(adapter);
 
+	adapter->mpstcam = t4_init_mpstcam(adapter);
+	if (!adapter->mpstcam)
+		dev_warn(adapter,
+			 "VF could not allocate mps tcam table. Continuing\n");
+
 	err = init_rss(adapter);
 	if (err)
 		goto out_free;
@@ -298,14 +288,7 @@ out_free:
 		if (pi->viid != 0)
 			t4_free_vi(adapter, adapter->mbox, adapter->pf,
 				   0, pi->viid);
-		/* Skip first port since it'll be de-allocated by DPDK */
-		if (i == 0)
-			continue;
-		if (pi->eth_dev) {
-			if (pi->eth_dev->data->dev_private)
-				rte_free(pi->eth_dev->data->dev_private);
-			rte_eth_dev_release_port(pi->eth_dev);
-		}
+		rte_eth_dev_release_port(pi->eth_dev);
 	}
 	return -err;
 }

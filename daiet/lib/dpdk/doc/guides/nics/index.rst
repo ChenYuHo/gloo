@@ -12,6 +12,7 @@ Network Interface Controller Drivers
     features
     build_and_test
     ark
+    atlantic
     avp
     axgbe
     bnx2x
@@ -21,10 +22,11 @@ Network Interface Controller Drivers
     dpaa2
     e1000em
     ena
+    enetc
     enic
     fm10k
     i40e
-    ifcvf
+    ifc
     igb
     ixgbe
     intel_vf
@@ -32,11 +34,14 @@ Network Interface Controller Drivers
     liquidio
     mlx4
     mlx5
+    mvneta
     mvpp2
+    netvsc
     nfp
     octeontx
     qede
     sfc_efx
+    softnic
     szedata2
     tap
     thunderx
@@ -46,23 +51,3 @@ Network Interface Controller Drivers
     vmxnet3
     pcap_ring
     fail_safe
-
-**Figures**
-
-:numref:`figure_single_port_nic` :ref:`figure_single_port_nic`
-
-:numref:`figure_perf_benchmark` :ref:`figure_perf_benchmark`
-
-:numref:`figure_fast_pkt_proc` :ref:`figure_fast_pkt_proc`
-
-:numref:`figure_inter_vm_comms` :ref:`figure_inter_vm_comms`
-
-:numref:`figure_host_vm_comms` :ref:`figure_host_vm_comms`
-
-:numref:`figure_host_vm_comms_qemu` :ref:`figure_host_vm_comms_qemu`
-
-:numref:`figure_vmxnet3_int` :ref:`figure_vmxnet3_int`
-
-:numref:`figure_vswitch_vm` :ref:`figure_vswitch_vm`
-
-:numref:`figure_vm_vm_comms` :ref:`figure_vm_vm_comms`

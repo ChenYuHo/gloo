@@ -134,7 +134,7 @@ namespace daiet {
         LOG_DEBUG("Initializing port " + to_string(dpdk_par.portid) + "...");
 
         rxm.split_hdr_size = 0;
-        rxm.ignore_offload_bitfield = 1;
+        //rxm.ignore_offload_bitfield = 1;
 
         if (dev_info.rx_offload_capa & DEV_RX_OFFLOAD_IPV4_CKSUM) {
             rxm.offloads |= DEV_RX_OFFLOAD_IPV4_CKSUM;
@@ -146,10 +146,10 @@ namespace daiet {
             LOG_DEBUG("RX UDP checksum offload enabled");
         }
 
-        if (dev_info.rx_offload_capa & DEV_RX_OFFLOAD_CRC_STRIP) {
-            rxm.offloads |= DEV_RX_OFFLOAD_CRC_STRIP;
-            LOG_DEBUG("RX CRC stripped by the hw");
-        }
+        //if (dev_info.rx_offload_capa & DEV_RX_OFFLOAD_CRC_STRIP) {
+        //    rxm.offloads |= DEV_RX_OFFLOAD_CRC_STRIP;
+        //    LOG_DEBUG("RX CRC stripped by the hw");
+        //}
 
         txm.mq_mode = ETH_MQ_TX_NONE;
 
@@ -215,7 +215,7 @@ namespace daiet {
 
         // init TX queue on each port
         tx_conf = dev_info.default_txconf;
-        tx_conf.txq_flags = ETH_TXQ_FLAGS_IGNORE;
+        //tx_conf.txq_flags = ETH_TXQ_FLAGS_IGNORE;
         tx_conf.offloads = port_conf.txmode.offloads;
         //tx_conf.tx_thresh.pthresh = 36;
         //tx_conf.tx_thresh.hthresh = 0;

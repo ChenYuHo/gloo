@@ -306,8 +306,6 @@ dpaa_eth_sg_to_mbuf(const struct qm_fd *fd, uint32_t ifid)
 	int i = 0;
 	uint8_t fd_offset = fd->offset;
 
-	DPAA_DP_LOG(DEBUG, "Received an SG frame");
-
 	vaddr = DPAA_MEMPOOL_PTOV(bp_info, qm_fd_addr(fd));
 	if (!vaddr) {
 		DPAA_PMD_ERR("unable to convert physical address");
@@ -349,6 +347,8 @@ dpaa_eth_sg_to_mbuf(const struct qm_fd *fd, uint32_t ifid)
 		}
 		prev_seg = cur_seg;
 	}
+	DPAA_DP_LOG(DEBUG, "Received an SG frame len =%d, num_sg =%d",
+			first_seg->pkt_len, first_seg->nb_segs);
 
 	dpaa_eth_packet_info(first_seg, vaddr);
 	rte_pktmbuf_free_seg(temp);
@@ -367,22 +367,21 @@ dpaa_eth_fd_to_mbuf(const struct qm_fd *fd, uint32_t ifid)
 	uint16_t offset;
 	uint32_t length;
 
-	DPAA_DP_LOG(DEBUG, " FD--->MBUF");
-
 	if (unlikely(format == qm_fd_sg))
 		return dpaa_eth_sg_to_mbuf(fd, ifid);
-
-	ptr = DPAA_MEMPOOL_PTOV(bp_info, qm_fd_addr(fd));
-
-	rte_prefetch0((void *)((uint8_t *)ptr + DEFAULT_RX_ICEOF));
 
 	offset = (fd->opaque & DPAA_FD_OFFSET_MASK) >> DPAA_FD_OFFSET_SHIFT;
 	length = fd->opaque & DPAA_FD_LENGTH_MASK;
 
+	DPAA_DP_LOG(DEBUG, " FD--->MBUF off %d len = %d", offset, length);
+
 	/* Ignoring case when format != qm_fd_contig */
 	dpaa_display_frame(fd);
+	ptr = DPAA_MEMPOOL_PTOV(bp_info, qm_fd_addr(fd));
 
 	mbuf = (struct rte_mbuf *)((char *)ptr - bp_info->meta_data_size);
+	/* Prefetch the Parse results and packet data to L1 */
+	rte_prefetch0((void *)((uint8_t *)ptr + DEFAULT_RX_ICEOF));
 
 	mbuf->data_off = offset;
 	mbuf->data_len = length;
@@ -398,8 +397,9 @@ dpaa_eth_fd_to_mbuf(const struct qm_fd *fd, uint32_t ifid)
 	return mbuf;
 }
 
+/* Specific for LS1043 */
 void
-dpaa_rx_cb(struct qman_fq **fq, struct qm_dqrr_entry **dqrr,
+dpaa_rx_cb_no_prefetch(struct qman_fq **fq, struct qm_dqrr_entry **dqrr,
 	   void **bufs, int num_bufs)
 {
 	struct rte_mbuf *mbuf;
@@ -411,17 +411,13 @@ dpaa_rx_cb(struct qman_fq **fq, struct qm_dqrr_entry **dqrr,
 	uint32_t length;
 	uint8_t format;
 
-	if (dpaa_svr_family != SVR_LS1046A_FAMILY) {
-		bp_info = DPAA_BPID_TO_POOL_INFO(dqrr[0]->fd.bpid);
-		ptr = rte_dpaa_mem_ptov(qm_fd_addr(&dqrr[0]->fd));
-		rte_prefetch0((void *)((uint8_t *)ptr + DEFAULT_RX_ICEOF));
-		bufs[0] = (struct rte_mbuf *)((char *)ptr -
-				bp_info->meta_data_size);
-	}
+	bp_info = DPAA_BPID_TO_POOL_INFO(dqrr[0]->fd.bpid);
+	ptr = rte_dpaa_mem_ptov(qm_fd_addr(&dqrr[0]->fd));
+	rte_prefetch0((void *)((uint8_t *)ptr + DEFAULT_RX_ICEOF));
+	bufs[0] = (struct rte_mbuf *)((char *)ptr - bp_info->meta_data_size);
 
 	for (i = 0; i < num_bufs; i++) {
-		if (dpaa_svr_family != SVR_LS1046A_FAMILY &&
-		    i < num_bufs - 1) {
+		if (i < num_bufs - 1) {
 			bp_info = DPAA_BPID_TO_POOL_INFO(dqrr[i + 1]->fd.bpid);
 			ptr = rte_dpaa_mem_ptov(qm_fd_addr(&dqrr[i + 1]->fd));
 			rte_prefetch0((void *)((uint8_t *)ptr +
@@ -431,7 +427,47 @@ dpaa_rx_cb(struct qman_fq **fq, struct qm_dqrr_entry **dqrr,
 		}
 
 		fd = &dqrr[i]->fd;
-		dpaa_intf = fq[i]->dpaa_intf;
+		dpaa_intf = fq[0]->dpaa_intf;
+
+		format = (fd->opaque & DPAA_FD_FORMAT_MASK) >>
+				DPAA_FD_FORMAT_SHIFT;
+		if (unlikely(format == qm_fd_sg)) {
+			bufs[i] = dpaa_eth_sg_to_mbuf(fd, dpaa_intf->ifid);
+			continue;
+		}
+
+		offset = (fd->opaque & DPAA_FD_OFFSET_MASK) >>
+				DPAA_FD_OFFSET_SHIFT;
+		length = fd->opaque & DPAA_FD_LENGTH_MASK;
+
+		mbuf = bufs[i];
+		mbuf->data_off = offset;
+		mbuf->data_len = length;
+		mbuf->pkt_len = length;
+		mbuf->port = dpaa_intf->ifid;
+
+		mbuf->nb_segs = 1;
+		mbuf->ol_flags = 0;
+		mbuf->next = NULL;
+		rte_mbuf_refcnt_set(mbuf, 1);
+		dpaa_eth_packet_info(mbuf, mbuf->buf_addr);
+	}
+}
+
+void
+dpaa_rx_cb(struct qman_fq **fq, struct qm_dqrr_entry **dqrr,
+	   void **bufs, int num_bufs)
+{
+	struct rte_mbuf *mbuf;
+	const struct qm_fd *fd;
+	struct dpaa_if *dpaa_intf;
+	uint16_t offset, i;
+	uint32_t length;
+	uint8_t format;
+
+	for (i = 0; i < num_bufs; i++) {
+		fd = &dqrr[i]->fd;
+		dpaa_intf = fq[0]->dpaa_intf;
 
 		format = (fd->opaque & DPAA_FD_FORMAT_MASK) >>
 				DPAA_FD_FORMAT_SHIFT;
@@ -468,8 +504,7 @@ void dpaa_rx_cb_prepare(struct qm_dqrr_entry *dq, void **bufs)
 	 * So we prefetch the annoation beforehand, so that it is available
 	 * in cache when accessed.
 	 */
-	if (dpaa_svr_family == SVR_LS1046A_FAMILY)
-		rte_prefetch0((void *)((uint8_t *)ptr + DEFAULT_RX_ICEOF));
+	rte_prefetch0((void *)((uint8_t *)ptr + DEFAULT_RX_ICEOF));
 
 	*bufs = (struct rte_mbuf *)((char *)ptr - bp_info->meta_data_size);
 }
@@ -560,7 +595,8 @@ uint16_t dpaa_eth_queue_rx(void *q,
 	struct qman_fq *fq = q;
 	struct qm_dqrr_entry *dq;
 	uint32_t num_rx = 0, ifid = ((struct dpaa_if *)fq->dpaa_intf)->ifid;
-	int ret;
+	int num_rx_bufs, ret;
+	uint32_t vdqcr_flags = 0;
 
 	if (likely(fq->is_static))
 		return dpaa_eth_queue_portal_rx(fq, bufs, nb_bufs);
@@ -573,8 +609,19 @@ uint16_t dpaa_eth_queue_rx(void *q,
 		}
 	}
 
-	ret = qman_set_vdq(fq, (nb_bufs > DPAA_MAX_DEQUEUE_NUM_FRAMES) ?
-				DPAA_MAX_DEQUEUE_NUM_FRAMES : nb_bufs);
+	/* Until request for four buffers, we provide exact number of buffers.
+	 * Otherwise we do not set the QM_VDQCR_EXACT flag.
+	 * Not setting QM_VDQCR_EXACT flag can provide two more buffers than
+	 * requested, so we request two less in this case.
+	 */
+	if (nb_bufs < 4) {
+		vdqcr_flags = QM_VDQCR_EXACT;
+		num_rx_bufs = nb_bufs;
+	} else {
+		num_rx_bufs = nb_bufs > DPAA_MAX_DEQUEUE_NUM_FRAMES ?
+			(DPAA_MAX_DEQUEUE_NUM_FRAMES - 2) : (nb_bufs - 2);
+	}
+	ret = qman_set_vdq(fq, num_rx_bufs, vdqcr_flags);
 	if (ret)
 		return 0;
 
@@ -858,6 +905,19 @@ dpaa_eth_queue_tx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 				DPAA_TX_BURST_SIZE : nb_bufs;
 		for (loop = 0; loop < frames_to_send; loop++) {
 			mbuf = *(bufs++);
+			seqn = mbuf->seqn;
+			if (seqn != DPAA_INVALID_MBUF_SEQN) {
+				index = seqn - 1;
+				if (DPAA_PER_LCORE_DQRR_HELD & (1 << index)) {
+					flags[loop] =
+					   ((index & QM_EQCR_DCA_IDXMASK) << 8);
+					flags[loop] |= QMAN_ENQUEUE_FLAG_DCA;
+					DPAA_PER_LCORE_DQRR_SIZE--;
+					DPAA_PER_LCORE_DQRR_HELD &=
+								~(1 << index);
+				}
+			}
+
 			if (likely(RTE_MBUF_DIRECT(mbuf))) {
 				mp = mbuf->pool;
 				bp_info = DPAA_MEMPOOL_TO_POOL_INFO(mp);
@@ -902,18 +962,6 @@ dpaa_eth_queue_tx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 					frames_to_send = loop;
 					nb_bufs = loop;
 					goto send_pkts;
-				}
-			}
-			seqn = mbuf->seqn;
-			if (seqn != DPAA_INVALID_MBUF_SEQN) {
-				index = seqn - 1;
-				if (DPAA_PER_LCORE_DQRR_HELD & (1 << index)) {
-					flags[loop] =
-					   ((index & QM_EQCR_DCA_IDXMASK) << 8);
-					flags[loop] |= QMAN_ENQUEUE_FLAG_DCA;
-					DPAA_PER_LCORE_DQRR_SIZE--;
-					DPAA_PER_LCORE_DQRR_HELD &=
-								~(1 << index);
 				}
 			}
 		}

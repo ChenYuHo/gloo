@@ -99,25 +99,44 @@ static unsigned optimize_object_size(unsigned obj_size)
 	return new_obj_size * RTE_MEMPOOL_ALIGN;
 }
 
+struct pagesz_walk_arg {
+	int socket_id;
+	size_t min;
+};
+
 static int
 find_min_pagesz(const struct rte_memseg_list *msl, void *arg)
 {
-	size_t *min = arg;
+	struct pagesz_walk_arg *wa = arg;
+	bool valid;
 
-	if (msl->page_sz < *min)
-		*min = msl->page_sz;
+	/*
+	 * we need to only look at page sizes available for a particular socket
+	 * ID.  so, we either need an exact match on socket ID (can match both
+	 * native and external memory), or, if SOCKET_ID_ANY was specified as a
+	 * socket ID argument, we must only look at native memory and ignore any
+	 * page sizes associated with external memory.
+	 */
+	valid = msl->socket_id == wa->socket_id;
+	valid |= wa->socket_id == SOCKET_ID_ANY && msl->external == 0;
+
+	if (valid && msl->page_sz < wa->min)
+		wa->min = msl->page_sz;
 
 	return 0;
 }
 
 static size_t
-get_min_page_size(void)
+get_min_page_size(int socket_id)
 {
-	size_t min_pagesz = SIZE_MAX;
+	struct pagesz_walk_arg wa;
 
-	rte_memseg_list_walk(find_min_pagesz, &min_pagesz);
+	wa.min = SIZE_MAX;
+	wa.socket_id = socket_id;
 
-	return min_pagesz == SIZE_MAX ? (size_t) getpagesize() : min_pagesz;
+	rte_memseg_list_walk(find_min_pagesz, &wa);
+
+	return wa.min == SIZE_MAX ? (size_t) getpagesize() : wa.min;
 }
 
 
@@ -223,93 +242,6 @@ rte_mempool_calc_obj_size(uint32_t elt_size, uint32_t flags,
 	sz->total_size = sz->header_size + sz->elt_size + sz->trailer_size;
 
 	return sz->total_size;
-}
-
-
-/*
- * Internal function to calculate required memory chunk size shared
- * by default implementation of the corresponding callback and
- * deprecated external function.
- */
-size_t
-rte_mempool_calc_mem_size_helper(uint32_t elt_num, size_t total_elt_sz,
-				 uint32_t pg_shift)
-{
-	size_t obj_per_page, pg_num, pg_sz;
-
-	if (total_elt_sz == 0)
-		return 0;
-
-	if (pg_shift == 0)
-		return total_elt_sz * elt_num;
-
-	pg_sz = (size_t)1 << pg_shift;
-	obj_per_page = pg_sz / total_elt_sz;
-	if (obj_per_page == 0)
-		return RTE_ALIGN_CEIL(total_elt_sz, pg_sz) * elt_num;
-
-	pg_num = (elt_num + obj_per_page - 1) / obj_per_page;
-	return pg_num << pg_shift;
-}
-
-/*
- * Calculate maximum amount of memory required to store given number of objects.
- */
-size_t
-rte_mempool_xmem_size(uint32_t elt_num, size_t total_elt_sz, uint32_t pg_shift,
-		      __rte_unused unsigned int flags)
-{
-	return rte_mempool_calc_mem_size_helper(elt_num, total_elt_sz,
-						pg_shift);
-}
-
-/*
- * Calculate how much memory would be actually required with the
- * given memory footprint to store required number of elements.
- */
-ssize_t
-rte_mempool_xmem_usage(__rte_unused void *vaddr, uint32_t elt_num,
-	size_t total_elt_sz, const rte_iova_t iova[], uint32_t pg_num,
-	uint32_t pg_shift, __rte_unused unsigned int flags)
-{
-	uint32_t elt_cnt = 0;
-	rte_iova_t start, end;
-	uint32_t iova_idx;
-	size_t pg_sz = (size_t)1 << pg_shift;
-
-	/* if iova is NULL, assume contiguous memory */
-	if (iova == NULL) {
-		start = 0;
-		end = pg_sz * pg_num;
-		iova_idx = pg_num;
-	} else {
-		start = iova[0];
-		end = iova[0] + pg_sz;
-		iova_idx = 1;
-	}
-	while (elt_cnt < elt_num) {
-
-		if (end - start >= total_elt_sz) {
-			/* enough contiguous memory, add an object */
-			start += total_elt_sz;
-			elt_cnt++;
-		} else if (iova_idx < pg_num) {
-			/* no room to store one obj, add a page */
-			if (end == iova[iova_idx]) {
-				end += pg_sz;
-			} else {
-				start = iova[iova_idx];
-				end = iova[iova_idx] + pg_sz;
-			}
-			iova_idx++;
-
-		} else {
-			/* no more page, return how many elements fit */
-			return -(size_t)elt_cnt;
-		}
-	}
-
-	return (size_t)iova_idx << pg_shift;
 }
 
 /* free a memchunk allocated with rte_memzone_reserve() */
@@ -423,63 +355,6 @@ fail:
 	return ret;
 }
 
-int
-rte_mempool_populate_phys(struct rte_mempool *mp, char *vaddr,
-	phys_addr_t paddr, size_t len, rte_mempool_memchunk_free_cb_t *free_cb,
-	void *opaque)
-{
-	return rte_mempool_populate_iova(mp, vaddr, paddr, len, free_cb, opaque);
-}
-
-/* Add objects in the pool, using a table of physical pages. Return the
- * number of objects added, or a negative value on error.
- */
-int
-rte_mempool_populate_iova_tab(struct rte_mempool *mp, char *vaddr,
-	const rte_iova_t iova[], uint32_t pg_num, uint32_t pg_shift,
-	rte_mempool_memchunk_free_cb_t *free_cb, void *opaque)
-{
-	uint32_t i, n;
-	int ret, cnt = 0;
-	size_t pg_sz = (size_t)1 << pg_shift;
-
-	/* mempool must not be populated */
-	if (mp->nb_mem_chunks != 0)
-		return -EEXIST;
-
-	if (mp->flags & MEMPOOL_F_NO_IOVA_CONTIG)
-		return rte_mempool_populate_iova(mp, vaddr, RTE_BAD_IOVA,
-			pg_num * pg_sz, free_cb, opaque);
-
-	for (i = 0; i < pg_num && mp->populated_size < mp->size; i += n) {
-
-		/* populate with the largest group of contiguous pages */
-		for (n = 1; (i + n) < pg_num &&
-			     iova[i + n - 1] + pg_sz == iova[i + n]; n++)
-			;
-
-		ret = rte_mempool_populate_iova(mp, vaddr + i * pg_sz,
-			iova[i], n * pg_sz, free_cb, opaque);
-		if (ret < 0) {
-			rte_mempool_free_memchunks(mp);
-			return ret;
-		}
-		/* no need to call the free callback for next chunks */
-		free_cb = NULL;
-		cnt += ret;
-	}
-	return cnt;
-}
-
-int
-rte_mempool_populate_phys_tab(struct rte_mempool *mp, char *vaddr,
-	const phys_addr_t paddr[], uint32_t pg_num, uint32_t pg_shift,
-	rte_mempool_memchunk_free_cb_t *free_cb, void *opaque)
-{
-	return rte_mempool_populate_iova_tab(mp, vaddr, paddr, pg_num, pg_shift,
-			free_cb, opaque);
-}
-
 /* Populate the mempool with a virtual area. Return the number of
  * objects added, or a negative value on error.
  */
@@ -553,11 +428,17 @@ rte_mempool_populate_default(struct rte_mempool *mp)
 	rte_iova_t iova;
 	unsigned mz_id, n;
 	int ret;
-	bool no_contig, try_contig, no_pageshift;
+	bool no_contig, try_contig, no_pageshift, external;
 
 	ret = mempool_ops_alloc_once(mp);
 	if (ret != 0)
 		return ret;
+
+	/* check if we can retrieve a valid socket ID */
+	ret = rte_malloc_heap_socket_is_external(mp->socket_id);
+	if (ret < 0)
+		return -EINVAL;
+	external = ret;
 
 	/* mempool must not be populated */
 	if (mp->nb_mem_chunks != 0)
@@ -606,15 +487,25 @@ rte_mempool_populate_default(struct rte_mempool *mp)
 	 * in one contiguous chunk as well (otherwise we might end up wasting a
 	 * 1G page on a 10MB memzone). If we fail to get enough contiguous
 	 * memory, then we'll go and reserve space page-by-page.
+	 *
+	 * We also have to take into account the fact that memory that we're
+	 * going to allocate from can belong to an externally allocated memory
+	 * area, in which case the assumption of IOVA as VA mode being
+	 * synonymous with IOVA contiguousness will not hold. We should also try
+	 * to go for contiguous memory even if we're in no-huge mode, because
+	 * external memory may in fact be IOVA-contiguous.
 	 */
-	no_pageshift = no_contig || rte_eal_iova_mode() == RTE_IOVA_VA;
-	try_contig = !no_contig && !no_pageshift && rte_eal_has_hugepages();
+	external = rte_malloc_heap_socket_is_external(mp->socket_id) == 1;
+	no_pageshift = no_contig ||
+			(!external && rte_eal_iova_mode() == RTE_IOVA_VA);
+	try_contig = !no_contig && !no_pageshift &&
+			(rte_eal_has_hugepages() || external);
 
 	if (no_pageshift) {
 		pg_sz = 0;
 		pg_shift = 0;
 	} else if (try_contig) {
-		pg_sz = get_min_page_size();
+		pg_sz = get_min_page_size(mp->socket_id);
 		pg_shift = rte_bsf32(pg_sz);
 	} else {
 		pg_sz = getpagesize();
@@ -916,6 +807,12 @@ rte_mempool_create_empty(const char *name, unsigned n, unsigned elt_size,
 
 	mempool_list = RTE_TAILQ_CAST(rte_mempool_tailq.head, rte_mempool_list);
 
+	/* asked for zero items */
+	if (n == 0) {
+		rte_errno = EINVAL;
+		return NULL;
+	}
+
 	/* asked cache too big */
 	if (cache_size > RTE_MEMPOOL_CACHE_MAX_SIZE ||
 	    CALC_CACHE_FLUSHTHRESH(cache_size) > n) {
@@ -1052,66 +949,6 @@ rte_mempool_create(const char *name, unsigned n, unsigned elt_size,
 		mp_init(mp, mp_init_arg);
 
 	if (rte_mempool_populate_default(mp) < 0)
-		goto fail;
-
-	/* call the object initializers */
-	if (obj_init)
-		rte_mempool_obj_iter(mp, obj_init, obj_init_arg);
-
-	return mp;
-
- fail:
-	rte_mempool_free(mp);
-	return NULL;
-}
-
-/*
- * Create the mempool over already allocated chunk of memory.
- * That external memory buffer can consists of physically disjoint pages.
- * Setting vaddr to NULL, makes mempool to fallback to rte_mempool_create()
- * behavior.
- */
-struct rte_mempool *
-rte_mempool_xmem_create(const char *name, unsigned n, unsigned elt_size,
-		unsigned cache_size, unsigned private_data_size,
-		rte_mempool_ctor_t *mp_init, void *mp_init_arg,
-		rte_mempool_obj_cb_t *obj_init, void *obj_init_arg,
-		int socket_id, unsigned flags, void *vaddr,
-		const rte_iova_t iova[], uint32_t pg_num, uint32_t pg_shift)
-{
-	struct rte_mempool *mp = NULL;
-	int ret;
-
-	/* no virtual address supplied, use rte_mempool_create() */
-	if (vaddr == NULL)
-		return rte_mempool_create(name, n, elt_size, cache_size,
-			private_data_size, mp_init, mp_init_arg,
-			obj_init, obj_init_arg, socket_id, flags);
-
-	/* check that we have both VA and PA */
-	if (iova == NULL) {
-		rte_errno = EINVAL;
-		return NULL;
-	}
-
-	/* Check that pg_shift parameter is valid. */
-	if (pg_shift > MEMPOOL_PG_SHIFT_MAX) {
-		rte_errno = EINVAL;
-		return NULL;
-	}
-
-	mp = rte_mempool_create_empty(name, n, elt_size, cache_size,
-		private_data_size, socket_id, flags);
-	if (mp == NULL)
-		return NULL;
-
-	/* call the mempool priv initializer */
-	if (mp_init)
-		mp_init(mp, mp_init_arg);
-
-	ret = rte_mempool_populate_iova_tab(mp, vaddr, iova, pg_num, pg_shift,
-		NULL, NULL);
-	if (ret < 0 || ret != (int)mp->size)
 		goto fail;
 
 	/* call the object initializers */

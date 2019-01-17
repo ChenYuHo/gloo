@@ -680,6 +680,15 @@ mlx4_pci_probe(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 					IBV_RAW_PACKET_CAP_SCATTER_FCS);
 		DEBUG("FCS stripping toggling is %ssupported",
 		      priv->hw_fcs_strip ? "" : "not ");
+		priv->tso =
+			((device_attr_ex.tso_caps.max_tso > 0) &&
+			 (device_attr_ex.tso_caps.supported_qpts &
+			  (1 << IBV_QPT_RAW_PACKET)));
+		if (priv->tso)
+			priv->tso_max_payload_sz =
+					device_attr_ex.tso_caps.max_tso;
+		DEBUG("TSO is %ssupported",
+		      priv->tso ? "" : "not ");
 		/* Configure the first MAC address by default. */
 		err = mlx4_get_mac(priv, &mac.addr_bytes);
 		if (err) {
@@ -725,7 +734,6 @@ mlx4_pci_probe(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 		eth_dev->data->mac_addrs = priv->mac;
 		eth_dev->device = &pci_dev->device;
 		rte_eth_copy_pci_info(eth_dev, pci_dev);
-		eth_dev->device->driver = &mlx4_driver.driver;
 		/* Initialize local interrupt handle for current port. */
 		priv->intr_handle = (struct rte_intr_handle){
 			.fd = -1,
@@ -773,12 +781,17 @@ mlx4_pci_probe(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 		continue;
 port_error:
 		rte_free(priv);
+		if (eth_dev != NULL)
+			eth_dev->data->dev_private = NULL;
 		if (pd)
 			claim_zero(mlx4_glue->dealloc_pd(pd));
 		if (ctx)
 			claim_zero(mlx4_glue->close_device(ctx));
-		if (eth_dev)
+		if (eth_dev != NULL) {
+			/* mac_addrs must not be freed because part of dev_private */
+			eth_dev->data->mac_addrs = NULL;
 			rte_eth_dev_release_port(eth_dev);
+		}
 		break;
 	}
 	/*
@@ -958,9 +971,7 @@ glue_error:
 /**
  * Driver initialization routine.
  */
-RTE_INIT(rte_mlx4_pmd_init);
-static void
-rte_mlx4_pmd_init(void)
+RTE_INIT(rte_mlx4_pmd_init)
 {
 	/*
 	 * MLX4_DEVICE_FATAL_CLEANUP tells ibv_destroy functions we

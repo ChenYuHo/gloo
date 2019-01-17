@@ -77,6 +77,7 @@ static int vmxnet3_dev_link_update(struct rte_eth_dev *dev,
 static void vmxnet3_hw_stats_save(struct vmxnet3_hw *hw);
 static int vmxnet3_dev_stats_get(struct rte_eth_dev *dev,
 				  struct rte_eth_stats *stats);
+static void vmxnet3_dev_stats_reset(struct rte_eth_dev *dev);
 static int vmxnet3_dev_xstats_get_names(struct rte_eth_dev *dev,
 					struct rte_eth_xstat_name *xstats,
 					unsigned int n);
@@ -119,6 +120,7 @@ static const struct eth_dev_ops vmxnet3_eth_dev_ops = {
 	.stats_get            = vmxnet3_dev_stats_get,
 	.xstats_get_names     = vmxnet3_dev_xstats_get_names,
 	.xstats_get           = vmxnet3_dev_xstats_get,
+	.stats_reset          = vmxnet3_dev_stats_reset,
 	.mac_addr_set         = vmxnet3_mac_addr_set,
 	.dev_infos_get        = vmxnet3_dev_info_get,
 	.dev_supported_ptypes_get = vmxnet3_dev_supported_ptypes_get,
@@ -159,8 +161,8 @@ gpa_zone_reserve(struct rte_eth_dev *dev, uint32_t size,
 	char z_name[RTE_MEMZONE_NAMESIZE];
 	const struct rte_memzone *mz;
 
-	snprintf(z_name, sizeof(z_name), "%s_%d_%s",
-		 dev->device->driver->name, dev->data->port_id, post_string);
+	snprintf(z_name, sizeof(z_name), "eth_p%d_%s",
+			dev->data->port_id, post_string);
 
 	mz = rte_memzone_lookup(z_name);
 	if (!reuse) {
@@ -316,6 +318,9 @@ eth_vmxnet3_dev_init(struct rte_eth_dev *eth_dev)
 		     hw->perm_addr[0], hw->perm_addr[1], hw->perm_addr[2],
 		     hw->perm_addr[3], hw->perm_addr[4], hw->perm_addr[5]);
 
+	/* Flag to call rte_eth_dev_release_port() in rte_eth_dev_close(). */
+	eth_dev->data->dev_flags |= RTE_ETH_DEV_CLOSE_REMOVE;
+
 	/* Put device in Quiesce Mode */
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_QUIESCE_DEV);
 
@@ -333,6 +338,10 @@ eth_vmxnet3_dev_init(struct rte_eth_dev *eth_dev)
 	/* clear shadow stats */
 	memset(hw->saved_tx_stats, 0, sizeof(hw->saved_tx_stats));
 	memset(hw->saved_rx_stats, 0, sizeof(hw->saved_rx_stats));
+
+	/* clear snapshot stats */
+	memset(hw->snapshot_tx_stats, 0, sizeof(hw->snapshot_tx_stats));
+	memset(hw->snapshot_rx_stats, 0, sizeof(hw->snapshot_rx_stats));
 
 	/* set the initial link status */
 	memset(&link, 0, sizeof(link));
@@ -354,16 +363,15 @@ eth_vmxnet3_dev_uninit(struct rte_eth_dev *eth_dev)
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
 		return 0;
 
-	if (hw->adapter_stopped == 0)
-		vmxnet3_dev_close(eth_dev);
+	if (hw->adapter_stopped == 0) {
+		PMD_INIT_LOG(DEBUG, "Device has not been closed.");
+		return -EBUSY;
+	}
 
 	eth_dev->dev_ops = NULL;
 	eth_dev->rx_pkt_burst = NULL;
 	eth_dev->tx_pkt_burst = NULL;
 	eth_dev->tx_pkt_prepare = NULL;
-
-	rte_free(eth_dev->data->mac_addrs);
-	eth_dev->data->mac_addrs = NULL;
 
 	return 0;
 }
@@ -802,7 +810,7 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 	PMD_INIT_FUNC_TRACE();
 
 	if (hw->adapter_stopped == 1) {
-		PMD_INIT_LOG(DEBUG, "Device already closed.");
+		PMD_INIT_LOG(DEBUG, "Device already stopped.");
 		return;
 	}
 
@@ -826,7 +834,6 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 	/* reset the device */
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_RESET_DEV);
 	PMD_INIT_LOG(DEBUG, "Device reset.");
-	hw->adapter_stopped = 0;
 
 	vmxnet3_dev_clear_queues(dev);
 
@@ -836,6 +843,30 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 	link.link_speed = ETH_SPEED_NUM_10G;
 	link.link_autoneg = ETH_LINK_FIXED;
 	rte_eth_linkstatus_set(dev, &link);
+
+	hw->adapter_stopped = 1;
+}
+
+static void
+vmxnet3_free_queues(struct rte_eth_dev *dev)
+{
+	int i;
+
+	PMD_INIT_FUNC_TRACE();
+
+	for (i = 0; i < dev->data->nb_rx_queues; i++) {
+		void *rxq = dev->data->rx_queues[i];
+
+		vmxnet3_dev_rx_queue_release(rxq);
+	}
+	dev->data->nb_rx_queues = 0;
+
+	for (i = 0; i < dev->data->nb_tx_queues; i++) {
+		void *txq = dev->data->tx_queues[i];
+
+		vmxnet3_dev_tx_queue_release(txq);
+	}
+	dev->data->nb_tx_queues = 0;
 }
 
 /*
@@ -844,12 +875,10 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 static void
 vmxnet3_dev_close(struct rte_eth_dev *dev)
 {
-	struct vmxnet3_hw *hw = dev->data->dev_private;
-
 	PMD_INIT_FUNC_TRACE();
 
 	vmxnet3_dev_stop(dev);
-	hw->adapter_stopped = 1;
+	vmxnet3_free_queues(dev);
 }
 
 static void
@@ -889,7 +918,49 @@ vmxnet3_hw_rx_stats_get(struct vmxnet3_hw *hw, unsigned int q,
 	VMXNET3_UPDATE_RX_STAT(hw, q, pktsRxError, res);
 	VMXNET3_UPDATE_RX_STAT(hw, q, pktsRxOutOfBuf, res);
 
-#undef VMXNET3_UPDATE_RX_STATS
+#undef VMXNET3_UPDATE_RX_STAT
+}
+
+static void
+vmxnet3_tx_stats_get(struct vmxnet3_hw *hw, unsigned int q,
+					struct UPT1_TxStats *res)
+{
+		vmxnet3_hw_tx_stats_get(hw, q, res);
+
+#define VMXNET3_REDUCE_SNAPSHOT_TX_STAT(h, i, f, r)	\
+		((r)->f -= (h)->snapshot_tx_stats[(i)].f)
+
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, ucastPktsTxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, mcastPktsTxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, bcastPktsTxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, ucastBytesTxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, mcastBytesTxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, bcastBytesTxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, pktsTxError, res);
+	VMXNET3_REDUCE_SNAPSHOT_TX_STAT(hw, q, pktsTxDiscard, res);
+
+#undef VMXNET3_REDUCE_SNAPSHOT_TX_STAT
+}
+
+static void
+vmxnet3_rx_stats_get(struct vmxnet3_hw *hw, unsigned int q,
+					struct UPT1_RxStats *res)
+{
+		vmxnet3_hw_rx_stats_get(hw, q, res);
+
+#define VMXNET3_REDUCE_SNAPSHOT_RX_STAT(h, i, f, r)	\
+		((r)->f -= (h)->snapshot_rx_stats[(i)].f)
+
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, ucastPktsRxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, mcastPktsRxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, bcastPktsRxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, ucastBytesRxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, mcastBytesRxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, bcastBytesRxOK, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, pktsRxError, res);
+	VMXNET3_REDUCE_SNAPSHOT_RX_STAT(hw, q, pktsRxOutOfBuf, res);
+
+#undef VMXNET3_REDUCE_SNAPSHOT_RX_STAT
 }
 
 static void
@@ -1004,7 +1075,7 @@ vmxnet3_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 
 	RTE_BUILD_BUG_ON(RTE_ETHDEV_QUEUE_STAT_CNTRS < VMXNET3_MAX_TX_QUEUES);
 	for (i = 0; i < hw->num_tx_queues; i++) {
-		vmxnet3_hw_tx_stats_get(hw, i, &txStats);
+		vmxnet3_tx_stats_get(hw, i, &txStats);
 
 		stats->q_opackets[i] = txStats.ucastPktsTxOK +
 			txStats.mcastPktsTxOK +
@@ -1021,7 +1092,7 @@ vmxnet3_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 
 	RTE_BUILD_BUG_ON(RTE_ETHDEV_QUEUE_STAT_CNTRS < VMXNET3_MAX_RX_QUEUES);
 	for (i = 0; i < hw->num_rx_queues; i++) {
-		vmxnet3_hw_rx_stats_get(hw, i, &rxStats);
+		vmxnet3_rx_stats_get(hw, i, &rxStats);
 
 		stats->q_ipackets[i] = rxStats.ucastPktsRxOK +
 			rxStats.mcastPktsRxOK +
@@ -1043,6 +1114,30 @@ vmxnet3_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 }
 
 static void
+vmxnet3_dev_stats_reset(struct rte_eth_dev *dev)
+{
+	unsigned int i;
+	struct vmxnet3_hw *hw = dev->data->dev_private;
+	struct UPT1_TxStats txStats;
+	struct UPT1_RxStats rxStats;
+
+	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_GET_STATS);
+
+	RTE_BUILD_BUG_ON(RTE_ETHDEV_QUEUE_STAT_CNTRS < VMXNET3_MAX_TX_QUEUES);
+
+	for (i = 0; i < hw->num_tx_queues; i++) {
+		vmxnet3_hw_tx_stats_get(hw, i, &txStats);
+		memcpy(&hw->snapshot_tx_stats[i], &txStats,
+			sizeof(hw->snapshot_tx_stats[0]));
+	}
+	for (i = 0; i < hw->num_rx_queues; i++) {
+		vmxnet3_hw_rx_stats_get(hw, i, &rxStats);
+		memcpy(&hw->snapshot_rx_stats[i], &rxStats,
+			sizeof(hw->snapshot_rx_stats[0]));
+	}
+}
+
+static void
 vmxnet3_dev_info_get(struct rte_eth_dev *dev __rte_unused,
 		     struct rte_eth_dev_info *dev_info)
 {
@@ -1053,7 +1148,6 @@ vmxnet3_dev_info_get(struct rte_eth_dev *dev __rte_unused,
 	dev_info->speed_capa = ETH_LINK_SPEED_10G;
 	dev_info->max_mac_addrs = VMXNET3_MAX_MAC_ADDRS;
 
-	dev_info->default_txconf.txq_flags = ETH_TXQ_FLAGS_NOXSUMSCTP;
 	dev_info->flow_type_rss_offloads = VMXNET3_RSS_OFFLOAD_ALL;
 
 	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
@@ -1320,9 +1414,7 @@ RTE_PMD_REGISTER_PCI(net_vmxnet3, rte_vmxnet3_pmd);
 RTE_PMD_REGISTER_PCI_TABLE(net_vmxnet3, pci_id_vmxnet3_map);
 RTE_PMD_REGISTER_KMOD_DEP(net_vmxnet3, "* igb_uio | uio_pci_generic | vfio-pci");
 
-RTE_INIT(vmxnet3_init_log);
-static void
-vmxnet3_init_log(void)
+RTE_INIT(vmxnet3_init_log)
 {
 	vmxnet3_logtype_init = rte_log_register("pmd.net.vmxnet3.init");
 	if (vmxnet3_logtype_init >= 0)

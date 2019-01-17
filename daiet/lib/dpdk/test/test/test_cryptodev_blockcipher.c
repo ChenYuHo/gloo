@@ -68,21 +68,39 @@ test_blockcipher_one_case(const struct blockcipher_test_case *t,
 			RTE_STR(CRYPTODEV_NAME_DPAA2_SEC_PMD));
 	int dpaa_sec_pmd = rte_cryptodev_driver_id_get(
 			RTE_STR(CRYPTODEV_NAME_DPAA_SEC_PMD));
+	int caam_jr_pmd = rte_cryptodev_driver_id_get(
+			RTE_STR(CRYPTODEV_NAME_CAAM_JR_PMD));
 	int mrvl_pmd = rte_cryptodev_driver_id_get(
 			RTE_STR(CRYPTODEV_NAME_MVSAM_PMD));
 	int virtio_pmd = rte_cryptodev_driver_id_get(
 			RTE_STR(CRYPTODEV_NAME_VIRTIO_PMD));
+	int octeontx_pmd = rte_cryptodev_driver_id_get(
+			RTE_STR(CRYPTODEV_NAME_OCTEONTX_SYM_PMD));
 
 	int nb_segs = 1;
 
+	rte_cryptodev_info_get(dev_id, &dev_info);
+
 	if (t->feature_mask & BLOCKCIPHER_TEST_FEATURE_SG) {
-		rte_cryptodev_info_get(dev_id, &dev_info);
-		if (!(dev_info.feature_flags &
-				RTE_CRYPTODEV_FF_MBUF_SCATTER_GATHER)) {
-			printf("Device doesn't support scatter-gather. "
+		uint64_t feat_flags = dev_info.feature_flags;
+		uint64_t oop_flag = RTE_CRYPTODEV_FF_OOP_SGL_IN_LB_OUT;
+
+		if (t->feature_mask && BLOCKCIPHER_TEST_FEATURE_OOP) {
+			if (!(feat_flags & oop_flag)) {
+				printf("Device doesn't support out-of-place "
+					"scatter-gather in input mbuf. "
 					"Test Skipped.\n");
-			return 0;
+				return 0;
+			}
+		} else {
+			if (!(feat_flags & RTE_CRYPTODEV_FF_IN_PLACE_SGL)) {
+				printf("Device doesn't support in-place "
+					"scatter-gather mbufs. "
+					"Test Skipped.\n");
+				return 0;
+			}
 		}
+
 		nb_segs = 3;
 	}
 
@@ -95,12 +113,14 @@ test_blockcipher_one_case(const struct blockcipher_test_case *t,
 
 	if (driver_id == dpaa2_sec_pmd ||
 			driver_id == dpaa_sec_pmd ||
+			driver_id == caam_jr_pmd ||
 			driver_id == qat_pmd ||
 			driver_id == openssl_pmd ||
 			driver_id == armv8_pmd ||
 			driver_id == mrvl_pmd ||
 			driver_id == ccp_pmd ||
-			driver_id == virtio_pmd) { /* Fall through */
+			driver_id == virtio_pmd ||
+			driver_id == octeontx_pmd) { /* Fall through */
 		digest_len = tdata->digest.len;
 	} else if (driver_id == aesni_mb_pmd ||
 			driver_id == scheduler_pmd) {
@@ -438,11 +458,34 @@ test_blockcipher_one_case(const struct blockcipher_test_case *t,
 		uint8_t value;
 		uint32_t head_unchanged_len, changed_len = 0;
 		uint32_t i;
+		uint32_t hdroom_used = 0, tlroom_used = 0;
+		uint32_t hdroom = 0;
 
 		mbuf = sym_op->m_src;
+		/*
+		 * Crypto PMDs specify the headroom & tailroom it would use
+		 * when processing the crypto operation. PMD is free to modify
+		 * this space, and so the verification check should skip that
+		 * block.
+		 */
+		hdroom_used = dev_info.min_mbuf_headroom_req;
+		tlroom_used = dev_info.min_mbuf_tailroom_req;
+
+		/* Get headroom */
+		hdroom = rte_pktmbuf_headroom(mbuf);
+
 		head_unchanged_len = mbuf->buf_len;
 
 		for (i = 0; i < mbuf->buf_len; i++) {
+
+			/* Skip headroom used by PMD */
+			if (i == hdroom - hdroom_used)
+				i += hdroom_used;
+
+			/* Skip tailroom used by PMD */
+			if (i == (hdroom + mbuf->data_len))
+				i += tlroom_used;
+
 			value = *((uint8_t *)(mbuf->buf_addr)+i);
 			if (value != tmp_src_buf[i]) {
 				snprintf(test_msg, BLOCKCIPHER_TEST_MSG_LEN,
@@ -455,14 +498,13 @@ test_blockcipher_one_case(const struct blockcipher_test_case *t,
 
 		mbuf = sym_op->m_dst;
 		if (t->op_mask & BLOCKCIPHER_TEST_OP_AUTH) {
-			head_unchanged_len = rte_pktmbuf_headroom(mbuf) +
-						sym_op->auth.data.offset;
+			head_unchanged_len = hdroom + sym_op->auth.data.offset;
 			changed_len = sym_op->auth.data.length;
 			if (t->op_mask & BLOCKCIPHER_TEST_OP_AUTH_GEN)
 				changed_len += digest_len;
 		} else {
 			/* cipher-only */
-			head_unchanged_len = rte_pktmbuf_headroom(mbuf) +
+			head_unchanged_len = hdroom +
 					sym_op->cipher.data.offset;
 			changed_len = sym_op->cipher.data.length;
 		}
@@ -486,15 +528,30 @@ test_blockcipher_one_case(const struct blockcipher_test_case *t,
 		uint8_t value;
 		uint32_t head_unchanged_len = 0, changed_len = 0;
 		uint32_t i;
+		uint32_t hdroom_used = 0, tlroom_used = 0;
+		uint32_t hdroom = 0;
+
+		/*
+		 * Crypto PMDs specify the headroom & tailroom it would use
+		 * when processing the crypto operation. PMD is free to modify
+		 * this space, and so the verification check should skip that
+		 * block.
+		 */
+		hdroom_used = dev_info.min_mbuf_headroom_req;
+		tlroom_used = dev_info.min_mbuf_tailroom_req;
 
 		mbuf = sym_op->m_src;
+
+		/* Get headroom */
+		hdroom = rte_pktmbuf_headroom(mbuf);
+
 		if (t->op_mask & BLOCKCIPHER_TEST_OP_CIPHER) {
-			head_unchanged_len = rte_pktmbuf_headroom(mbuf) +
+			head_unchanged_len = hdroom +
 					sym_op->cipher.data.offset;
 			changed_len = sym_op->cipher.data.length;
 		} else {
 			/* auth-only */
-			head_unchanged_len = rte_pktmbuf_headroom(mbuf) +
+			head_unchanged_len = hdroom +
 					sym_op->auth.data.offset +
 					sym_op->auth.data.length;
 			changed_len = 0;
@@ -504,8 +561,18 @@ test_blockcipher_one_case(const struct blockcipher_test_case *t,
 			changed_len += digest_len;
 
 		for (i = 0; i < mbuf->buf_len; i++) {
+
+			/* Skip headroom used by PMD */
+			if (i == hdroom - hdroom_used)
+				i += hdroom_used;
+
 			if (i == head_unchanged_len)
 				i += changed_len;
+
+			/* Skip tailroom used by PMD */
+			if (i == (hdroom + mbuf->data_len))
+				i += tlroom_used;
+
 			value = *((uint8_t *)(mbuf->buf_addr)+i);
 			if (value != tmp_src_buf[i]) {
 				snprintf(test_msg, BLOCKCIPHER_TEST_MSG_LEN,
@@ -567,6 +634,8 @@ test_blockcipher_all_tests(struct rte_mempool *mbuf_pool,
 			RTE_STR(CRYPTODEV_NAME_DPAA2_SEC_PMD));
 	int dpaa_sec_pmd = rte_cryptodev_driver_id_get(
 			RTE_STR(CRYPTODEV_NAME_DPAA_SEC_PMD));
+	int caam_jr_pmd = rte_cryptodev_driver_id_get(
+			RTE_STR(CRYPTODEV_NAME_CAAM_JR_PMD));
 	int scheduler_pmd = rte_cryptodev_driver_id_get(
 			RTE_STR(CRYPTODEV_NAME_SCHEDULER_PMD));
 	int armv8_pmd = rte_cryptodev_driver_id_get(
@@ -579,6 +648,8 @@ test_blockcipher_all_tests(struct rte_mempool *mbuf_pool,
 			RTE_STR(CRYPTODEV_NAME_MVSAM_PMD));
 	int virtio_pmd = rte_cryptodev_driver_id_get(
 			RTE_STR(CRYPTODEV_NAME_VIRTIO_PMD));
+	int octeontx_pmd = rte_cryptodev_driver_id_get(
+			RTE_STR(CRYPTODEV_NAME_OCTEONTX_SYM_PMD));
 
 	switch (test_type) {
 	case BLKCIPHER_AES_CHAIN_TYPE:
@@ -641,10 +712,14 @@ test_blockcipher_all_tests(struct rte_mempool *mbuf_pool,
 		target_pmd_mask = BLOCKCIPHER_TEST_TARGET_PMD_CCP;
 	else if (driver_id == dpaa_sec_pmd)
 		target_pmd_mask = BLOCKCIPHER_TEST_TARGET_PMD_DPAA_SEC;
+	else if (driver_id == caam_jr_pmd)
+		target_pmd_mask = BLOCKCIPHER_TEST_TARGET_PMD_CAAM_JR;
 	else if (driver_id == mrvl_pmd)
 		target_pmd_mask = BLOCKCIPHER_TEST_TARGET_PMD_MVSAM;
 	else if (driver_id == virtio_pmd)
 		target_pmd_mask = BLOCKCIPHER_TEST_TARGET_PMD_VIRTIO;
+	else if (driver_id == octeontx_pmd)
+		target_pmd_mask = BLOCKCIPHER_TEST_TARGET_PMD_OCTEONTX;
 	else
 		TEST_ASSERT(0, "Unrecognized cryptodev type");
 

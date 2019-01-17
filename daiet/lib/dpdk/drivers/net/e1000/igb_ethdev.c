@@ -74,6 +74,7 @@ static void eth_igb_stop(struct rte_eth_dev *dev);
 static int  eth_igb_dev_set_link_up(struct rte_eth_dev *dev);
 static int  eth_igb_dev_set_link_down(struct rte_eth_dev *dev);
 static void eth_igb_close(struct rte_eth_dev *dev);
+static int eth_igb_reset(struct rte_eth_dev *dev);
 static void eth_igb_promiscuous_enable(struct rte_eth_dev *dev);
 static void eth_igb_promiscuous_disable(struct rte_eth_dev *dev);
 static void eth_igb_allmulticast_enable(struct rte_eth_dev *dev);
@@ -351,6 +352,7 @@ static const struct eth_dev_ops eth_igb_ops = {
 	.dev_set_link_up      = eth_igb_dev_set_link_up,
 	.dev_set_link_down    = eth_igb_dev_set_link_down,
 	.dev_close            = eth_igb_close,
+	.dev_reset            = eth_igb_reset,
 	.promiscuous_enable   = eth_igb_promiscuous_enable,
 	.promiscuous_disable  = eth_igb_promiscuous_disable,
 	.allmulticast_enable  = eth_igb_allmulticast_enable,
@@ -435,6 +437,9 @@ static const struct eth_dev_ops igbvf_eth_dev_ops = {
 	.dev_supported_ptypes_get = eth_igb_supported_ptypes_get,
 	.rx_queue_setup       = eth_igb_rx_queue_setup,
 	.rx_queue_release     = eth_igb_rx_queue_release,
+	.rx_descriptor_done   = eth_igb_rx_descriptor_done,
+	.rx_descriptor_status = eth_igb_rx_descriptor_status,
+	.tx_descriptor_status = eth_igb_tx_descriptor_status,
 	.tx_queue_setup       = eth_igb_tx_queue_setup,
 	.tx_queue_release     = eth_igb_tx_queue_release,
 	.set_mc_addr_list     = eth_igb_set_mc_addr_list,
@@ -912,9 +917,6 @@ eth_igb_dev_uninit(struct rte_eth_dev *eth_dev)
 	/* Reset any pending lock */
 	igb_reset_swfw_lock(hw);
 
-	rte_free(eth_dev->data->mac_addrs);
-	eth_dev->data->mac_addrs = NULL;
-
 	/* uninitialize PF if max_vfs not zero */
 	igb_pf_host_uninit(eth_dev);
 
@@ -1067,9 +1069,6 @@ eth_igbvf_dev_uninit(struct rte_eth_dev *eth_dev)
 	eth_dev->dev_ops = NULL;
 	eth_dev->rx_pkt_burst = NULL;
 	eth_dev->tx_pkt_burst = NULL;
-
-	rte_free(eth_dev->data->mac_addrs);
-	eth_dev->data->mac_addrs = NULL;
 
 	/* disable uio intr before callback unregister */
 	rte_intr_disable(&pci_dev->intr_handle);
@@ -1589,6 +1588,33 @@ eth_igb_close(struct rte_eth_dev *dev)
 	memset(&link, 0, sizeof(link));
 	rte_eth_linkstatus_set(dev, &link);
 }
+
+/*
+ * Reset PF device.
+ */
+static int
+eth_igb_reset(struct rte_eth_dev *dev)
+{
+	int ret;
+
+	/* When a DPDK PMD PF begin to reset PF port, it should notify all
+	 * its VF to make them align with it. The detailed notification
+	 * mechanism is PMD specific and is currently not implemented.
+	 * To avoid unexpected behavior in VF, currently reset of PF with
+	 * SR-IOV activation is not supported. It might be supported later.
+	 */
+	if (dev->data->sriov.active)
+		return -ENOTSUP;
+
+	ret = eth_igb_dev_uninit(dev);
+	if (ret)
+		return ret;
+
+	ret = eth_igb_dev_init(dev);
+
+	return ret;
+}
+
 
 static int
 igb_get_rx_buffer_size(struct e1000_hw *hw)
@@ -3194,14 +3220,14 @@ igbvf_dev_configure(struct rte_eth_dev *dev)
 	 * Keep the persistent behavior the same as Host PF
 	 */
 #ifndef RTE_LIBRTE_E1000_PF_DISABLE_STRIP_CRC
-	if (!(conf->rxmode.offloads & DEV_RX_OFFLOAD_CRC_STRIP)) {
+	if (conf->rxmode.offloads & DEV_RX_OFFLOAD_KEEP_CRC) {
 		PMD_INIT_LOG(NOTICE, "VF can't disable HW CRC Strip");
-		conf->rxmode.offloads |= DEV_RX_OFFLOAD_CRC_STRIP;
+		conf->rxmode.offloads &= ~DEV_RX_OFFLOAD_KEEP_CRC;
 	}
 #else
-	if (conf->rxmode.offloads & DEV_RX_OFFLOAD_CRC_STRIP) {
+	if (!(conf->rxmode.offloads & DEV_RX_OFFLOAD_KEEP_CRC)) {
 		PMD_INIT_LOG(NOTICE, "VF can't enable HW CRC Strip");
-		conf->rxmode.offloads &= ~DEV_RX_OFFLOAD_CRC_STRIP;
+		conf->rxmode.offloads |= DEV_RX_OFFLOAD_KEEP_CRC;
 	}
 #endif
 
@@ -5683,9 +5709,7 @@ RTE_PMD_REGISTER_PCI_TABLE(net_e1000_igb_vf, pci_id_igbvf_map);
 RTE_PMD_REGISTER_KMOD_DEP(net_e1000_igb_vf, "* igb_uio | vfio-pci");
 
 /* see e1000_logs.c */
-RTE_INIT(e1000_init_log);
-static void
-e1000_init_log(void)
+RTE_INIT(e1000_init_log)
 {
 	e1000_igb_init_log();
 }

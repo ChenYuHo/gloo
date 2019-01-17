@@ -19,12 +19,23 @@ APP = vm_power_mgr
 
 # all source are stored in SRCS-y
 SRCS-y := main.c vm_power_cli.c power_manager.c channel_manager.c
-SRCS-y += channel_monitor.c
+SRCS-y += channel_monitor.c parse.c
+ifeq ($(CONFIG_RTE_ARCH_X86_64),y)
+SRCS-y += oob_monitor_x86.c
+else
+SRCS-y += oob_monitor_nop.c
+endif
 
 CFLAGS += -O3 -I$(RTE_SDK)/lib/librte_power/
 CFLAGS += $(WERROR_FLAGS)
 
 LDLIBS += -lvirt
+
+JANSSON := $(shell pkg-config --exists jansson; echo $$?)
+ifeq ($(JANSSON), 0)
+LDLIBS += $(shell pkg-config --libs jansson)
+CFLAGS += -DUSE_JANSSON
+endif
 
 ifeq ($(CONFIG_RTE_BUILD_SHARED_LIB),y)
 

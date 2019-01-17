@@ -20,10 +20,33 @@
 
 #include "bnxt_cpr.h"
 
-#define BNXT_MAX_MTU		9500
+#define BNXT_MAX_MTU		9574
 #define VLAN_TAG_SIZE		4
+#define BNXT_VF_RSV_NUM_RSS_CTX	1
+#define BNXT_VF_RSV_NUM_L2_CTX	4
+/* TODO: For now, do not support VMDq/RFS on VFs. */
+#define BNXT_VF_RSV_NUM_VNIC	1
 #define BNXT_MAX_LED		4
 #define BNXT_NUM_VLANS		2
+#define BNXT_MIN_RING_DESC	16
+#define BNXT_MAX_TX_RING_DESC	4096
+#define BNXT_MAX_RX_RING_DESC	8192
+#define BNXT_DB_SIZE		0x80
+
+/* Chimp Communication Channel */
+#define GRCPF_REG_CHIMP_CHANNEL_OFFSET		0x0
+#define GRCPF_REG_CHIMP_COMM_TRIGGER		0x100
+/* Kong Communication Channel */
+#define GRCPF_REG_KONG_CHANNEL_OFFSET		0xA00
+#define GRCPF_REG_KONG_COMM_TRIGGER		0xB00
+
+#define BNXT_INT_LAT_TMR_MIN			75
+#define BNXT_INT_LAT_TMR_MAX			150
+#define BNXT_NUM_CMPL_AGGR_INT			36
+#define BNXT_CMPL_AGGR_DMA_TMR			37
+#define BNXT_NUM_CMPL_DMA_AGGR			36
+#define BNXT_CMPL_AGGR_DMA_TMR_DURING_INT	50
+#define BNXT_NUM_CMPL_DMA_AGGR_DURING_INT	12
 
 struct bnxt_led_info {
 	uint8_t      led_id;
@@ -206,6 +229,16 @@ struct bnxt_ptp_cfg {
 	uint32_t			tx_mapped_regs[BNXT_PTP_TX_REGS];
 };
 
+struct bnxt_coal {
+	uint16_t			num_cmpl_aggr_int;
+	uint16_t			num_cmpl_dma_aggr;
+	uint16_t			num_cmpl_dma_aggr_during_int;
+	uint16_t			int_lat_tmr_max;
+	uint16_t			int_lat_tmr_min;
+	uint16_t			cmpl_aggr_dma_tmr;
+	uint16_t			cmpl_aggr_dma_tmr_during_int;
+};
+
 #define BNXT_HWRM_SHORT_REQ_LEN		sizeof(struct hwrm_short_input)
 struct bnxt {
 	void				*bar0;
@@ -224,6 +257,11 @@ struct bnxt {
 #define BNXT_FLAG_UPDATE_HASH	(1 << 5)
 #define BNXT_FLAG_PTP_SUPPORTED	(1 << 6)
 #define BNXT_FLAG_MULTI_HOST    (1 << 7)
+#define BNXT_FLAG_EXT_RX_PORT_STATS	(1 << 8)
+#define BNXT_FLAG_EXT_TX_PORT_STATS	(1 << 9)
+#define BNXT_FLAG_KONG_MB_EN	(1 << 10)
+#define BNXT_FLAG_TRUSTED_VF_EN	(1 << 11)
+#define BNXT_FLAG_DFLT_VNIC_SET	(1 << 12)
 #define BNXT_FLAG_NEW_RM	(1 << 30)
 #define BNXT_FLAG_INIT_DONE	(1 << 31)
 #define BNXT_PF(bp)		(!((bp)->flags & BNXT_FLAG_VF))
@@ -231,6 +269,9 @@ struct bnxt {
 #define BNXT_NPAR(bp)		((bp)->port_partition_type)
 #define BNXT_MH(bp)             ((bp)->flags & BNXT_FLAG_MULTI_HOST)
 #define BNXT_SINGLE_PF(bp)      (BNXT_PF(bp) && !BNXT_NPAR(bp) && !BNXT_MH(bp))
+#define BNXT_USE_CHIMP_MB	0 //For non-CFA commands, everything uses Chimp.
+#define BNXT_USE_KONG(bp)	((bp)->flags & BNXT_FLAG_KONG_MB_EN)
+#define BNXT_VF_IS_TRUSTED(bp)	((bp)->flags & BNXT_FLAG_TRUSTED_VF_EN)
 
 	unsigned int		rx_nr_rings;
 	unsigned int		rx_cp_nr_rings;
@@ -238,6 +279,9 @@ struct bnxt {
 	const void		*rx_mem_zone;
 	struct rx_port_stats    *hw_rx_port_stats;
 	rte_iova_t		hw_rx_port_stats_map;
+	struct rx_port_stats_ext    *hw_rx_port_stats_ext;
+	rte_iova_t		hw_rx_port_stats_ext_map;
+	uint16_t		fw_rx_port_stats_ext_size;
 
 	unsigned int		tx_nr_rings;
 	unsigned int		tx_cp_nr_rings;
@@ -245,6 +289,9 @@ struct bnxt {
 	const void		*tx_mem_zone;
 	struct tx_port_stats    *hw_tx_port_stats;
 	rte_iova_t		hw_tx_port_stats_map;
+	struct tx_port_stats_ext    *hw_tx_port_stats_ext;
+	rte_iova_t		hw_tx_port_stats_ext_map;
+	uint16_t		fw_tx_port_stats_ext_size;
 
 	/* Default completion ring */
 	struct bnxt_cp_ring_info	*def_cp_ring;
@@ -259,16 +306,13 @@ struct bnxt {
 	struct bnxt_filter_info	*filter_info;
 	STAILQ_HEAD(, bnxt_filter_info)	free_filter_list;
 
-	/* VNIC pointer for flow filter (VMDq) pools */
-#define MAX_FF_POOLS	256
-	STAILQ_HEAD(, bnxt_vnic_info)	ff_pool[MAX_FF_POOLS];
-
 	struct bnxt_irq         *irq_tbl;
 
 #define MAX_NUM_MAC_ADDR	32
 	uint8_t			mac_addr[ETHER_ADDR_LEN];
 
 	uint16_t			hwrm_cmd_seq;
+	uint16_t			kong_cmd_seq;
 	void				*hwrm_cmd_resp_addr;
 	rte_iova_t			hwrm_cmd_resp_dma_addr;
 	void				*hwrm_short_cmd_req_addr;
@@ -306,12 +350,14 @@ struct bnxt {
 	struct bnxt_led_info	leds[BNXT_MAX_LED];
 	uint8_t			num_leds;
 	struct bnxt_ptp_cfg     *ptp_cfg;
+	uint16_t		vf_resv_strategy;
 };
 
 int bnxt_link_update_op(struct rte_eth_dev *eth_dev, int wait_to_complete);
 int bnxt_rcv_msg_from_vf(struct bnxt *bp, uint16_t vf_id, void *msg);
 
 bool is_bnxt_supported(struct rte_eth_dev *dev);
+bool bnxt_stratus_device(struct bnxt *bp);
 extern const struct rte_flow_ops bnxt_flow_ops;
 
 extern int bnxt_logtype_driver;

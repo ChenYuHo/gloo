@@ -1316,6 +1316,26 @@ u32 qman_portal_dequeue(struct rte_event ev[], unsigned int poll_limit,
 			void **bufs);
 
 /**
+ * qman_irqsource_add - add processing sources to be interrupt-driven
+ * @bits: bitmask of QM_PIRQ_**I processing sources
+ *
+ * Adds processing sources that should be interrupt-driven (rather than
+ * processed via qman_poll_***() functions). Returns zero for success, or
+ * -EINVAL if the current CPU is sharing a portal hosted on another CPU.
+ */
+int qman_irqsource_add(u32 bits);
+
+/**
+ * qman_irqsource_remove - remove processing sources from being interrupt-driven
+ * @bits: bitmask of QM_PIRQ_**I processing sources
+ *
+ * Removes processing sources from being interrupt-driven, so that they will
+ * instead be processed via qman_poll_***() functions. Returns zero for success,
+ * or -EINVAL if the current CPU is sharing a portal hosted on another CPU.
+ */
+int qman_irqsource_remove(u32 bits);
+
+/**
  * qman_affine_channel - return the channel ID of an portal
  * @cpu: the cpu whose affine portal is the subject of the query
  *
@@ -1332,10 +1352,11 @@ unsigned int qman_portal_poll_rx(unsigned int poll_limit,
  * qman_set_vdq - Issue a volatile dequeue command
  * @fq: Frame Queue on which the volatile dequeue command is issued
  * @num: Number of Frames requested for volatile dequeue
+ * @vdqcr_flags: QM_VDQCR_EXACT flag to for VDQCR command
  *
  * This function will issue a volatile dequeue command to the QMAN.
  */
-int qman_set_vdq(struct qman_fq *fq, u16 num);
+int qman_set_vdq(struct qman_fq *fq, u16 num, uint32_t vdqcr_flags);
 
 /**
  * qman_dequeue - Get the DQRR entry after volatile dequeue command

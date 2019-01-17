@@ -26,8 +26,9 @@
  * - Bulk dequeue.
  * - Bulk enqueue.
  *
- * Note: the ring implementation is not preemptable. A lcore must not
- * be interrupted by another task that uses the same ring.
+ * Note: the ring implementation is not preemptible. Refer to Programmer's
+ * guide/Environment Abstraction Layer/Multiple pthread/Known Issues/rte_ring
+ * for more information.
  *
  */
 
@@ -302,11 +303,11 @@ void rte_ring_dump(FILE *f, const struct rte_ring *r);
  * There are 2 choices for the users
  * 1.use rmb() memory barrier
  * 2.use one-direcion load_acquire/store_release barrier,defined by
- * CONFIG_RTE_RING_USE_C11_MEM_MODEL=y
+ * CONFIG_RTE_USE_C11_MEM_MODEL=y
  * It depends on performance test results.
  * By default, move common functions to rte_ring_generic.h
  */
-#ifdef RTE_RING_USE_C11_MEM_MODEL
+#ifdef RTE_USE_C11_MEM_MODEL
 #include "rte_ring_c11_mem.h"
 #else
 #include "rte_ring_generic.h"

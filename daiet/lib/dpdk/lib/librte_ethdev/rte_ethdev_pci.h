@@ -53,8 +53,8 @@ rte_eth_copy_pci_info(struct rte_eth_dev *eth_dev,
 	struct rte_pci_device *pci_dev)
 {
 	if ((eth_dev == NULL) || (pci_dev == NULL)) {
-		RTE_PMD_DEBUG_TRACE("NULL pointer eth_dev=%p pci_dev=%p\n",
-				eth_dev, pci_dev);
+		RTE_ETHDEV_LOG(ERR, "NULL pointer eth_dev=%p pci_dev=%p",
+			(void *)eth_dev, (void *)pci_dev);
 		return;
 	}
 
@@ -135,17 +135,6 @@ rte_eth_dev_pci_allocate(struct rte_pci_device *dev, size_t private_data_size)
 static inline void
 rte_eth_dev_pci_release(struct rte_eth_dev *eth_dev)
 {
-	if (rte_eal_process_type() == RTE_PROC_PRIMARY)
-		rte_free(eth_dev->data->dev_private);
-
-	eth_dev->data->dev_private = NULL;
-
-	/*
-	 * Secondary process will check the name to attach.
-	 * Clear this field to avoid attaching a released ports.
-	 */
-	eth_dev->data->name[0] = '\0';
-
 	eth_dev->device = NULL;
 	eth_dev->intr_handle = NULL;
 

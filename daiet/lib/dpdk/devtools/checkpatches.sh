@@ -7,6 +7,8 @@
 # - DPDK_CHECKPATCH_LINE_LENGTH
 . $(dirname $(readlink -e $0))/load-devel-config
 
+VALIDATE_NEW_API=$(dirname $(readlink -e $0))/check-symbol-change.sh
+
 length=${DPDK_CHECKPATCH_LINE_LENGTH:-80}
 
 # override default Linux options
@@ -14,12 +16,20 @@ options="--no-tree"
 options="$options --max-line-length=$length"
 options="$options --show-types"
 options="$options --ignore=LINUX_VERSION_CODE,\
-FILE_PATH_CHANGES,MAINTAINERS_STYLE,\
+FILE_PATH_CHANGES,MAINTAINERS_STYLE,SPDX_LICENSE_TAG,\
 VOLATILE,PREFER_PACKED,PREFER_ALIGNED,PREFER_PRINTF,\
 PREFER_KERNEL_TYPES,BIT_MACRO,CONST_STRUCT,\
 SPLIT_STRING,LONG_LINE_STRING,\
 LINE_SPACING,PARENTHESIS_ALIGNMENT,NETWORKING_BLOCK_COMMENT_STYLE,\
 NEW_TYPEDEFS,COMPARISON_TO_NULL"
+
+clean_tmp_files() {
+	if echo $tmpinput | grep -q '^checkpatches\.' ; then
+		rm -f "$tmpinput"
+	fi
+}
+
+trap "clean_tmp_files" INT
 
 print_usage () {
 	cat <<- END_OF_HELP
@@ -31,6 +41,25 @@ print_usage () {
 	The patches to check can be from stdin, files specified on the command line,
 	or latest git commits limited with -n option (default limit: origin/master).
 	END_OF_HELP
+}
+
+check_forbidden_additions() { # <patch>
+	# refrain from new additions of rte_panic() and rte_exit()
+	# multiple folders and expressions are separated by spaces
+	awk -v FOLDERS="lib drivers" \
+		-v EXPRESSIONS="rte_panic\\\( rte_exit\\\(" \
+		-v RET_ON_FAIL=1 \
+		-v MESSAGE='Using rte_panic/rte_exit' \
+		-f $(dirname $(readlink -e $0))/check-forbidden-tokens.awk \
+		"$1"
+	# svg figures must be included with wildcard extension
+	# because of png conversion for pdf docs
+	awk -v FOLDERS='doc' \
+		-v EXPRESSIONS='::[[:space:]]*[^[:space:]]*\\.svg' \
+		-v RET_ON_FAIL=1 \
+		-v MESSAGE='Using explicit .svg extension instead of .*' \
+		-f $(dirname $(readlink -e $0))/check-forbidden-tokens.awk \
+		"$1"
 }
 
 number=0
@@ -54,23 +83,58 @@ if [ ! -f "$DPDK_CHECKPATCH_PATH" ] || [ ! -x "$DPDK_CHECKPATCH_PATH" ] ; then
 	exit 1
 fi
 
+print_headline() { # <title>
+	printf '\n### %s\n\n' "$1"
+	headline_printed=true
+}
+
 total=0
 status=0
 
 check () { # <patch> <commit> <title>
+	local ret=0
+	headline_printed=false
+
 	total=$(($total + 1))
-	! $verbose || printf '\n### %s\n\n' "$3"
+	! $verbose || print_headline "$3"
 	if [ -n "$1" ] ; then
-		report=$($DPDK_CHECKPATCH_PATH $options "$1" 2>/dev/null)
+		tmpinput=$1
 	elif [ -n "$2" ] ; then
-		report=$(git format-patch --find-renames --no-stat --stdout -1 $commit |
-			$DPDK_CHECKPATCH_PATH $options - 2>/dev/null)
+		tmpinput=$(mktemp -t dpdk.checkpatches.XXXXXX)
+		git format-patch --find-renames \
+		--no-stat --stdout -1 $commit > "$tmpinput"
 	else
-		report=$($DPDK_CHECKPATCH_PATH $options - 2>/dev/null)
+		tmpinput=$(mktemp -t dpdk.checkpatches.XXXXXX)
+		cat > "$tmpinput"
 	fi
-	[ $? -ne 0 ] || return 0
-	$verbose || printf '\n### %s\n\n' "$3"
-	printf '%s\n' "$report" | sed -n '1,/^total:.*lines checked$/p'
+
+	! $verbose || printf 'Running checkpatch.pl:\n'
+	report=$($DPDK_CHECKPATCH_PATH $options "$tmpinput" 2>/dev/null)
+	if [ $? -ne 0 ] ; then
+		$headline_printed || print_headline "$3"
+		printf '%s\n' "$report" | sed -n '1,/^total:.*lines checked$/p'
+		ret=1
+	fi
+
+	! $verbose || printf '\nChecking API additions/removals:\n'
+	report=$($VALIDATE_NEW_API "$tmpinput")
+	if [ $? -ne 0 ] ; then
+		$headline_printed || print_headline "$3"
+		printf '%s\n' "$report"
+		ret=1
+	fi
+
+	! $verbose || printf '\nChecking forbidden tokens additions:\n'
+	report=$(check_forbidden_additions "$tmpinput")
+	if [ $? -ne 0 ] ; then
+		$headline_printed || print_headline "$3"
+		printf '%s\n' "$report"
+		ret=1
+	fi
+
+	clean_tmp_files
+	[ $ret -eq 0 ] && return 0
+
 	status=$(($status + 1))
 }
 

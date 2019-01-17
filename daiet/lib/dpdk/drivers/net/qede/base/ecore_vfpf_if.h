@@ -1,9 +1,7 @@
-/*
+/* SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2016 - 2018 Cavium Inc.
  * All rights reserved.
  * www.cavium.com
- *
- * See LICENSE.qede_pmd for copyright and licensing details.
  */
 
 #ifndef __ECORE_VF_PF_IF_H__
@@ -700,6 +698,6 @@ enum {
 
 /*!!!!! Make sure to update STRINGS structure accordingly !!!!!*/
 };
-extern const char *ecore_channel_tlvs_string[];
+extern const char *qede_ecore_channel_tlvs_string[];
 
 #endif /* __ECORE_VF_PF_IF_H__ */

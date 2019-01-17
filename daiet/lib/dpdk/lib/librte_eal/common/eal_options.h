@@ -45,8 +45,12 @@ enum {
 	OPT_NO_PCI_NUM,
 #define OPT_NO_SHCONF         "no-shconf"
 	OPT_NO_SHCONF_NUM,
+#define OPT_IN_MEMORY         "in-memory"
+	OPT_IN_MEMORY_NUM,
 #define OPT_SOCKET_MEM        "socket-mem"
 	OPT_SOCKET_MEM_NUM,
+#define OPT_SOCKET_LIMIT        "socket-limit"
+	OPT_SOCKET_LIMIT_NUM,
 #define OPT_SYSLOG            "syslog"
 	OPT_SYSLOG_NUM,
 #define OPT_VDEV              "vdev"
@@ -59,6 +63,8 @@ enum {
 	OPT_LEGACY_MEM_NUM,
 #define OPT_SINGLE_FILE_SEGMENTS    "single-file-segments"
 	OPT_SINGLE_FILE_SEGMENTS_NUM,
+#define OPT_IOVA_MODE          "iova-mode"
+	OPT_IOVA_MODE_NUM,
 	OPT_LONG_MAX_NUM
 };
 
