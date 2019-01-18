@@ -46,11 +46,10 @@ namespace daiet {
                 ("daiet.ps_macs", po::value<string>(&ps_macs_str)->required(), "Comma-separated list of PS MAC addresses")
                 ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
                 ("daiet.num_updates", po::value<uint32_t>(&num_updates)->default_value(32), "Number of updates per packet")
-                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value")
-#ifndef COLOCATED
-                ("daiet.mode", po::value<string>(&(daiet_par.getMode()))->default_value("worker"), "Mode (worker or ps)")
+#ifdef COLOCATED
+                ("daiet.num_workers", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers")
 #endif
-                ("daiet.num_workers", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers (only for PS mode)");
+                ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value");
 
 
         config_file_options.add(daiet_options).add(dpdk_options);
@@ -83,16 +82,11 @@ namespace daiet {
         po::store(po::parse_config_file(ifs, config_file_options), vm);
         po::notify(vm);
 
-#ifndef COLOCATED
-        if (daiet_par.getMode() != "worker" && daiet_par.getMode() != "ps")
-            LOG_FATAL("Wrong mode: " + daiet_par.getMode());
-#endif
-
         if (!daiet_par.setWorkerIp(worker_ip_str))
             LOG_FATAL("Invalid worker IP: " + worker_ip_str);
 
         daiet_par.setBaseWorkerPort(worker_port);
-        daiet_par.setPsPort(ps_port);
+        daiet_par.setBasePsPort(ps_port);
 
         if (!daiet_par.setPs(ps_ips_str, ps_macs_str))
             LOG_FATAL("Invalid PS address: \n" + ps_ips_str + "\n" + ps_macs_str);
@@ -100,12 +94,10 @@ namespace daiet {
         daiet_par.setMaxFloat(max_float);
         daiet_par.setNumUpdates(num_updates);
 
-#ifndef COLOCATED
-        if (daiet_par.getNumWorkers()<=0 && daiet_par.getMode()=="ps")
-#else
+#ifdef COLOCATED
         if (daiet_par.getNumWorkers()<=0)
-#endif
             LOG_FATAL("PS mode requires a positive number of workers.");
+#endif
     }
 
     void print_dpdk_params() {
@@ -125,22 +117,18 @@ namespace daiet {
     }
 
     daiet_params::daiet_params() {
+
         // Defaults
-
-        mode = "worker";
-
-        num_workers = 0;
-
         num_updates = 32;
 
-        max_num_pending_messages = 40960;
+        max_num_pending_messages = 256;
 
         tx_flags = PKT_TX_IP_CKSUM | PKT_TX_IPV4 | PKT_TX_UDP_CKSUM;
 
         scaling_factor = INT32_MAX / FLT_MAX;
 
         worker_port = 4000;
-        ps_port_be = rte_cpu_to_be_16(48879);
+        ps_port = 48879;
         worker_ip_be = rte_cpu_to_be_32(0x0a000001);
 
         ps_ips_be = NULL;
@@ -148,6 +136,10 @@ namespace daiet {
         ps_macs_be = NULL;
 
         num_ps = 0;
+
+#ifdef COLOCATED
+        num_workers = 0;
+#endif
     }
 
     daiet_params::~daiet_params() {
@@ -163,7 +155,7 @@ namespace daiet {
         LOG_INFO("Num updates: " + to_string(num_updates));
         LOG_INFO("Max num pending messages: " + to_string(max_num_pending_messages));
         LOG_INFO("Worker port: " + to_string(worker_port));
-        LOG_INFO("PS port: " + to_string(rte_be_to_cpu_16(ps_port_be)));
+        LOG_INFO("PS port: " + to_string(ps_port));
         LOG_INFO("Scaling factor: " + to_string(scaling_factor));
 
         LOG_INFO("Worker IP: " + ip_to_str(worker_ip_be));
@@ -172,10 +164,6 @@ namespace daiet {
 
             LOG_INFO("PS" + to_string(i) + ": " + mac_to_str(ps_macs_be[i]) + " " + ip_to_str(ps_ips_be[i]));
         }
-    }
-
-    string& daiet_params::getMode() {
-        return mode;
     }
 
     uint32_t& daiet_params::getNumWorkers() {
@@ -194,8 +182,8 @@ namespace daiet {
         worker_port = workerPort;
     }
 
-    void daiet_params::setPsPort(uint16_t psPort) {
-        ps_port_be = rte_cpu_to_be_16(psPort);
+    void daiet_params::setBasePsPort(uint16_t psPort) {
+        ps_port = psPort;
 
     }
 

@@ -4,6 +4,9 @@
  */
 
 #include "worker.hpp"
+#include "DaietContext.hpp"
+#include "utils.hpp"
+#include "params.hpp"
 #include "stats.hpp"
 
 #if defined ( __AVX512F__ ) || defined ( __AVX512__ )
@@ -16,7 +19,7 @@ using namespace std;
 namespace daiet {
 
     thread_local uint16_t worker_id;
-    thread_local uint16_t worker_port_be;
+    thread_local uint16_t worker_port_be, ps_port_be;
     thread_local TensorUpdate tu;
     thread_local uint32_t num_updates;
     thread_local size_t entries_size;
@@ -39,8 +42,7 @@ namespace daiet {
     thread_local void (*store_fn)(daiet_hdr*, uint32_t);
 
 #ifdef TIMERS
-    // TOFIX this should be thread local
-    struct rte_mempool *pool;
+    thread_local struct rte_mempool *pool;
 #endif
 
 #ifdef LATENCIES
@@ -273,7 +275,7 @@ namespace daiet {
 
         // Set UDP
         udp->src_port = worker_port_be;
-        udp->dst_port = daiet_par.getPsPortBe();
+        udp->dst_port = ps_port_be;
         udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, ol_flags);
 
         // DAIET header
@@ -327,7 +329,7 @@ namespace daiet {
         // UDP header
         udp = (struct udp_hdr *) (ip + 1);
         udp->src_port = worker_port_be;
-        udp->dst_port = daiet_par.getPsPortBe();
+        udp->dst_port = ps_port_be;
         udp->dgram_len = rte_cpu_to_be_16(m->data_len - sizeof(struct ether_hdr) - sizeof(struct ipv4_hdr));
         udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
 
@@ -343,6 +345,7 @@ namespace daiet {
         return pool_index;
     }
 
+#ifdef DEBUG
     __rte_always_inline struct daiet_hdr * is_daiet_pkt_from_ps(struct ether_hdr* eth_hdr, uint16_t size) {
 
         int idx;
@@ -370,12 +373,14 @@ namespace daiet {
         }
         return NULL;
     }
+#endif
 
 #ifdef TIMERS
     void timeout_cb(struct rte_timer *timer, void *arg) {
 
         int ret;
-        uint32_t* tsi = (uint32_t*) arg;
+        uint32_t tsi = ((uint32_t*) arg)[0];
+        uint32_t tensor_size = ((uint32_t*) arg)[1];
 
         LOG_DEBUG("Timeout TSI: " + to_string(*tsi));
 
@@ -387,12 +392,10 @@ namespace daiet {
             LOG_FATAL("Cannot allocate one packet");
         }
 
-        build_pkt(m, dpdk_par.portid, *tsi, sizeof(struct entry_hdr) * daiet_par.getNumUpdates());
+        build_pkt(m, dpdk_par.portid, *tsi, tensor_size;
 
-        ret = rte_ring_enqueue(dpdk_data.w_ring_tx, m);
-        if (unlikely(ret < 0)) {
-            LOG_FATAL("Cannot enqueue one packet in timeout callback");
-        }
+        while (rte_eth_tx_burst(dpdk_par.portid, worker_id, m, 1)==0)
+            ;
     }
 #endif
 
@@ -451,7 +454,10 @@ namespace daiet {
         uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
         uint32_t tensor_size = 0;
+
+#ifdef DEBUG
         uint32_t sent_message_counters[max_num_pending_messages];
+#endif
 
 #ifdef LATENCIES
         uint64_t sent_timestamps[max_num_pending_messages];
@@ -478,7 +484,7 @@ namespace daiet {
         struct rte_mbuf* m;
         struct rte_eth_dev_tx_buffer* tx_buffer;
 
-        uint64_t prev_tsc = 0, diff_tsc = 0, cur_tsc = 0;
+        uint64_t prev_tsc = 0, cur_tsc = 0;
         const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * dpdk_par.bulk_drain_tx_us;
 
         struct ether_hdr* eth;
@@ -490,9 +496,10 @@ namespace daiet {
 
         // Get core ID
         lcore_id = rte_lcore_id();
-        worker_id = dpdk_data.core_to_workers_ids[lcore_id];
+        worker_id = dpdk_data.core_to_thread_id[lcore_id];
         LOG_DEBUG("Worker core: " + to_string(lcore_id) + " worker id: " + to_string(worker_id));
-        worker_port_be = rte_cpu_to_be_16(daiet_par.getBaseWorkerPort()+worker_id);
+        worker_port_be = rte_cpu_to_be_16(daiet_par.getBaseWorkerPort() + worker_id);
+        ps_port_be = rte_cpu_to_be_16(daiet_par.getBasePsPort() + worker_id);
         start_pool_index = worker_id *max_num_pending_messages;
 
 #ifdef TIMERS
@@ -552,7 +559,9 @@ namespace daiet {
 
             if (dctx_ptr->receive_tensor(tu)) {
 
+#ifdef DEBUG
                 memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
+#endif
 
                 rx_pkts = 0;
                 tsi = 0;
@@ -622,9 +631,9 @@ namespace daiet {
                     rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[pool_index_monoset]));
 #endif
 
-                    tsi += num_updates;
-
+#ifdef DEBUG
                     sent_message_counters[pool_index_monoset]++;
+#endif
 
 #ifdef LATENCIES
                     write_timestamp(sent_timestamps,pool_index_monoset);
@@ -633,6 +642,8 @@ namespace daiet {
 #ifdef TIMESTAMPS
                     write_global_timestamp(global_sent_timestamps,j);
 #endif
+
+                    tsi += num_updates;
                 }
 
                 // Transmit the packet burst
@@ -655,15 +666,6 @@ namespace daiet {
 
                 while (rx_pkts < total_num_msgs && !force_quit) {
 
-#ifdef TIMERS
-                    // Check timers
-                    timer_cur_tsc = rte_rdtsc();
-                    if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
-                        rte_timer_manage();
-                        timer_prev_tsc = timer_cur_tsc;
-                    }
-#endif
-
                     // Read packet from RX ring
                     nb_rx = rte_eth_rx_burst(dpdk_par.portid, worker_id, pkts_rx_burst, dpdk_par.burst_rx);
 
@@ -671,8 +673,7 @@ namespace daiet {
 
                         cur_tsc = rte_get_timer_cycles();
 
-                        diff_tsc = cur_tsc - prev_tsc;
-                        if (unlikely(diff_tsc > drain_tsc)) {
+                        if (unlikely((cur_tsc - prev_tsc) > drain_tsc)) {
                             // TX drain
                             nb_tx = rte_eth_tx_buffer_flush(dpdk_par.portid, worker_id, tx_buffer);
                             if (nb_tx)
@@ -680,6 +681,16 @@ namespace daiet {
 
                             prev_tsc = cur_tsc;
                         }
+
+#ifdef TIMERS
+                        // Check timers
+                        timer_cur_tsc = cur_tsc;
+                        if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
+                            rte_timer_manage();
+                            timer_prev_tsc = timer_cur_tsc;
+                        }
+#endif
+
                     } else {
 
                         for (j = 0; j < nb_rx; j++) {
@@ -696,7 +707,7 @@ namespace daiet {
                             rte_prefetch0 (rte_pktmbuf_mtod(m, void *));
                             eth = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
-#ifndef COLOCATED
+#ifdef DEBUG
                             daiet = is_daiet_pkt_from_ps(eth, m->data_len);
                             if (likely(daiet != NULL)) {
 #else
@@ -761,25 +772,25 @@ namespace daiet {
                                                 &timer_tsis[pool_index_monoset]);
 #endif
 
+#ifdef DEBUG
                                         sent_message_counters[pool_index_monoset]++;
+#endif
                                     }
 
                                 } else {
                                     // We have seen this packet before
 #ifdef DEBUG
                                     LOG_DEBUG("Duplicated packet");
-                                    print_packet(eth,m->data_len, worker_port_be,daiet_par.getPsPortBe());
+                                    print_packet(eth,m->data_len);
 #endif
 
                                     rte_pktmbuf_free(m);
                                 }
-#ifndef COLOCATED
+#ifdef DEBUG
                             } else {
 
-#ifdef DEBUG
                                 LOG_DEBUG("Wrong packet");
-                                print_packet(eth,m->data_len, worker_port_be,daiet_par.getPsPortBe());
-#endif
+                                print_packet(eth,m->data_len);
 
                                 // Free original packet
                                 rte_pktmbuf_free(m);
@@ -811,7 +822,18 @@ namespace daiet {
             }
         } // force quit
 
+#ifdef DEBUG
+        LOG_DEBUG("Sent messages counters");
+        for (uint32_t i = 1; i < max_num_pending_messages; i++){
+            if (sent_messages_counter[i-1] != sent_messages_counter[i]){
+                LOG_DEBUG("Index: " + to_string(i-1) + " -> " + to_string(sent_messages_counter[i-1]));
+                LOG_DEBUG("Index: " + to_string(i) + " -> " + to_string(sent_messages_counter[i]));
+            }
+        }
+#endif
+        // Set stats
         pkt_stats.set_workers(worker_id, w_tx, w_rx);
+
         // Cleanup
         rte_free(pkts_rx_burst);
         rte_pktmbuf_free_bulk(pkts_tx_burst, burst_size);

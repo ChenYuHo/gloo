@@ -18,10 +18,15 @@ namespace daiet {
 
         public:
             pkt_statistics();
-            void init(uint32_t, uint32_t);
             void set_workers(uint16_t, uint64_t, uint64_t);
-            void set_ps(uint32_t, uint64_t, uint64_t);
             void dump();
+
+#ifndef COLOCATED
+            void init(uint32_t);
+#else
+            void init(uint32_t, uint32_t);
+            void set_ps(uint32_t, uint64_t, uint64_t);
+#endif
 
 #ifdef TIMERS
             void set_timeouts(uint32_t, uint64_t);
@@ -30,16 +35,18 @@ namespace daiet {
         private:
 
             boost::mutex w_mutex;
-            boost::mutex ps_mutex;
             uint64_t total_w_tx;
             uint64_t total_w_rx;
             vector<uint64_t> w_tx;
             vector<uint64_t> w_rx;
 
+#ifdef COLOCATED
+            boost::mutex ps_mutex;
             uint64_t total_ps_tx;
             uint64_t total_ps_rx;
             vector<uint64_t>  ps_tx;
             vector<uint64_t>  ps_rx;
+#endif
 
 #ifdef TIMERS
             boost::mutex timeouts_mutex;

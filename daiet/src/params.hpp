@@ -19,7 +19,7 @@ namespace daiet {
 
             // Buffer pool size
             uint32_t pool_buffer_size;
-            uint16_t core_to_workers_ids[RTE_MAX_LCORE];
+            uint16_t core_to_thread_id[RTE_MAX_LCORE];
 
             dpdk_data() {
                 // Defaults
@@ -67,16 +67,12 @@ namespace daiet {
 
                 burst_rx = 64;
                 burst_tx = 64;
-                bulk_drain_tx_us = 100;
+                bulk_drain_tx_us = 10;
 
                 prefix = "daiet";
                 eal_options = "";
 
-#ifndef COLOCATED
-                corestr = "0-2";
-#else
-                corestr = "0-3";
-#endif
+                corestr = "";
             }
     }__rte_cache_aligned;
 
@@ -84,9 +80,6 @@ namespace daiet {
 
     class daiet_params {
         private:
-
-            string mode;
-            uint32_t num_workers;
 
             uint32_t num_updates;
 
@@ -97,7 +90,7 @@ namespace daiet {
             float scaling_factor;
 
             uint16_t worker_port;
-            uint16_t ps_port_be;
+            uint16_t ps_port;
             uint32_t worker_ip_be;
 
             uint32_t* ps_ips_be;
@@ -106,13 +99,16 @@ namespace daiet {
 
             uint32_t num_ps;
 
+#ifdef COLOCATED
+            uint32_t num_workers;
+#endif
+
         public:
             daiet_params();
             ~daiet_params();
 
             void print_params();
 
-            string& getMode();
             uint32_t& getNumWorkers();
 
             __rte_always_inline uint32_t getNumUpdates() const {
@@ -141,11 +137,11 @@ namespace daiet {
 
             void setBaseWorkerPort(uint16_t workerPort);
 
-            __rte_always_inline uint16_t getPsPortBe() const {
-                return ps_port_be;
+            __rte_always_inline uint16_t getBasePsPort() const {
+                return ps_port;
             }
 
-            void setPsPort(uint16_t);
+            void setBasePsPort(uint16_t);
 
             /*
              * Returns false if the IP is invalid

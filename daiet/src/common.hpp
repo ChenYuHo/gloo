@@ -31,6 +31,4 @@
 namespace daiet {
 
     extern volatile bool force_quit;
-    extern volatile bool ps_stop;
-
 }

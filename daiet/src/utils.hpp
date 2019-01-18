@@ -13,7 +13,6 @@
 #include <vector>
 #include <iomanip>
 #include <algorithm>
-#include <map>
 
 #include "common.hpp"
 
@@ -29,8 +28,13 @@ namespace daiet {
     void LOG_ERROR(T) __attribute__((used));
     template<typename T>
     void LOG_INFO(T) __attribute__((used));
+
+#ifdef DEBUG
     template<typename T>
     void LOG_DEBUG(T) __attribute__((used));
+#else
+#define LOG_DEBUG(T)
+#endif
 
     template<typename T>
     string to_hex(T);

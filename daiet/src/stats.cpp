@@ -10,9 +10,18 @@ namespace daiet {
 
     pkt_statistics pkt_stats;
 
-    pkt_statistics::pkt_statistics() : total_w_tx(0), total_w_rx(0), total_ps_tx(0), total_ps_rx(0) {}
+    pkt_statistics::pkt_statistics() : total_w_tx(0), total_w_rx(0) {
+#ifdef COLOCATED
+        total_ps_tx = 0;
+        total_ps_rx = 0;
+#endif
+    }
 
+#ifndef COLOCATED
+    void pkt_statistics::init(uint32_t nb_w) {
+#else
     void pkt_statistics::init(uint32_t nb_w, uint32_t nb_ps) {
+#endif
 
         total_w_tx = 0;
         total_w_rx = 0;
@@ -20,11 +29,13 @@ namespace daiet {
         w_tx.resize(nb_w);
         w_rx.resize(nb_w);
 
+#ifdef COLOCATED
         total_ps_tx = 0;
         total_ps_rx = 0;
 
         ps_tx.resize(nb_ps);
         ps_rx.resize(nb_ps);
+#endif
 
 #ifdef TIMERS
         w_timeouts.resize(nb_w);
@@ -42,6 +53,7 @@ namespace daiet {
         total_w_rx += rx;
     }
 
+#ifdef COLOCATED
     void pkt_statistics::set_ps(uint32_t psid, uint64_t tx, uint64_t rx) {
 
         boost::unique_lock<boost::mutex> lock(ps_mutex);
@@ -52,6 +64,7 @@ namespace daiet {
         total_ps_tx += tx;
         total_ps_rx += rx;
     }
+#endif
 
 #ifdef TIMERS
     void pkt_statistics::set_timeouts(uint32_t wid, uint64_t timeouts) {
@@ -75,6 +88,7 @@ namespace daiet {
             LOG_INFO("PS TX " + to_string(total_ps_tx));
             LOG_INFO("PS RX " + to_string(total_ps_rx));
 #endif
+
 #ifdef TIMERS
             LOG_INFO("Timeouts " + to_string(w_timeouts));
 #endif

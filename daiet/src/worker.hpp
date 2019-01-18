@@ -5,13 +5,9 @@
 
 #pragma once
 
-#include "DaietContext.hpp"
-#include "utils.hpp"
-#include "params.hpp"
+#include "common.hpp"
 
 namespace daiet {
-
-    extern rte_atomic32_t* sent_message_counters;
 
     void worker_setup();
     void worker_cleanup();

@@ -37,16 +37,14 @@ namespace daiet {
     template void LOG_INFO<string>(string);
     template void LOG_INFO<char const*>(char const*);
 
-    template<typename T>
 #ifdef DEBUG
+    template<typename T>
     void LOG_DEBUG(T msg) {
         unique_lock<mutex> mlock(debug_mutex_);
         daiet_log << msg << endl << flush;
-#else
-    void LOG_DEBUG(__attribute__((unused)) T msg) {
-#endif
     }
     template void LOG_DEBUG<string>(string);
+#endif
 
     template<typename T>
     string to_hex(T i) {
@@ -155,21 +153,32 @@ namespace daiet {
 
     void check_port_link_status(uint16_t portid) {
 
+        #define CHECK_INTERVAL 100 /* 100ms */
+        #define MAX_CHECK_TIME 90 /* 9s (90 * 100ms) in total */
+
         struct rte_eth_link link;
 
         LOG_DEBUG("Checking link status");
 
-        rte_eth_link_get(portid, &link);
+        for (uint8_t count = 0; count <= MAX_CHECK_TIME; count++) {
 
-        if (link.link_status) {
-            LOG_INFO(
-                    "Link Up. Speed " + to_string(link.link_speed) + " Mbps - "
-                            + ((link.link_duplex == ETH_LINK_FULL_DUPLEX) ? ("Full-duplex") : ("Half-duplex")));
-        } else
-            LOG_FATAL("Link Down");
+            memset(&link, 0, sizeof(link));
+            rte_eth_link_get_nowait(portid, &link);
+
+            if (link.link_status) {
+                LOG_INFO(
+                        "Link Up. Speed " + to_string(link.link_speed) + " Mbps - "
+                                + ((link.link_duplex == ETH_LINK_FULL_DUPLEX) ? ("Full-duplex") : ("Half-duplex")));
+                return;
+            } else{
+                rte_delay_ms(CHECK_INTERVAL);
+            }
+        }
+
+        LOG_FATAL("Link Down");
     }
 
-    void print_packet(struct ether_hdr *eth, uint16_t size, uint16_t worker_port_be, uint16_t ps_port_be) {
+    void print_packet(struct ether_hdr *eth, uint16_t size) {
 
         int idx = sizeof(struct ether_hdr);
 
@@ -202,7 +211,7 @@ namespace daiet {
                 LOG_INFO("Dst: " + to_string(rte_be_to_cpu_16(udp->dst_port)));
                 LOG_INFO("Len: " + to_string(rte_be_to_cpu_16(udp->dgram_len)));
 
-                if ((udp->dst_port == worker_port_be || udp->dst_port == ps_port_be) && size >= idx + sizeof(struct daiet_hdr)) {
+                if (size >= idx + sizeof(struct daiet_hdr)) {
 
                     idx += sizeof(struct daiet_hdr);
                     struct daiet_hdr* daiet = (struct daiet_hdr *) (udp + 1);

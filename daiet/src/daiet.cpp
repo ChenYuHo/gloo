@@ -14,7 +14,9 @@
 #include "params.hpp"
 #include "stats.hpp"
 #include "worker.hpp"
-//#include "ps.hpp"
+#ifdef COLOCATED
+#include "ps.hpp"
+#endif
 
 using namespace std;
 
@@ -86,8 +88,15 @@ namespace daiet {
             return flow;
     }
 
-    void port_init(uint16_t num_queues) {
+#ifndef COLOCATED
+    void port_init(uint16_t num_workers) {
 
+        uint16_t num_queues = num_workers;
+#else
+    void port_init(uint16_t num_workers, uint16_t num_ps) {
+
+        uint16_t num_queues = num_workers + num_ps;
+#endif
         int ret;
 
         uint16_t nb_ports, tmp_portid;
@@ -128,7 +137,9 @@ namespace daiet {
         // Get port info
         rte_eth_dev_info_get(dpdk_par.portid, &dev_info);
 
+#ifdef DEBUG
         print_dev_info(dev_info);
+#endif
 
         // Initialize port
         LOG_DEBUG("Initializing port " + to_string(dpdk_par.portid) + "...");
@@ -146,10 +157,11 @@ namespace daiet {
             LOG_DEBUG("RX UDP checksum offload enabled");
         }
 
-        //if (dev_info.rx_offload_capa & DEV_RX_OFFLOAD_CRC_STRIP) {
-        //    rxm.offloads |= DEV_RX_OFFLOAD_CRC_STRIP;
-        //    LOG_DEBUG("RX CRC stripped by the hw");
-        //}
+        /* Default in DPDK 18.11
+        if (dev_info.rx_offload_capa & DEV_RX_OFFLOAD_CRC_STRIP) {
+            rxm.offloads |= DEV_RX_OFFLOAD_CRC_STRIP;
+            LOG_DEBUG("RX CRC stripped by the hw");
+        }*/
 
         txm.mq_mode = ETH_MQ_TX_NONE;
 
@@ -268,8 +280,17 @@ namespace daiet {
         check_port_link_status(dpdk_par.portid);
 
         // Add FDIR filters
-        for (uint16_t i = 0; i < num_queues; i++)
+        for (uint16_t i = 0; i < num_queues; i++){
+
+#ifndef COLOCATED
             insert_flow_rule(dpdk_par.portid, i, daiet_par.getBaseWorkerPort()+i);
+#else
+            if (i < num_workers)
+                insert_flow_rule(dpdk_par.portid, i, daiet_par.getBaseWorkerPort()+i);
+            else
+                insert_flow_rule(dpdk_par.portid, i, daiet_par.getBasePsPort()+i-num_workers);
+#endif
+        }
     }
 
     int master(DaietContext* dctx_ptr) {
@@ -286,11 +307,14 @@ namespace daiet {
             double elapsed_secs;
             ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
 
-            uint16_t num_workers_threads;
+            uint16_t num_threads, num_worker_threads;
             string eal_cmdline;
 
             force_quit = false;
-            ps_stop = false;
+
+#ifdef COLOCATED
+            uint16_t num_ps_threads;
+#endif
 
             daiet_log = std::ofstream("daiet.log", std::ios::out);
 
@@ -327,11 +351,9 @@ namespace daiet {
 /* mlockall has issues inside docker
 #ifndef COLOCATED
             // This is causing some issue with the PS
-            if (daiet_par.getMode() == "worker"){
-                // Lock pages
-                if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
-                    LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
-                }
+            // Lock pages
+            if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
+                LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
             }
 #endif
 */
@@ -341,18 +363,25 @@ namespace daiet {
                 LOG_FATAL("EAL init failed: " + string(rte_strerror(rte_errno)));
 
             // Count cores/workers
-            uint16_t n_lcores = 0, lcore_id, wid = 0;
+            uint16_t lcore_id, tid = 0;
             for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
                 if (rte_lcore_is_enabled(lcore_id) != 0) {
 
-                    dpdk_data.core_to_workers_ids[lcore_id] = wid;
-                    wid++;
-                    n_lcores++;
+                    dpdk_data.core_to_thread_id[lcore_id] = tid;
+                    tid++;
+                    num_threads++;
                 }
             }
 
-            num_workers_threads = wid;
-            LOG_INFO("Number of worker threads: " + to_string(num_workers_threads));
+            LOG_INFO("Number of threads: " + to_string(num_threads));
+
+#ifndef COLOCATED
+            num_worker_threads = num_threads;
+#else
+            num_ps_threads = num_threads/2;
+            num_worker_threads = num_threads - num_ps_threads;
+            LOG_INFO("Workers: " + to_string(num_worker_threads) + ", PS: " + to_string(num_ps_threads));
+#endif
 
             // Estimate CPU frequency
             hz = rte_get_timer_hz();
@@ -360,17 +389,26 @@ namespace daiet {
             LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
 
             // Initialize port
-            port_init(num_workers_threads);
+#ifndef COLOCATED
+            port_init(num_worker_threads);
+#else
+            port_init(num_worker_threads, num_ps_threads);
+#endif
 
             // Initialize workers/PSs
-#ifndef COLOCATED
             worker_setup();
-#else
-            workers_setup();
+
+#ifdef COLOCATED
             ps_setup();
 #endif
-            dctx_ptr->set_num_worker_threads(num_workers_threads);
-            pkt_stats.init(num_workers_threads, 0);
+
+            dctx_ptr->set_num_worker_threads(num_worker_threads);
+
+#ifndef COLOCATED
+            pkt_stats.init(num_worker_threads);
+#else
+            pkt_stats.init(num_worker_threads, num_ps_threads);
+#endif
 
             // Check state of slave cores
             RTE_LCORE_FOREACH_SLAVE(lcore_id)
@@ -388,15 +426,24 @@ namespace daiet {
 #ifndef COLOCATED
                  rte_eal_remote_launch(worker, dctx_ptr, lcore_id);
 #else
-                 // FIXME Equal number of workers and PSs
-                 rte_eal_remote_launch(ps, NULL, lcore_id);
+                 if (dpdk_data.core_to_thread_id[lcore_id] < num_worker_threads)
+                     rte_eal_remote_launch(worker, dctx_ptr, lcore_id);
+                 else
+                     rte_eal_remote_launch(ps, NULL, lcore_id);
 #endif
             }
 
             // Launch function on master core
+#ifndef COLOCATED
             worker(dctx_ptr);
+#else
+             if (dpdk_data.core_to_thread_id[rte_lcore_id()] < num_worker_threads)
+                 worker(dctx_ptr);
+             else
+                 ps(NULL);
+#endif
 
-            // Join worker/ps threads
+            // Join slave threads
             RTE_LCORE_FOREACH_SLAVE(lcore_id) {
 
                 ret = rte_eal_wait_lcore(lcore_id);
@@ -429,10 +476,8 @@ namespace daiet {
             rte_eth_dev_close(dpdk_par.portid);
             LOG_DEBUG("Port closed");
 
-#ifndef COLOCATED
             worker_cleanup();
-#else
-            worker_cleanup();
+#ifdef COLOCATED
             ps_cleanup();
 #endif
 
