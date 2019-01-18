@@ -21,6 +21,7 @@ namespace daiet {
     thread_local uint16_t worker_id;
     thread_local uint16_t worker_port_be, ps_port_be;
     thread_local TensorUpdate tu;
+    thread_local uint32_t tensor_size;
     thread_local uint32_t num_updates;
     thread_local size_t entries_size;
     thread_local uint16_t start_pool_index;
@@ -379,10 +380,9 @@ namespace daiet {
     void timeout_cb(struct rte_timer *timer, void *arg) {
 
         int ret;
-        uint32_t tsi = ((uint32_t*) arg)[0];
-        uint32_t tensor_size = ((uint32_t*) arg)[1];
+        uint32_t tsi = *((uint32_t*) arg);
 
-        LOG_DEBUG("Timeout TSI: " + to_string(*tsi));
+        LOG_DEBUG("Timeout TSI: " + to_string(tsi));
 
         pkt_stats.w_timeouts++;
 
@@ -392,7 +392,7 @@ namespace daiet {
             LOG_FATAL("Cannot allocate one packet");
         }
 
-        build_pkt(m, dpdk_par.portid, *tsi, tensor_size;
+        build_pkt(m, dpdk_par.portid, tsi, tensor_size;
 
         while (rte_eth_tx_burst(dpdk_par.portid, worker_id, m, 1)==0)
             ;
@@ -446,6 +446,7 @@ namespace daiet {
         num_updates = daiet_par.getNumUpdates();
         entries_size = sizeof(struct entry_hdr) * num_updates;
         shift = 0;
+        tensor_size = 0;
         scalingfactor = daiet_par.getScalingFactor();
         scalingfactor_vec = scalingfactor;
 
@@ -453,7 +454,6 @@ namespace daiet {
         uint64_t w_tx = 0, w_rx = 0;
         uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
-        uint32_t tensor_size = 0;
 
 #ifdef DEBUG
         uint32_t sent_message_counters[max_num_pending_messages];
