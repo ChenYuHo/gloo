@@ -54,19 +54,11 @@ namespace daiet {
     thread_local struct rte_mempool *pool;
 
     thread_local uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout();;// cycles for 1 ms
-    thread_local uint64_t check_cycles = timer_cycles * 0.8;
-    thread_local vector<uint32_t> timer_tsis(daiet_par.getMaxNumPendingMessages());
-    thread_local vector <struct rte_timer> timers(daiet_par.getMaxNumPendingMessages());
     thread_local uint64_t w_timeouts = 0;
 
 #ifdef TIMESTAMPS
     thread_local vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
 #endif
-#endif
-
-#ifdef TIMESTAMPS
-    thread_local vector<pair<uint32_t,uint64_t>> global_sent_timestamps;
-    thread_local uint64_t first_global_ts = 0;
 #endif
 
 #ifdef LATENCIES
@@ -104,7 +96,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-    __rte_always_inline void write_global_timestamp(uint32_t pool_index_monoset) {
+    __rte_always_inline void write_global_timestamp(vector<pair<uint32_t,uint64_t>> &global_sent_timestamps, uint32_t pool_index_monoset) {
 
         pair<uint32_t,uint64_t> ts;
         ts.first = pool_index_monoset;
@@ -115,7 +107,7 @@ namespace daiet {
             first_global_ts = ts.second;
     }
 
-    uint64_t dump_timestamps(string file_name) {
+    uint64_t dump_timestamps(vector<pair<uint32_t,uint64_t>> &global_sent_timestamps, string file_name) {
 
         LOG_INFO("Writing timestamps file...");
 
@@ -458,7 +450,7 @@ namespace daiet {
         resent_pkt_timestamps.push_back(ts);
 #endif
 
-        rte_timer_reset_sync(timer, timer_cycles * daiet_par.getMaxNumPendingMessages(), PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
+        rte_timer_reset_sync(timer, timer_cycles, PERIODICAL, lcore_id, resend_pkt, arg);
     }
 #endif
 
@@ -528,6 +520,11 @@ namespace daiet {
         uint64_t lat_idx = 0;
 #endif
 
+#ifdef TIMESTAMPS
+        vector<pair<uint32_t,uint64_t>> global_sent_timestamps;
+        uint64_t  first_global_ts = 0;
+#endif
+
 #if defined(TIMESTAMPS) || defined(LATENCIES)
         uint32_t round_ts= 0;
 #endif
@@ -539,6 +536,9 @@ namespace daiet {
 
 #ifndef TIMERS
         struct rte_mempool *pool;
+#else
+        struct rte_timer timers[max_num_pending_messages];
+        uint32_t timer_tsis[max_num_pending_messages];
 #endif
         string pool_name = "worker_pool";
         struct rte_mbuf **pkts_tx_burst;
@@ -658,6 +658,8 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
                 global_sent_timestamps.clear();
+                global_sent_timestamps.reserve(total_num_msgs);
+                first_global_ts = 0;
 #ifdef TIMERS
                 resent_pkt_timestamps.clear();
 #endif
@@ -794,7 +796,7 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
                                     // Save timestamp
-                                    write_global_timestamp(pool_index_monoset);
+                                    write_global_timestamp(global_sent_timestamps, pool_index_monoset);
 #endif
 
                                     // Store result
@@ -869,7 +871,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-                uint64_t base_ts = dump_timestamps("timestamps_" + to_string(round_ts) + "_usec.dat");
+                uint64_t base_ts = dump_timestamps(global_sent_timestamps, "recv_timestamps_" + to_string(round_ts) + "_usec.dat");
                 round_ts++;
 #ifdef TIMERS
                 dump_resent_timestamps(base_ts, "resent_timestamps_" + to_string(round_ts) + "_usec.dat");
