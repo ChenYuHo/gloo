@@ -50,7 +50,7 @@ namespace daiet {
     void swap_eth_addr(ether_hdr *);
     void deep_copy_single_segment_pkt(rte_mbuf*, const rte_mbuf*);
     void check_port_link_status(uint16_t);
-    void print_packet(struct ether_hdr *, uint16_t, uint16_t, uint16_t);
+    void print_packet(struct ether_hdr *, uint16_t);
     void print_dev_info(struct rte_eth_dev_info&);
     void print_dev_stats(uint16_t);
     void print_dev_xstats(uint16_t);

@@ -307,7 +307,7 @@ namespace daiet {
             double elapsed_secs;
             ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
 
-            uint16_t num_threads, num_worker_threads;
+            uint16_t num_threads = 0, num_worker_threads = 0;
             string eal_cmdline;
 
             force_quit = false;

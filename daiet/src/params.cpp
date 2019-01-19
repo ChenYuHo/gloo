@@ -169,9 +169,11 @@ namespace daiet {
         }
     }
 
+#ifdef COLOCATED
     uint32_t& daiet_params::getNumWorkers() {
         return num_workers;
     }
+#endif
 
     void daiet_params::setNumUpdates(uint32_t numUpdates) {
         num_updates = numUpdates;

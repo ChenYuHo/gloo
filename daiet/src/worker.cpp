@@ -434,7 +434,7 @@ namespace daiet {
 
         LOG_DEBUG("Timeout TSI: " + to_string(tsi));
 
-        pkt_stats.w_timeouts++;
+        w_timeouts++;
 
         // Reallocate, Rebuild, Resend packet
         struct rte_mbuf* m = rte_pktmbuf_alloc(pool);
@@ -511,6 +511,7 @@ namespace daiet {
 
         volatile uint32_t rx_pkts = 0;
         uint64_t w_tx = 0, w_rx = 0;
+
         uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
 
@@ -560,7 +561,9 @@ namespace daiet {
         start_pool_index = worker_id *max_num_pending_messages;
 
 #ifdef TIMERS
-        // Timer
+
+        uint64_t w_timeouts = 0;
+
         uint64_t timer_prev_tsc = 0, timer_cur_tsc;
 
         for (uint32_t i = 0; i < max_num_pending_messages; i++) {
@@ -876,15 +879,18 @@ namespace daiet {
 #ifdef DEBUG
         LOG_DEBUG("Sent messages counters");
         for (uint32_t i = 1; i < max_num_pending_messages; i++){
-            if (sent_messages_counter[i-1] != sent_messages_counter[i]){
-                LOG_DEBUG("Index: " + to_string(i-1) + " -> " + to_string(sent_messages_counter[i-1]));
-                LOG_DEBUG("Index: " + to_string(i) + " -> " + to_string(sent_messages_counter[i]));
+            if (sent_message_counters[i-1] != sent_message_counters[i]){
+                LOG_DEBUG("Index: " + to_string(i-1) + " -> " + to_string(sent_message_counters[i-1]));
+                LOG_DEBUG("Index: " + to_string(i) + " -> " + to_string(sent_message_counters[i]));
             }
         }
 #endif
         // Set stats
         pkt_stats.set_workers(worker_id, w_tx, w_rx);
 
+#ifdef TIMERS
+        pkt_stats.set_timeouts(worker_id, w_timeouts);
+#endif
         // Cleanup
         rte_free(pkts_rx_burst);
         rte_pktmbuf_free_bulk(pkts_tx_burst, burst_size);
