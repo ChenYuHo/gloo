@@ -529,7 +529,7 @@ namespace daiet {
         uint64_t lat_idx = 0;
 #endif
 
-#ifdef TIMESTAMPS
+#if defined(TIMESTAMPS) || defined(LATENCIES)
         uint32_t round_ts= 0;
 #endif
 
@@ -821,8 +821,11 @@ namespace daiet {
 #ifdef DEBUG
                                         sent_message_counters[pool_index_monoset]++;
 #endif
+                                    } else {
+                                        
+                                        // Free the packet
+                                        rte_pktmbuf_free(m);
                                     }
-
                                 } else {
                                     // We have seen this packet before
 #ifdef DEBUG
