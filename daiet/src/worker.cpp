@@ -716,10 +716,6 @@ namespace daiet {
 
                 w_tx += burst_size;
 
-#ifdef LATENCIES
-                lat_idx += burst_size;
-#endif
-
                 while (rx_pkts < total_num_msgs && !force_quit) {
 
                     // Read packet from RX ring
