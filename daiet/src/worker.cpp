@@ -125,9 +125,9 @@ namespace daiet {
             uint64_t base_ts = first_global_ts;
             first_global_ts = 0;
 
-            for (map<uint32_t,uint64_t>::iterator it=global_sent_timestamps.begin(); it!=global_sent_timestamps.end() && !force_quit; ++it)
+            for (map<uint32_t,uint64_t>::iterator it=global_sent_timestamps.begin(); it!=global_sent_timestamps.end() && !force_quit; ++it) {
 
-                timestamps_file << to_string(it->first) + " " +((double) (it->second-base_ts)) * 1000000 / hz << endl;
+                timestamps_file << to_string(it->first) + " " + to_string(((double) (it->second - base_ts)) * 1000000 / hz) << endl;
             }
 
             timestamps_file.close();
@@ -444,7 +444,7 @@ namespace daiet {
             LOG_FATAL("Cannot allocate one packet");
         }
 
-        uint32_t pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
+        uint32_t pool_index_monoset = build_pkt(m[0], dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
 
         while (rte_eth_tx_burst(dpdk_par.portid, worker_id, m, 1)==0)
             ;
