@@ -65,7 +65,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-    map<uint32_t,uint64_t> global_sent_timestamps;
+    vector<pair<uint32_t,uint64_t>> global_sent_timestamps;
     uint64_t first_global_ts = 0;
 #endif
 
@@ -106,10 +106,13 @@ namespace daiet {
 #ifdef TIMESTAMPS
     __rte_always_inline void write_global_timestamp(uint32_t pool_index_monoset) {
 
-        global_sent_timestamps[pool_index_monoset] = rte_get_timer_cycles();
+        pair<uint32_t,uint64_t> ts;
+        ts.first = pool_index_monoset;
+        ts.second = rte_get_timer_cycles();
+        global_sent_timestamps.push_back(ts);
 
         if (unlikely(first_global_ts=0))
-            first_global_ts = global_sent_timestamps[pool_index_monoset];
+            first_global_ts = ts.second;
     }
 
     uint64_t dump_timestamps(string file_name) {
@@ -125,7 +128,7 @@ namespace daiet {
             uint64_t base_ts = first_global_ts;
             first_global_ts = 0;
 
-            for (map<uint32_t,uint64_t>::iterator it=global_sent_timestamps.begin(); it!=global_sent_timestamps.end() && !force_quit; ++it) {
+            for (vector<pair<uint32_t,uint64_t>>::iterator it=global_sent_timestamps.begin(); it!=global_sent_timestamps.end() && !force_quit; ++it) {
 
                 timestamps_file << to_string(it->first) + " " + to_string(((double) (it->second - base_ts)) * 1000000 / hz) << endl;
             }
