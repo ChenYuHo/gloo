@@ -60,13 +60,13 @@ namespace daiet {
     thread_local uint64_t w_timeouts = 0;
 
 #ifdef TIMESTAMPS
-    vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
+    thread_local vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
 #endif
 #endif
 
 #ifdef TIMESTAMPS
-    vector<pair<uint32_t,uint64_t>> global_sent_timestamps;
-    uint64_t first_global_ts = 0;
+    thread_local vector<pair<uint32_t,uint64_t>> global_sent_timestamps;
+    thread_local uint64_t first_global_ts = 0;
 #endif
 
 #ifdef LATENCIES
@@ -699,10 +699,6 @@ namespace daiet {
                     write_timestamp(sent_timestamps,pool_index_monoset);
 #endif
 
-#ifdef TIMESTAMPS
-                    write_global_timestamp(pool_index_monoset);
-#endif
-
                     tsi += num_updates;
                 }
 
@@ -792,7 +788,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-                                    // Save latency
+                                    // Save timestamp
                                     write_global_timestamp(pool_index_monoset);
 #endif
 
