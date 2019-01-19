@@ -9,9 +9,9 @@
 #include "params.hpp"
 #include "stats.hpp"
 
-#ifdef TIMESTAMPS
 #ifdef TIMERS
 #include <vector>
+#ifdef TIMESTAMPS
 #include <utility>
 #endif
 #endif
@@ -55,8 +55,8 @@ namespace daiet {
 
     thread_local uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout();;// cycles for 1 ms
     thread_local uint64_t check_cycles = timer_cycles * 0.8;
-    thread_local uint32_t timer_tsis[max_num_pending_messages];
-    thread_local struct rte_timer timers[max_num_pending_messages];
+    thread_local vector<uint32_t> timer_tsis(daiet_par.getMaxNumPendingMessages());
+    thread_local vector <struct rte_timer> timers(daiet_par.getMaxNumPendingMessages());
     thread_local uint64_t w_timeouts = 0;
 
 #ifdef TIMESTAMPS
@@ -438,7 +438,8 @@ namespace daiet {
         w_timeouts++;
 
         // Reallocate, Rebuild, Resend packet
-        struct rte_mbuf* m = rte_pktmbuf_alloc(pool);
+        struct rte_mbuf* m[1];
+        m[0] = rte_pktmbuf_alloc(pool);
         if (unlikely(m == NULL)) {
             LOG_FATAL("Cannot allocate one packet");
         }
@@ -455,7 +456,7 @@ namespace daiet {
         resent_pkt_timestamps.push_back(ts);
 #endif
 
-        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
+        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * daiet_par.getMaxNumPendingMessages(), PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
     }
 #endif
 

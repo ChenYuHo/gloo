@@ -90,7 +90,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMERS
-            LOG_INFO("Timeouts " + to_string(w_timeouts));
+            LOG_INFO("Timeouts " + to_string(total_timeouts));
 #endif
 
             for (uint32_t i = 0; i < w_tx.size(); i++) {
@@ -98,6 +98,9 @@ namespace daiet {
                 LOG_INFO("## Worker " + to_string(i));
                 LOG_INFO("TX " + to_string(w_tx[i]));
                 LOG_INFO("RX " + to_string(w_rx[i]));
+#ifdef TIMERS
+                LOG_INFO("Timeouts " + to_string(w_timeouts[i]));
+#endif
             }
 
 #ifdef COLOCATED
