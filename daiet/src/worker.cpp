@@ -433,7 +433,6 @@ namespace daiet {
 #ifdef TIMERS
     void resend_pkt(struct rte_timer *timer, void *arg) {
 
-        int ret;
         uint32_t tsi = *((uint32_t*) arg);
 
         LOG_DEBUG("Timeout TSI: " + to_string(tsi));
@@ -459,7 +458,7 @@ namespace daiet {
         resent_pkt_timestamps.push_back(ts);
 #endif
 
-        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * daiet_par.getMaxNumPendingMessages(), PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
+        rte_timer_reset_sync(timer, timer_cycles * daiet_par.getMaxNumPendingMessages(), PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
     }
 #endif
 
@@ -562,7 +561,13 @@ namespace daiet {
         worker_id = dpdk_data.core_to_thread_id[lcore_id];
         LOG_DEBUG("Worker core: " + to_string(lcore_id) + " worker id: " + to_string(worker_id));
         worker_port_be = rte_cpu_to_be_16(daiet_par.getBaseWorkerPort() + worker_id);
+
+#ifdef COLOCATED
         ps_port_be = rte_cpu_to_be_16(daiet_par.getBasePsPort() + worker_id);
+#else
+        ps_port_be = rte_cpu_to_be_16(daiet_par.getBasePsPort());
+#endif
+
         start_pool_index = worker_id *max_num_pending_messages;
 
 #ifdef TIMERS
