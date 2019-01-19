@@ -857,7 +857,7 @@ namespace daiet {
                 rte_free(bitmap_mem);
 
 #ifdef LATENCIES
-                dump_latencies(latencies, total_num_msgs, "latency_usec.dat");
+                dump_latencies(latencies, total_num_msgs, "latency_" + to_string(round_ts) + "_usec.dat");
 #endif
 
 #ifdef TIMESTAMPS
