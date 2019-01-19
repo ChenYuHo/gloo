@@ -57,6 +57,7 @@ namespace daiet {
     thread_local uint64_t check_cycles = timer_cycles * 0.8;
     thread_local uint32_t timer_tsis[max_num_pending_messages];
     thread_local struct rte_timer timers[max_num_pending_messages];
+    thread_local uint64_t w_timeouts = 0;
 
 #ifdef TIMESTAMPS
     vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
@@ -561,8 +562,6 @@ namespace daiet {
         start_pool_index = worker_id *max_num_pending_messages;
 
 #ifdef TIMERS
-
-        uint64_t w_timeouts = 0;
 
         uint64_t timer_prev_tsc = 0, timer_cur_tsc;
 
