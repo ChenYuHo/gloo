@@ -99,6 +99,10 @@ namespace daiet {
 
             uint32_t num_ps;
 
+#ifdef TIMERS
+            double timeout;
+#endif
+
 #ifdef COLOCATED
             uint32_t num_workers;
 #endif
@@ -109,7 +113,9 @@ namespace daiet {
 
             void print_params();
 
+#ifdef COLOCATED
             uint32_t& getNumWorkers();
+#endif
 
             __rte_always_inline uint32_t getNumUpdates() const {
                 return num_updates;
@@ -173,6 +179,12 @@ namespace daiet {
             __rte_always_inline uint32_t getNumPs() const {
                 return num_ps;
             }
+
+#ifdef TIMERS
+            __rte_always_inline double& getTimeout() {
+                return timeout;
+            }
+#endif
     };
 
     extern daiet_params daiet_par;

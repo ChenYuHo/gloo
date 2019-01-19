@@ -49,6 +49,9 @@ namespace daiet {
 #ifdef COLOCATED
                 ("daiet.num_workers", po::value<uint32_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers")
 #endif
+#ifdef TIMERS
+                ("daiet.timeout", po::value<double>(&(daiet_par.getTimeout()))->default_value(1), "Timeout in millisecond")
+#endif
                 ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value");
 
 

@@ -9,6 +9,13 @@
 #include "params.hpp"
 #include "stats.hpp"
 
+#ifdef TIMESTAMPS
+#ifdef TIMERS
+#include <vector>
+#include <utility>
+#endif
+#endif
+
 #if defined ( __AVX512F__ ) || defined ( __AVX512__ )
 #define MAX_VECTOR_SIZE 512
 #endif
@@ -18,6 +25,7 @@ using namespace std;
 
 namespace daiet {
 
+    thread_local unsigned lcore_id;
     thread_local uint16_t worker_id;
     thread_local uint16_t worker_port_be, ps_port_be;
     thread_local TensorUpdate tu;
@@ -44,6 +52,20 @@ namespace daiet {
 
 #ifdef TIMERS
     thread_local struct rte_mempool *pool;
+
+    thread_local uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout();;// cycles for 1 ms
+    thread_local uint64_t check_cycles = timer_cycles * 0.8;
+    thread_local uint32_t timer_tsis[max_num_pending_messages];
+    thread_local struct rte_timer timers[max_num_pending_messages];
+
+#ifdef TIMESTAMPS
+    vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
+#endif
+#endif
+
+#ifdef TIMESTAMPS
+    map<uint32_t,uint64_t> global_sent_timestamps;
+    uint64_t first_global_ts = 0;
 #endif
 
 #ifdef LATENCIES
@@ -62,7 +84,6 @@ namespace daiet {
 
     void dump_latencies(uint64_t* latencies, uint32_t total_num_msgs, string file_name) {
 
-        // Write latency file
         LOG_INFO("Writing latency file...");
 
         uint64_t hz = rte_get_timer_hz();
@@ -82,15 +103,16 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
+    __rte_always_inline void write_global_timestamp(uint32_t pool_index_monoset) {
 
-    __rte_always_inline void write_global_timestamp(uint64_t* sent_timestamps, uint64_t idx) {
+        global_sent_timestamps[pool_index_monoset] = rte_get_timer_cycles();
 
-        sent_timestamps[idx] = rte_get_timer_cycles();
+        if (unlikely(first_global_ts=0))
+            first_global_ts = global_sent_timestamps[pool_index_monoset];
     }
 
-    void dump_timestamps(uint64_t* sent_timestamps, uint32_t total_num_msgs, string file_name) {
+    uint64_t dump_timestamps(string file_name) {
 
-        // Write latency file
         LOG_INFO("Writing timestamps file...");
 
         uint64_t hz = rte_get_timer_hz();
@@ -99,17 +121,45 @@ namespace daiet {
 
         if (timestamps_file.is_open()) {
 
-            uint64_t first = sent_timestamps[0];
-            timestamps_file << (double)(0) << endl;
-            for (uint32_t i = 1; i < total_num_msgs && !force_quit; i++) {
-                timestamps_file << ((double) (sent_timestamps[i]-first)) * 1000000 / hz << endl;
+            uint64_t base_ts = first_global_ts;
+            first_global_ts = 0;
+
+            for (map<uint32_t,uint64_t>::iterator it=global_sent_timestamps.begin(); it!=global_sent_timestamps.end() && !force_quit; ++it)
+
+                timestamps_file << to_string(it->first) + " " +((double) (it->second-base_ts)) * 1000000 / hz << endl;
             }
 
             timestamps_file.close();
+
+            return base_ts;
         } else {
             LOG_ERROR("Unable to open timestamps file");
+            return 0;
         }
     }
+
+#ifdef TIMERS
+    void dump_resent_timestamps(uint64_t base_ts, string file_name) {
+
+        LOG_INFO("Writing resent timestamps file...");
+
+        uint64_t hz = rte_get_timer_hz();
+
+        ofstream resent_timestamps_file(file_name);
+
+        if (resent_timestamps_file.is_open()) {
+
+            for (vector<pair<uint32_t,uint64_t>>::iterator i = resent_pkt_timestamps.begin();
+                    i != resent_pkt_timestamps.end() && !force_quit; i++) {
+                resent_timestamps_file << to_string(i->first) + " " +to_string(((double) (i->second-base_ts)) * 1000000 / hz) << endl;
+            }
+
+            resent_timestamps_file.close();
+        } else {
+            LOG_ERROR("Unable to open resent timestamps file");
+        }
+    }
+#endif
 #endif
 
     __rte_always_inline uint16_t tsi_to_pool_index(const uint32_t& tsi) {
@@ -377,7 +427,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMERS
-    void timeout_cb(struct rte_timer *timer, void *arg) {
+    void resend_pkt(struct rte_timer *timer, void *arg) {
 
         int ret;
         uint32_t tsi = *((uint32_t*) arg);
@@ -392,10 +442,19 @@ namespace daiet {
             LOG_FATAL("Cannot allocate one packet");
         }
 
-        build_pkt(m, dpdk_par.portid, tsi, tensor_size;
+        uint32_t pool_index_monoset = build_pkt(m, dpdk_par.portid, tsi, tensor_size) & 0x7FFF;
 
         while (rte_eth_tx_burst(dpdk_par.portid, worker_id, m, 1)==0)
             ;
+
+#ifdef TIMESTAMPS
+        pair<uint32_t,uint64_t> ts;
+        ts.first = pool_index_monoset;
+        ts.second = rte_get_timer_cycles();
+        resent_pkt_timestamps.push_back(ts);
+#endif
+
+        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
     }
 #endif
 
@@ -466,12 +525,10 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
         uint32_t round_ts= 0;
-        uint64_t ts_idx = 0;
 #endif
 
         int ret;
 
-        unsigned lcore_id;
         unsigned socket_id = rte_socket_id();
         unsigned nb_rx = 0, nb_tx = 0, sent = 0, j = 0;
 
@@ -504,11 +561,7 @@ namespace daiet {
 
 #ifdef TIMERS
         // Timer
-        uint64_t timer_cycles = rte_get_timer_hz() / 1000;// cycles for 1 ms
         uint64_t timer_prev_tsc = 0, timer_cur_tsc;
-        uint32_t timer_tsis[max_num_pending_messages];
-
-        struct rte_timer timers[max_num_pending_messages];
 
         for (uint32_t i = 0; i < max_num_pending_messages; i++) {
             rte_timer_init(&timers[i]);
@@ -593,9 +646,10 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-                uint64_t global_sent_timestamps[total_num_msgs];
-                memset(global_sent_timestamps, 0, total_num_msgs * (sizeof(*global_sent_timestamps)));
-                ts_idx = 0;
+                global_sent_timestamps.clear();
+#ifdef TIMERS
+                resent_pkt_timestamps.clear();
+#endif
 #endif
 
                 // Initialize bitmap
@@ -628,7 +682,7 @@ namespace daiet {
 
 #ifdef TIMERS
                     timer_tsis[pool_index_monoset] = tsi;
-                    rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, timeout_cb, &(timer_tsis[pool_index_monoset]));
+                    rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles * max_num_pending_messages, PERIODICAL, lcore_id, resend_pkt, &(timer_tsis[pool_index_monoset]));
 #endif
 
 #ifdef DEBUG
@@ -640,7 +694,7 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-                    write_global_timestamp(global_sent_timestamps,j);
+                    write_global_timestamp(pool_index_monoset);
 #endif
 
                     tsi += num_updates;
@@ -658,10 +712,6 @@ namespace daiet {
 
 #ifdef LATENCIES
                 lat_idx += burst_size;
-#endif
-
-#ifdef TIMESTAMPS
-                ts_idx += burst_size;
 #endif
 
                 while (rx_pkts < total_num_msgs && !force_quit) {
@@ -741,9 +791,7 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
                                     // Save latency
-                                    write_global_timestamp(global_sent_timestamps, ts_idx);
-
-                                    ts_idx += 1;
+                                    write_global_timestamp(pool_index_monoset);
 #endif
 
                                     // Store result
@@ -768,7 +816,7 @@ namespace daiet {
 
 #ifdef TIMERS
                                         // Start timer
-                                        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles, PERIODICAL, lcore_id, timeout_cb,
+                                        rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles, PERIODICAL, lcore_id, resend_pkt,
                                                 &timer_tsis[pool_index_monoset]);
 #endif
 
@@ -815,8 +863,11 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-                dump_timestamps(global_sent_timestamps, total_num_msgs, "timestamps_" + to_string(round_ts) + "_usec.dat");
+                uint64_t base_ts = dump_timestamps("timestamps_" + to_string(round_ts) + "_usec.dat");
                 round_ts++;
+#ifdef TIMERS
+                dump_resent_timestamps(base_ts, "resent_timestamps_" + to_string(round_ts) + "_usec.dat");
+#endif
 #endif
 
             }
