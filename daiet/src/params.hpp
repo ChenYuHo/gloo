@@ -104,7 +104,7 @@ namespace daiet {
 #endif
 
 #ifdef COLOCATED
-            uint32_t num_workers;
+            uint16_t num_workers;
 #endif
 
         public:
@@ -114,7 +114,7 @@ namespace daiet {
             void print_params();
 
 #ifdef COLOCATED
-            uint32_t& getNumWorkers();
+            uint16_t& getNumWorkers();
 #endif
 
             __rte_always_inline uint32_t getNumUpdates() const {

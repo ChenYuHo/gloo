@@ -1,21 +1,56 @@
 #!/bin/bash
 
+# FLAGS: COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG
 set -e
 set -x
+
+DAIET_ARGS=""
+DPDK_FLAGS="-fPIC"
+
+if [[ $@ == *"COLOCATED"* ]]; then
+  echo  "COLOCATED ON"
+  DAIET_ARGS+="COLOCATED=ON "
+fi
+
+if [[ $@ == *"LATENCIES"* ]]; then
+  echo  "LATENCIES ON"
+  DAIET_ARGS+="LATENCIES=ON "
+fi
+if [[ $@ == *"TIMESTAMPS"* ]]; then
+  echo  "TIMESTAMPS ON"
+  DAIET_ARGS+="TIMESTAMPS=ON "
+fi
+if [[ $@ == *"TIMERS"* ]]; then
+  echo  "TIMERS ON"
+  DAIET_ARGS+="TIMERS=ON "
+fi
+if [[ $@ == *"DEBUG"* ]]; then
+  echo  "DEBUG ON"
+  DAIET_ARGS+="DEBUG=ON "
+  DPDK_FLAGS+="-g -O0"
+fi
+
+# Build DPDK
 cd ../lib/dpdk/
 rm -rf build
 make defconfig T=x86_64-native-linuxapp-gcc
-make EXTRA_CFLAGS="-fPIC" -j
+make EXTRA_CFLAGS=${DPDK_FLAGS} -j
 cd ../..
+
+# Build DAIET
 make clean
 rm -rf build
-make -j
+make ${DAIET_ARGS} -j
 cd ..
+
+# Build Gloo
 rm -rf build
 mkdir build
 cd build
 cmake -DUSE_REDIS=ON ..
 make -j
+
+# Build experiments
 cd ../experiments/exp1/
 mkdir -p build
 cd build

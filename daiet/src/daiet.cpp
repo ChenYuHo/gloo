@@ -429,7 +429,7 @@ namespace daiet {
                  if (dpdk_data.core_to_thread_id[lcore_id] < num_worker_threads)
                      rte_eal_remote_launch(worker, dctx_ptr, lcore_id);
                  else
-                     rte_eal_remote_launch(ps, NULL, lcore_id);
+                     rte_eal_remote_launch(ps, &num_worker_threads, lcore_id);
 #endif
             }
 
@@ -440,7 +440,7 @@ namespace daiet {
              if (dpdk_data.core_to_thread_id[rte_lcore_id()] < num_worker_threads)
                  worker(dctx_ptr);
              else
-                 ps(NULL);
+                 ps(&num_worker_threads);
 #endif
 
             // Join slave threads

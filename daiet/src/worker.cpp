@@ -53,7 +53,7 @@ namespace daiet {
 #ifdef TIMERS
     thread_local struct rte_mempool *pool;
 
-    thread_local uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout();;// cycles for 1 ms
+    thread_local uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout(); // cycles for 1 ms
     thread_local uint64_t w_timeouts = 0;
 
 #ifdef TIMESTAMPS
