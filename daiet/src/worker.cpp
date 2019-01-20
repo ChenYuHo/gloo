@@ -25,39 +25,39 @@ using namespace std;
 
 namespace daiet {
 
-    thread_local unsigned lcore_id;
-    thread_local uint16_t worker_id;
-    thread_local uint16_t worker_port_be, ps_port_be;
-    thread_local TensorUpdate tu;
-    thread_local uint32_t tensor_size;
-    thread_local uint32_t num_updates;
-    thread_local size_t entries_size;
-    thread_local uint16_t start_pool_index;
-    thread_local uint16_t shift;
+    thread_local static unsigned lcore_id;
+    thread_local static uint16_t worker_id;
+    thread_local static uint16_t worker_port_be, ps_port_be;
+    thread_local static TensorUpdate tu;
+    thread_local static uint32_t tensor_size;
+    thread_local static uint32_t num_updates;
+    thread_local static size_t entries_size;
+    thread_local static uint16_t start_pool_index;
+    thread_local static uint16_t shift;
 
-    thread_local float scalingfactor;
+    thread_local static float scalingfactor;
 
 #if MAX_VECTOR_SIZE >= 512
-    thread_local Vec16f vec_f;
-    thread_local Vec16i vec_i;
-    thread_local Vec16f scalingfactor_vec;
+    thread_local static Vec16f vec_f;
+    thread_local static Vec16i vec_i;
+    thread_local static Vec16f scalingfactor_vec;
 #else
-    thread_local Vec8f vec_f;
-    thread_local Vec8i vec_i;
-    thread_local Vec8f scalingfactor_vec;
+    thread_local static Vec8f vec_f;
+    thread_local static Vec8i vec_i;
+    thread_local static Vec8f scalingfactor_vec;
 #endif
 
-    thread_local void (*fill_fn)(entry_hdr*, uint32_t, uint32_t);
-    thread_local void (*store_fn)(daiet_hdr*, uint32_t);
+    thread_local static void (*fill_fn)(entry_hdr*, uint32_t, uint32_t);
+    thread_local static void (*store_fn)(daiet_hdr*, uint32_t);
 
 #ifdef TIMERS
-    thread_local struct rte_mempool *pool;
+    thread_local static struct rte_mempool *pool;
 
-    thread_local uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout(); // cycles for 1 ms
-    thread_local uint64_t w_timeouts = 0;
+    thread_local static uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getTimeout(); // cycles for 1 ms
+    thread_local static uint64_t w_timeouts = 0;
 
 #ifdef TIMESTAMPS
-    thread_local vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
+    thread_local static vector<pair<uint32_t,uint64_t>> resent_pkt_timestamps;
 #endif
 #endif
 

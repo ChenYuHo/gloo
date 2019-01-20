@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FLAGS: COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG
+# FLAGS: INSTALL COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG
 set -e
 set -x
 
@@ -35,12 +35,22 @@ cd ../lib/dpdk/
 rm -rf build
 make defconfig T=x86_64-native-linuxapp-gcc
 make EXTRA_CFLAGS=${DPDK_FLAGS} -j
+
+if [[ $@ == *"INSTALL"* ]]; then
+make install
+fi
+
 cd ../..
 
 # Build DAIET
 make clean
 rm -rf build
 make ${DAIET_ARGS} -j
+
+if [[ $@ == *"INSTALL"* ]]; then
+make libinstall
+fi
+
 cd ..
 
 # Build Gloo

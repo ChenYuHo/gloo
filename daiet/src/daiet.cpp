@@ -378,6 +378,9 @@ namespace daiet {
 #ifndef COLOCATED
             num_worker_threads = num_threads;
 #else
+            if (num_threads%2 != 0)
+                LOG_FATAL("Colocated mode needs an even number of cores!");
+
             num_ps_threads = num_threads/2;
             num_worker_threads = num_threads - num_ps_threads;
             LOG_INFO("Workers: " + to_string(num_worker_threads) + ", PS: " + to_string(num_ps_threads));

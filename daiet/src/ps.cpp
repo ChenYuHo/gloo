@@ -6,6 +6,9 @@
 #ifdef COLOCATED
 #include "ps.hpp"
 #include "common.hpp"
+#include "utils.hpp"
+#include "params.hpp"
+#include "stats.hpp"
 
 using namespace std;
 
@@ -16,14 +19,14 @@ namespace daiet {
         uint32_t be_ip;
     };
 
-    thread_local uint32_t num_updates;
-    thread_local mac_ip_pair* ps_workers_ip_to_mac;
-    thread_local uint32_t known_workers = 0;
+    thread_local static uint32_t num_updates;
+    thread_local static mac_ip_pair* ps_workers_ip_to_mac;
+    thread_local static uint32_t known_workers = 0;
 
-    thread_local int32_t** ps_aggregated_messages;
-    thread_local uint32_t* ps_received_message_counters;
+    thread_local static int32_t** ps_aggregated_messages;
+    thread_local static uint32_t* ps_received_message_counters;
 
-    thread_local uint16_t ps_port_be;
+    thread_local static uint16_t ps_port_be;
 
 #ifdef DEBUG
     __rte_always_inline struct daiet_hdr * is_daiet_pkt_to_ps(struct ether_hdr* eth_hdr, uint16_t size) {
@@ -163,7 +166,7 @@ namespace daiet {
                 LOG_FATAL("Failed PS aggregated messages allocation: element " + to_string(i));
         }
 
-        ps_received_message_counters = (uint32_t*) rte_zmalloc_socket(NULL, max_num_pending_messages * sizeof(uint23_t), RTE_CACHE_LINE_SIZE, rte_socket_id());
+        ps_received_message_counters = (uint32_t*) rte_zmalloc_socket(NULL, max_num_pending_messages * sizeof(uint32_t), RTE_CACHE_LINE_SIZE, rte_socket_id());
         if (ps_received_message_counters == NULL)
             LOG_FATAL("Failed PS aggregated messages allocation!");
 
@@ -278,6 +281,9 @@ namespace daiet {
 #endif
             }
         }
+
+        // Set stats
+        pkt_stats.set_ps(ps_id - id_shift, ps_tx, ps_rx);
 
         // Cleanup
         rte_free(clone_burst);
