@@ -3,21 +3,17 @@
  * author: amedeo.sapio@kaust.edu.sa
  */
 
-#include "daiet.hpp"
-
+#include <signal.h>
 //#include <sys/mman.h>
 
-#include "daiet.hpp"
 #include "common.hpp"
 #include "utils.hpp"
 #include "params.hpp"
 #include "stats.hpp"
-#include "worker.hpp"
-#ifdef COLOCATED
 #include "ps.hpp"
-#endif
 
 using namespace std;
+using namespace daiet;
 
 namespace daiet {
 
@@ -87,15 +83,10 @@ namespace daiet {
         return flow;
     }
 
-#ifndef COLOCATED
-    void port_init(uint16_t num_workers) {
+    void port_init(uint16_t num_ps) {
 
-        uint16_t num_queues = num_workers;
-#else
-    void port_init(uint16_t num_workers, uint16_t num_ps) {
+        uint16_t num_queues = num_ps;
 
-        uint16_t num_queues = num_workers + num_ps;
-#endif
         int ret;
 
         uint16_t nb_ports, tmp_portid;
@@ -281,225 +272,186 @@ namespace daiet {
         // Add FDIR filters
         for (uint16_t i = 0; i < num_queues; i++){
 
-#ifndef COLOCATED
-            insert_flow_rule(dpdk_par.portid, i, daiet_par.getBaseWorkerPort()+i);
-#else
-            if (i < num_workers)
-                insert_flow_rule(dpdk_par.portid, i, daiet_par.getBaseWorkerPort()+i);
-            else
-                insert_flow_rule(dpdk_par.portid, i, daiet_par.getBasePsPort()+i-num_workers);
-#endif
+            insert_flow_rule(dpdk_par.portid, i, daiet_par.getBasePsPort()+i);
         }
     }
 
-    int master(DaietContext* dctx_ptr) {
 
-        try {
-
-            int ret;
-
-            uint64_t hz;
-            ostringstream hz_str;
-            clock_t begin_cpu;
-            uint64_t begin;
-            double elapsed_secs_cpu;
-            double elapsed_secs;
-            ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
-
-            uint16_t num_threads = 0, num_worker_threads = 0;
-            string eal_cmdline;
-
-            force_quit = false;
-
-#ifdef COLOCATED
-            uint16_t num_ps_threads;
-#endif
-
-            daiet_log = std::ofstream("daiet.log", std::ios::out);
-
-            const char *buildString = "Compiled at " __DATE__ ", " __TIME__ ".";
-            LOG_INFO (string(buildString));
-
-            parse_parameters();
-
-            // Set EAL log file
-            FILE * dpdk_log_file;
-            dpdk_log_file = fopen("dpdk.log", "w");
-            if (dpdk_log_file == NULL) {
-                LOG_ERROR("Failed to open log file: " + string(strerror(errno)));
-            } else {
-                ret = rte_openlog_stream(dpdk_log_file);
-                if (ret < 0)
-                    LOG_ERROR("Failed to open dpdk log stream");
-            }
-
-            // EAL cmd line
-            eal_cmdline = "daiet -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix + " " + dpdk_par.eal_options;
-            vector<string> par_vec = split(eal_cmdline);
-
-            int args_c = par_vec.size();
-            char* args[args_c];
-            char* args_ptr[args_c];
-
-            for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-                args[i] = new char[par_vec[i].size() + 1];
-                args_ptr[i] = args[i];
-                strcpy(args[i], par_vec[i].c_str());
-            }
-
-/* mlockall has issues inside docker
-#ifndef COLOCATED
-            // This is causing some issue with the PS
-            // Lock pages
-            if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
-                LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
-            }
-#endif
-*/
-            // EAL init
-            ret = rte_eal_init(args_c, args);
-            if (ret < 0)
-                LOG_FATAL("EAL init failed: " + string(rte_strerror(rte_errno)));
-
-            // Count cores/workers
-            uint16_t lcore_id, tid = 0;
-            for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
-                if (rte_lcore_is_enabled(lcore_id) != 0) {
-
-                    dpdk_data.core_to_thread_id[lcore_id] = tid;
-                    tid++;
-                    num_threads++;
-                }
-            }
-
-            LOG_INFO("Number of threads: " + to_string(num_threads));
-
-#ifndef COLOCATED
-            num_worker_threads = num_threads;
-#else
-            if (num_threads%2 != 0)
-                LOG_FATAL("Colocated mode needs an even number of cores!");
-
-            num_ps_threads = num_threads/2;
-            num_worker_threads = num_threads - num_ps_threads;
-            LOG_INFO("Workers: " + to_string(num_worker_threads) + ", PS: " + to_string(num_ps_threads));
-#endif
-
-            // Estimate CPU frequency
-            hz = rte_get_timer_hz();
-            hz_str << setprecision(3) << (double) hz / 1000000000;
-            LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
-
-            // Initialize port
-#ifndef COLOCATED
-            port_init(num_worker_threads);
-#else
-            port_init(num_worker_threads, num_ps_threads);
-#endif
-
-            // Initialize workers/PSs
-            worker_setup();
-
-#ifdef COLOCATED
-            ps_setup();
-#endif
-
-            dctx_ptr->set_num_worker_threads(num_worker_threads);
-
-#ifndef COLOCATED
-            pkt_stats.init(num_worker_threads);
-#else
-            pkt_stats.init(num_worker_threads, num_ps_threads);
-#endif
-
-            // Check state of slave cores
-            RTE_LCORE_FOREACH_SLAVE(lcore_id)
-            {
-                if (rte_eal_get_lcore_state(lcore_id) != WAIT)
-                    LOG_FATAL("Core " + to_string(lcore_id) + " in state " + to_string(rte_eal_get_lcore_state(lcore_id)));
-            }
-
-            begin_cpu = clock();
-            begin = rte_get_timer_cycles();
-
-            // Launch functions on slave cores
-            RTE_LCORE_FOREACH_SLAVE(lcore_id) {
-
-#ifndef COLOCATED
-                 rte_eal_remote_launch(worker, dctx_ptr, lcore_id);
-#else
-                 if (dpdk_data.core_to_thread_id[lcore_id] < num_worker_threads)
-                     rte_eal_remote_launch(worker, dctx_ptr, lcore_id);
-                 else
-                     rte_eal_remote_launch(ps, &num_worker_threads, lcore_id);
-#endif
-            }
-
-            // Launch function on master core
-#ifndef COLOCATED
-            worker(dctx_ptr);
-#else
-             if (dpdk_data.core_to_thread_id[rte_lcore_id()] < num_worker_threads)
-                 worker(dctx_ptr);
-             else
-                 ps(&num_worker_threads);
-#endif
-
-            // Join slave threads
-            RTE_LCORE_FOREACH_SLAVE(lcore_id) {
-
-                ret = rte_eal_wait_lcore(lcore_id);
-                if (unlikely(ret < 0)) {
-                    LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
-                }
-            }
-
-            elapsed_secs = ((double) (rte_get_timer_cycles() - begin)) / hz;
-            elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
-
-            // Print stats
-            print_dev_stats(dpdk_par.portid);
-            //print_dev_xstats(dpdk_par.portid);
-
-            pkt_stats.dump();
-
-            elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
-            elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
-
-            LOG_INFO("Time elapsed: " + elapsed_secs_str.str() + " seconds (CPU time: " + elapsed_secs_cpu_str.str() + " seconds)");
-
-            // Cleanup
-
-            LOG_DEBUG("Closing port...");
-            struct rte_flow_error error;
-            if(rte_flow_flush(dpdk_par.portid, &error)!=0)
-                LOG_ERROR("Flow flush failed!");
-            rte_eth_dev_stop(dpdk_par.portid);
-            rte_eth_dev_close(dpdk_par.portid);
-            LOG_DEBUG("Port closed");
-
-            worker_cleanup();
-#ifdef COLOCATED
-            ps_cleanup();
-#endif
-
-            // EAL cleanup
-            ret = rte_eal_cleanup(); // Ignore warning
-            if (ret < 0)
-                LOG_FATAL("EAL cleanup failed!");
-
-            fclose(dpdk_log_file);
-            daiet_log.close();
-
-            for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
-                delete[] args_ptr[i];
-            }
-
-            return 0;
-
-        } catch (exception& e) {
-            cerr << e.what() << endl;
-            return -1;
+    /* Set signal handler */
+    void signal_handler(int signum) {
+        if (signum == SIGINT || signum == SIGTERM) {
+            LOG_DEBUG(" Signal " + to_string(signum) + " received, preparing to exit...");
+            force_quit = true;
         }
     }
 } // End namespace
+
+int main(__attribute__((unused)) int argc, __attribute__((unused)) char *argv[]) {
+
+    try {
+
+        signal(SIGINT, signal_handler);
+        signal(SIGTERM, signal_handler);
+
+        int ret;
+
+        uint64_t hz;
+        ostringstream hz_str;
+        clock_t begin_cpu;
+        uint64_t begin;
+        double elapsed_secs_cpu;
+        double elapsed_secs;
+        ostringstream elapsed_secs_str, elapsed_secs_cpu_str;
+
+        uint16_t num_threads = 0, num_ps_threads = 0;
+        string eal_cmdline;
+
+        force_quit = false;
+
+        daiet_log = std::ofstream("ps.log", std::ios::out);
+
+        const char *buildString = "Compiled at " __DATE__ ", " __TIME__ ".";
+        LOG_INFO (string(buildString));
+
+        parse_parameters();
+
+        // Set EAL log file
+        FILE * dpdk_log_file;
+        dpdk_log_file = fopen("dpdk.log", "w");
+        if (dpdk_log_file == NULL) {
+            LOG_ERROR("Failed to open log file: " + string(strerror(errno)));
+        } else {
+            ret = rte_openlog_stream(dpdk_log_file);
+            if (ret < 0)
+                LOG_ERROR("Failed to open dpdk log stream");
+        }
+
+        // EAL cmd line
+        eal_cmdline = "daiet -l " + dpdk_par.corestr + " --file-prefix " + dpdk_par.prefix + " " + dpdk_par.eal_options;
+        vector<string> par_vec = split(eal_cmdline);
+
+        int args_c = par_vec.size();
+        char* args[args_c];
+        char* args_ptr[args_c];
+
+        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+            args[i] = new char[par_vec[i].size() + 1];
+            args_ptr[i] = args[i];
+            strcpy(args[i], par_vec[i].c_str());
+        }
+
+/* mlockall has issues inside docker
+#ifndef COLOCATED
+        // This is causing some issue with the PS
+        // Lock pages
+        if (mlockall(MCL_CURRENT | MCL_FUTURE)) {
+            LOG_FATAL("mlockall() failed with error: " + string(strerror(rte_errno)));
+        }
+#endif
+*/
+        // EAL init
+        ret = rte_eal_init(args_c, args);
+        if (ret < 0)
+            LOG_FATAL("EAL init failed: " + string(rte_strerror(rte_errno)));
+
+        // Count cores/workers
+        uint16_t lcore_id, tid = 0;
+        for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+            if (rte_lcore_is_enabled(lcore_id) != 0) {
+
+                dpdk_data.core_to_thread_id[lcore_id] = tid;
+                tid++;
+                num_threads++;
+            }
+        }
+
+        LOG_INFO("Number of threads: " + to_string(num_threads));
+
+        num_ps_threads = num_threads;
+
+        // Estimate CPU frequency
+        hz = rte_get_timer_hz();
+        hz_str << setprecision(3) << (double) hz / 1000000000;
+        LOG_INFO("CPU freq: " + hz_str.str() + " GHz");
+
+        // Initialize port
+        port_init(num_ps_threads);
+
+        // Initialize PSs
+        ps_setup();
+
+        pkt_stats.init(num_ps_threads);
+
+        // Check state of slave cores
+        RTE_LCORE_FOREACH_SLAVE(lcore_id)
+        {
+            if (rte_eal_get_lcore_state(lcore_id) != WAIT)
+                LOG_FATAL("Core " + to_string(lcore_id) + " in state " + to_string(rte_eal_get_lcore_state(lcore_id)));
+        }
+
+        begin_cpu = clock();
+        begin = rte_get_timer_cycles();
+
+        // Launch functions on slave cores
+        RTE_LCORE_FOREACH_SLAVE(lcore_id) {
+
+             rte_eal_remote_launch(ps, NULL, lcore_id);
+        }
+
+        // Launch function on master core
+        ps(NULL);
+
+        // Join slave threads
+        RTE_LCORE_FOREACH_SLAVE(lcore_id) {
+
+            ret = rte_eal_wait_lcore(lcore_id);
+            if (unlikely(ret < 0)) {
+                LOG_DEBUG("Core " + to_string(lcore_id) + " returned " + to_string(ret));
+            }
+        }
+
+        elapsed_secs = ((double) (rte_get_timer_cycles() - begin)) / hz;
+        elapsed_secs_cpu = double(clock() - begin_cpu) / CLOCKS_PER_SEC;
+
+        // Print stats
+        print_dev_stats(dpdk_par.portid);
+        //print_dev_xstats(dpdk_par.portid);
+
+        pkt_stats.dump();
+
+        elapsed_secs_str << fixed << setprecision(6) << elapsed_secs;
+        elapsed_secs_cpu_str << fixed << setprecision(6) << elapsed_secs_cpu;
+
+        LOG_INFO("Time elapsed: " + elapsed_secs_str.str() + " seconds (CPU time: " + elapsed_secs_cpu_str.str() + " seconds)");
+
+        // Cleanup
+
+        LOG_DEBUG("Closing port...");
+        struct rte_flow_error error;
+        if(rte_flow_flush(dpdk_par.portid, &error)!=0)
+            LOG_ERROR("Flow flush failed!");
+        rte_eth_dev_stop(dpdk_par.portid);
+        rte_eth_dev_close(dpdk_par.portid);
+        LOG_DEBUG("Port closed");
+
+        ps_cleanup();
+
+        // EAL cleanup
+        ret = rte_eal_cleanup(); // Ignore warning
+        if (ret < 0)
+            LOG_FATAL("EAL cleanup failed!");
+
+        fclose(dpdk_log_file);
+        daiet_log.close();
+
+        for (vector<string>::size_type i = 0; i != par_vec.size(); i++) {
+            delete[] args_ptr[i];
+        }
+
+        return 0;
+
+    } catch (exception& e) {
+        cerr << e.what() << endl;
+        return -1;
+    }
+}
