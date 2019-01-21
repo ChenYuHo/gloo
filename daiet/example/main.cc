@@ -8,20 +8,16 @@
 using namespace daiet;
 using namespace std;
 
-    DaietContext* ctx;
-
 void signal_handler(int signum) {
     if (signum == SIGINT || signum == SIGTERM) {
         cout << " Signal " << signum << " received, preparing to exit...";
-        delete ctx;
         exit(EXIT_SUCCESS);
     }
 }
 
 int main() {
 
-    ctx = new DaietContext();
-    sleep(2);
+    DaietContext& ctx = DaietContext::getInstance();
 
     int count = 10485760 * 32;
     int num_rounds = 5;
@@ -44,7 +40,7 @@ int main() {
             p[i] = -(jj * i);
 
         auto begin = std::chrono::high_resolution_clock::now();
-        if (!ctx->try_daiet(p, count,1)){
+        if (!ctx.try_daiet(p, count,1)){
             cout << "Daiet failed";
             exit(EXIT_FAILURE);
         }
@@ -71,7 +67,7 @@ int main() {
             fp[i] = -0.1 * (jj * i);
 
         auto begin = std::chrono::high_resolution_clock::now();
-        if (!ctx->try_daiet(fp, count,1)){
+        if (!ctx.try_daiet(fp, count,1)){
             cout << "Daiet failed";
             exit(EXIT_FAILURE);
         }
@@ -96,6 +92,5 @@ int main() {
      myfile.close();
      */
 
-    delete ctx;
     exit(EXIT_SUCCESS);
 }
