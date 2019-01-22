@@ -96,18 +96,18 @@ namespace daiet {
 #endif
 
 #ifdef TIMESTAMPS
-    __rte_always_inline void write_global_timestamp(vector<pair<uint32_t,uint64_t>> &global_sent_timestamps, uint32_t pool_index_monoset) {
+    __rte_always_inline void write_global_timestamp(vector<pair<uint32_t,uint64_t>> &global_sent_timestamps, uint64_t& first_global_ts, uint32_t pool_index_monoset) {
 
         pair<uint32_t,uint64_t> ts;
         ts.first = pool_index_monoset;
         ts.second = rte_get_timer_cycles();
         global_sent_timestamps.push_back(ts);
 
-        if (unlikely(first_global_ts=0))
+        if (unlikely(first_global_ts == 0))
             first_global_ts = ts.second;
     }
 
-    uint64_t dump_timestamps(vector<pair<uint32_t,uint64_t>> &global_sent_timestamps, string file_name) {
+    void dump_timestamps(vector<pair<uint32_t,uint64_t>> &global_sent_timestamps, uint64_t& first_global_ts, string file_name) {
 
         LOG_INFO("Writing timestamps file...");
 
@@ -117,20 +117,15 @@ namespace daiet {
 
         if (timestamps_file.is_open()) {
 
-            uint64_t base_ts = first_global_ts;
-            first_global_ts = 0;
-
             for (vector<pair<uint32_t,uint64_t>>::iterator it=global_sent_timestamps.begin(); it!=global_sent_timestamps.end() && !force_quit; ++it) {
 
-                timestamps_file << to_string(it->first) + " " + to_string(((double) (it->second - base_ts)) * 1000000 / hz) << endl;
+                timestamps_file << to_string(it->first) + " " + to_string(((double) (it->second - first_global_ts)) * 1000000 / hz) << endl;
             }
 
             timestamps_file.close();
 
-            return base_ts;
         } else {
             LOG_ERROR("Unable to open timestamps file");
-            return 0;
         }
     }
 
@@ -562,11 +557,7 @@ namespace daiet {
         LOG_DEBUG("Worker core: " + to_string(lcore_id) + " worker id: " + to_string(worker_id));
         worker_port_be = rte_cpu_to_be_16(daiet_par.getBaseWorkerPort() + worker_id);
 
-#ifdef COLOCATED
         ps_port_be = rte_cpu_to_be_16(daiet_par.getBasePsPort() + worker_id);
-#else
-        ps_port_be = rte_cpu_to_be_16(daiet_par.getBasePsPort());
-#endif
 
         start_pool_index = worker_id *max_num_pending_messages;
 
@@ -796,7 +787,7 @@ namespace daiet {
 
 #ifdef TIMESTAMPS
                                     // Save timestamp
-                                    write_global_timestamp(global_sent_timestamps, pool_index_monoset);
+                                    write_global_timestamp(global_sent_timestamps, first_global_ts, pool_index_monoset);
 #endif
 
                                     // Store result
@@ -867,15 +858,18 @@ namespace daiet {
                 rte_free(bitmap_mem);
 
 #ifdef LATENCIES
-                dump_latencies(latencies, total_num_msgs, "latency_" + to_string(round_ts) + "_usec.dat");
+                dump_latencies(latencies, total_num_msgs, "latency_round_" + to_string(round_ts) + "_id_" + to_string(worker_id) + "_usec.dat");
 #endif
 
 #ifdef TIMESTAMPS
-                uint64_t base_ts = dump_timestamps(global_sent_timestamps, "recv_timestamps_" + to_string(round_ts) + "_usec.dat");
-                round_ts++;
+                dump_timestamps(global_sent_timestamps, first_global_ts, "recv_timestamps_round_" + to_string(round_ts) + "_id_" + to_string(worker_id) + "_usec.dat");
 #ifdef TIMERS
-                dump_resent_timestamps(base_ts, "resent_timestamps_" + to_string(round_ts) + "_usec.dat");
+                dump_resent_timestamps(first_global_ts, "resent_timestamps_round_" + to_string(round_ts) + "_id_" + to_string(worker_id) + "_usec.dat");
 #endif
+#endif
+
+#if defined(TIMESTAMPS) || defined(LATENCIES)
+                round_ts++;
 #endif
 
             }
