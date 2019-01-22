@@ -4,6 +4,7 @@
 set -e
 set -x
 
+CWD=`pwd`
 DAIET_ARGS=""
 DPDK_FLAGS="-fPIC"
 
@@ -73,3 +74,15 @@ cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
 cmake -DUSE_MLX5=ON ..
 make -j
+
+# Build example
+cd ../../../daiet/example
+mkdir -p build
+cd build
+cmake ..
+make -j
+
+# Build dedicated PS
+cd ../../ps
+make -j
+cd $CWD
