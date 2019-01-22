@@ -79,10 +79,12 @@ make -j
 cd ../../../daiet/example
 mkdir -p build
 cd build
-cmake ..
+find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
+cmake -DUSE_MLX5=ON ..
 make -j
 
 # Build dedicated PS
 cd ../../ps
+make clean
 make -j
 cd $CWD
