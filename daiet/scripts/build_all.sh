@@ -7,6 +7,7 @@ set -x
 CWD=`pwd`
 DAIET_ARGS=""
 DPDK_FLAGS="-fPIC"
+HOROVOD_ARGS=''
 
 if [[ $@ == *"COLOCATED"* ]]; then
   echo  "COLOCATED ON"
@@ -29,6 +30,10 @@ if [[ $@ == *"DEBUG"* ]]; then
   echo  "DEBUG ON"
   DAIET_ARGS+="DEBUG=ON "
   DPDK_FLAGS+="-g -O0"
+fi
+if [[ $@ == *"HOROVOD"* ]]; then
+  echo  "HOROVOD FLAGS SET"
+  HOROVOD_ARGS+='-DUSE_MPI=1 -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"'
 fi
 
 # Build DPDK
@@ -58,21 +63,24 @@ cd ..
 rm -rf build
 mkdir build
 cd build
-cmake -DUSE_REDIS=ON ..
+cmake -DUSE_REDIS=ON $HOROVOD_ARGS ..
 make -j
+if [[ $@ == *"INSTALL"* ]]; then
+make install
+fi
 
 # Build experiments
 cd ../experiments/exp1/
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake -DUSE_MLX5=ON ..
+cmake -DUSE_MLX5=ON $HOROVOD_ARGS ..
 make -j
 cd ../../exp2
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake -DUSE_MLX5=ON ..
+cmake -DUSE_MLX5=ON $HOROVOD_ARGS ..
 make -j
 
 # Build example
