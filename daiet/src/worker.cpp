@@ -612,7 +612,7 @@ namespace daiet {
 
         while (!force_quit) {
 
-            if (dctx_ptr->receive_tensor(tu)) {
+            if (dctx_ptr->receive_tensor(tu, worker_id)) {
 
 #ifdef DEBUG
                 memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
@@ -682,7 +682,7 @@ namespace daiet {
                     // Increase refcnt so it is not freed
                     rte_mbuf_refcnt_update(m,1);
 
-                    pool_index_monoset = (build_pkt(m, dpdk_par.portid, tsi, tensor_size) -start_pool_index) & 0x7FFF;
+                    pool_index_monoset = (build_pkt(m, dpdk_par.portid, tsi, tensor_size) - start_pool_index) & 0x7FFF;
 
 #ifdef TIMERS
                     timer_tsis[pool_index_monoset] = tsi;

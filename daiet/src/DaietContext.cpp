@@ -61,10 +61,10 @@ namespace daiet {
         data_push_event.notify_all();
     }
 
-    bool DaietContext::receive_tensor(TensorUpdate& tu) {
+    bool DaietContext::receive_tensor(TensorUpdate& tu, uint16_t worker_id) {
         boost::unique_lock<boost::mutex> lock(data_ready_mutex);
 
-        while (data_ready==0) {
+        while (data_ready!=(worker_id+1)) {
             if (data_push_event.wait_for(lock, one_msec) == boost::cv_status::timeout)
                 return false;
         }

@@ -6,7 +6,7 @@ set -x
 
 CWD=`pwd`
 DAIET_ARGS=""
-DPDK_FLAGS="-fPIC"
+DPDK_FLAGS="-fPIC "
 HOROVOD_ARGS=''
 
 if [[ $@ == *"COLOCATED"* ]]; then
@@ -29,7 +29,7 @@ fi
 if [[ $@ == *"DEBUG"* ]]; then
   echo  "DEBUG ON"
   DAIET_ARGS+="DEBUG=ON "
-  DPDK_FLAGS+="-g -O0"
+  DPDK_FLAGS+="-g -O0 "
 fi
 if [[ $@ == *"HOROVOD"* ]]; then
   echo  "HOROVOD FLAGS SET"
@@ -40,7 +40,7 @@ fi
 cd ../lib/dpdk/
 rm -rf build
 make defconfig T=x86_64-native-linuxapp-gcc
-make EXTRA_CFLAGS=${DPDK_FLAGS} -j
+make EXTRA_CFLAGS="${DPDK_FLAGS}" -j
 
 if [[ $@ == *"INSTALL"* ]]; then
 make install

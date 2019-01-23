@@ -45,7 +45,7 @@ namespace daiet {
 
             void receive_result(const int32_t);
             bool send_result(const int32_t);
-            bool receive_tensor(TensorUpdate&);
+            bool receive_tensor(TensorUpdate&, uint16_t);
             void send_tensor(TensorUpdate*);
 
             void StartMaster();
