@@ -6,6 +6,14 @@
 * LICENSE file in the root directory of this source tree. An additional grant
 * of patent rights can be found in the PATENTS file in the same directory.
 */
+#include <cstdlib>
+#include <cxxabi.h>
+#include <chrono>
+#include <iostream>
+#include <string>
+#include <sstream>
+
+
 
 #include "gloo/cuda_allreduce_halving_doubling.h"
 
@@ -245,6 +253,12 @@ CudaAllreduceHalvingDoubling<T, W>::CudaAllreduceHalvingDoubling(
 
 template <typename T, typename W>
 void CudaAllreduceHalvingDoubling<T, W>::run() {
+
+auto begin = std::chrono::high_resolution_clock::now();
+
+
+
+
   CudaDeviceGuard guard;
   CudaStream& stream = *scratchStream_;
   size_t bufferOffset = 0;
@@ -406,6 +420,24 @@ void CudaAllreduceHalvingDoubling<T, W>::run() {
   if (sentToSmallerBlock) {
     smallerBlockSendDataBuf_->waitSend();
   }
+
+
+auto end = std::chrono::high_resolution_clock::now();
+int status;
+std::string tname = typeid(T).name();
+char *demangled_name = abi::__cxa_demangle(tname.c_str(), NULL, NULL, &status);
+if(status == 0) {
+    tname = demangled_name;
+    std::free(demangled_name);
+}
+std::stringstream cerrstream;
+cerrstream << "cuda_allreduce_halving_doubling.cc: type - "<< tname << " , size - " << count_ * sizeof(T) << " bytes, started from " << begin.time_since_epoch().count() << " ns since epoch, " << std::chrono::duration_cast<std::chrono::nanoseconds>(end-begin).count() << " ns elapsed" << std::endl;
+std::cerr << cerrstream.str();
+
+
+
+
+
 }
 
 template <typename T, typename W>
