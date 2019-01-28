@@ -9,13 +9,14 @@
 
 #include <boost/thread.hpp>
 #include <atomic>
+#include "gloo/types.h"
 
 namespace daiet {
 
     void *DaietMaster(void *ctx);
 
     enum TensorUpdateType {
-        NONE = 0, INT = 1, FLOAT = 2
+        NONE = 0, INT32 = 1, FLOAT32 = 2, FLOAT16 = 3
     };
 
     struct TensorUpdate {
@@ -51,11 +52,13 @@ namespace daiet {
             void StartMaster();
             void StopMaster();
 
-            void AllReduceFloat(float*, int);
-            void AllReduceInt32(int32_t*, int);
+            void AllReduce(gloo::float16*, int);
+            void AllReduce(float*, int);
+            void AllReduce(int32_t*, int);
 
-            bool try_daiet(int32_t*, int, int);
+            bool try_daiet(gloo::float16*, int, int);
             bool try_daiet(float*, int, int);
+            bool try_daiet(int32_t*, int, int);
             bool try_daiet(void*, int, int);
 
             friend void *DaietMaster(void*);

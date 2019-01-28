@@ -137,7 +137,7 @@ namespace daiet {
 
     }
 
-    void DaietContext::AllReduceFloat(float* ptr, int count) {
+    void DaietContext::AllReduce(gloo::float16* ptr, int count) {
 
         int32_t tensor_id = tid_counter.fetch_add(1)+1;
         TensorUpdate tu;
@@ -145,13 +145,13 @@ namespace daiet {
         tu.count = count;
         tu.start_idx = 0;
         tu.id = tensor_id;
-        tu.type = FLOAT;
+        tu.type = FLOAT16;
 
         send_tensor(&tu);
         receive_result(tensor_id);
     }
 
-    void DaietContext::AllReduceInt32(int32_t* ptr, int count) {
+    void DaietContext::AllReduce(float* ptr, int count) {
 
         int32_t tensor_id = tid_counter.fetch_add(1)+1;
         TensorUpdate tu;
@@ -159,16 +159,30 @@ namespace daiet {
         tu.count = count;
         tu.start_idx = 0;
         tu.id = tensor_id;
-        tu.type = INT;
+        tu.type = FLOAT32;
 
         send_tensor(&tu);
         receive_result(tensor_id);
     }
 
-    bool DaietContext::try_daiet(int32_t* ptr, int count, int fn_) {
+    void DaietContext::AllReduce(int32_t* ptr, int count) {
+
+        int32_t tensor_id = tid_counter.fetch_add(1)+1;
+        TensorUpdate tu;
+        tu.ptr = ptr;
+        tu.count = count;
+        tu.start_idx = 0;
+        tu.id = tensor_id;
+        tu.type = INT32;
+
+        send_tensor(&tu);
+        receive_result(tensor_id);
+    }
+
+    bool DaietContext::try_daiet(gloo::float16* ptr, int count, int fn_) {
         if (fn_ == 1) { //sum
 
-            AllReduceInt32(ptr, count);
+            AllReduce(ptr, count);
 
             return true;
         }
@@ -179,7 +193,18 @@ namespace daiet {
     bool DaietContext::try_daiet(float* ptr, int count, int fn_) {
         if (fn_ == 1) { //sum
 
-            AllReduceFloat(ptr, count);
+            AllReduce(ptr, count);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    bool DaietContext::try_daiet(int32_t* ptr, int count, int fn_) {
+        if (fn_ == 1) { //sum
+
+            AllReduce(ptr, count);
 
             return true;
         }

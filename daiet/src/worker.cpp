@@ -8,6 +8,7 @@
 #include "utils.hpp"
 #include "params.hpp"
 #include "stats.hpp"
+#include "gloo/types.h"
 
 #ifdef TIMERS
 #include <vector>
@@ -233,6 +234,48 @@ namespace daiet {
 
     }
 
+    __rte_always_inline void store_float16(daiet_hdr* daiet, uint32_t tensor_size) {
+
+        uint32_t tsi = daiet->tsi;
+        uint32_t final_tsi;
+        struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
+
+        if (likely(tsi + num_updates <= tensor_size)) {
+
+            /* This SIMD code does not improve performance */
+            /*
+
+             for (i = 0; i < num_updates; i++) {
+
+                 (entry+i)->upd = rte_be_to_cpu_32((entry+i)->upd);
+             }
+
+             #if MAX_VECTOR_SIZE >= 512
+             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi += 16, entry += 16) {
+             #else
+             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi += 8, entry += 8) {
+             #endif
+             vec_i.load(entry);
+             vec_f = to_float(vec_i) / scalingfactor_vec;
+             vec_f.store(&(static_cast<float*>(tu.ptr)[tsi]));
+             }
+             */
+
+            for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
+
+                static_cast<gloo::float16*>(tu.ptr)[tsi] = gloo::cpu_float2half_rn((float(rte_be_to_cpu_32(entry->upd))) / scalingfactor);
+            }
+
+        } else {
+
+            for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
+
+                static_cast<gloo::float16*>(tu.ptr)[tsi] = gloo::cpu_float2half_rn((float(rte_be_to_cpu_32(entry->upd))) / scalingfactor);
+            }
+        }
+
+    }
+
     __rte_always_inline void fill_int32(struct entry_hdr *entry, uint32_t tsi, uint32_t tensor_size) {
 
         uint32_t final_tsi;
@@ -293,6 +336,52 @@ namespace daiet {
                     cur_int_ptr++, cur_float_ptr++, entry++) {
 
                 entry->upd = rte_cpu_to_be_32(round(*(cur_float_ptr) * scalingfactor));
+            }
+
+            memset(entry + num_valid, 0, sizeof(struct entry_hdr) * zeros);
+        }
+    }
+
+    __rte_always_inline void fill_float16(struct entry_hdr *entry, uint32_t tsi, uint32_t tensor_size) {
+
+        gloo::float16* cur_half_float_ptr;
+        uint32_t* cur_int_ptr;
+        uint32_t* final_ptr;
+        float cur_float_ptr[num_updates];
+
+        cur_half_float_ptr = &(static_cast<gloo::float16*>(tu.ptr)[tsi]);
+        cur_int_ptr = static_cast<uint32_t*>((void*) cur_float_ptr);
+
+        if (likely(tsi + num_updates <= tensor_size)) {
+
+            for (uint32_t i = 0; i < num_updates; i ++) {
+                cur_float_ptr[i] = gloo::cpu_half2float(cur_half_float_ptr[i]);
+            }
+
+#if MAX_VECTOR_SIZE >= 512
+            for (uint32_t i = 0; i < num_updates; i += 16) {
+#else
+            for (uint32_t i = 0; i < num_updates; i += 8) {
+#endif
+                vec_f.load(cur_float_ptr + i);
+                round_to_int(vec_f * scalingfactor_vec).store(cur_float_ptr + i);
+            }
+
+            for (final_ptr = cur_int_ptr + num_updates; cur_int_ptr < final_ptr; cur_int_ptr++, entry++) {
+
+                entry->upd = rte_cpu_to_be_32(*(cur_int_ptr));
+            }
+
+        } else {
+            //Padding
+            uint32_t num_valid = tensor_size - tsi;
+            uint32_t zeros = num_updates - num_valid;
+
+            for (final_ptr = cur_int_ptr + num_valid;
+                    cur_int_ptr < final_ptr;
+                    cur_int_ptr++, cur_half_float_ptr++, entry++) {
+
+                entry->upd = rte_cpu_to_be_32(round(gloo::cpu_half2float(*(cur_half_float_ptr)) * scalingfactor));
             }
 
             memset(entry + num_valid, 0, sizeof(struct entry_hdr) * zeros);
@@ -626,17 +715,24 @@ namespace daiet {
                 if (tensor_size % num_updates != 0)
                     total_num_msgs++; // one final padded packet
 
-                if (tu.type == INT) {
-
-                    tu.ptr = static_cast<uint32_t*>(tu.ptr) + tu.start_idx;
-                    fill_fn = &fill_int32;
-                    store_fn = &store_int32;
-
-                } else if (tu.type == FLOAT) {
-
-                    tu.ptr = static_cast<float*>(tu.ptr) + tu.start_idx;
-                    fill_fn = &fill_float32;
-                    store_fn = &store_float32;
+                switch (tu.type) {
+                    case INT32:
+                        tu.ptr = static_cast<uint32_t*>(tu.ptr) + tu.start_idx;
+                        fill_fn = &fill_int32;
+                        store_fn = &store_int32;
+                        break;
+                    case FLOAT32:
+                        tu.ptr = static_cast<float*>(tu.ptr) + tu.start_idx;
+                        fill_fn = &fill_float32;
+                        store_fn = &store_float32;
+                        break;
+                    case FLOAT16:
+                        tu.ptr = static_cast<gloo::float16*>(tu.ptr) + tu.start_idx;
+                        fill_fn = &fill_float16;
+                        store_fn = &store_float16;
+                        break;
+                    default:
+                        LOG_FATAL("Tensor type error: " + to_string(tu.type));
                 }
 
 #ifdef LATENCIES
