@@ -63,7 +63,7 @@ cd ..
 rm -rf build
 mkdir build
 cd build
-cmake -DUSE_REDIS=ON $HOROVOD_ARGS ..
+cmake -DUSE_REDIS=ON -DUSE_AVX=ON $HOROVOD_ARGS ..
 make -j
 if [[ $@ == *"INSTALL"* ]]; then
 make install
