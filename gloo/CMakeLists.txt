@@ -9,6 +9,7 @@ list(APPEND GLOO_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/algorithm.cc"
   "${CMAKE_CURRENT_SOURCE_DIR}/allreduce_local.cc"
   "${CMAKE_CURRENT_SOURCE_DIR}/context.cc"
+  "${CMAKE_CURRENT_SOURCE_DIR}/math.cc"
   )
 
 list(APPEND GLOO_HDRS
