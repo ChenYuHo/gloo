@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FLAGS: INSTALL COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG
+# FLAGS: INSTALL MLX5 COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG
 set -e
 set -x
 
@@ -10,35 +10,40 @@ DPDK_FLAGS="-fPIC "
 HOROVOD_ARGS=''
 
 if [[ $@ == *"COLOCATED"* ]]; then
-  echo  "COLOCATED ON"
+  echo "COLOCATED ON"
   DAIET_ARGS+="COLOCATED=ON "
 fi
-
 if [[ $@ == *"LATENCIES"* ]]; then
-  echo  "LATENCIES ON"
+  echo "LATENCIES ON"
   DAIET_ARGS+="LATENCIES=ON "
 fi
 if [[ $@ == *"TIMESTAMPS"* ]]; then
-  echo  "TIMESTAMPS ON"
+  echo "TIMESTAMPS ON"
   DAIET_ARGS+="TIMESTAMPS=ON "
 fi
 if [[ $@ == *"TIMERS"* ]]; then
-  echo  "TIMERS ON"
+  echo "TIMERS ON"
   DAIET_ARGS+="TIMERS=ON "
 fi
 if [[ $@ == *"DEBUG"* ]]; then
-  echo  "DEBUG ON"
+  echo "DEBUG ON"
   DAIET_ARGS+="DEBUG=ON "
   DPDK_FLAGS+="-g -O0 "
 fi
 if [[ $@ == *"HOROVOD"* ]]; then
-  echo  "HOROVOD FLAGS SET"
+  echo "HOROVOD FLAGS SET"
   HOROVOD_ARGS+='-DUSE_MPI=1 -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"'
 fi
 
 # Build DPDK
 cd ../lib/dpdk/
 rm -rf build
+
+if [[ $@ == *"MLX5"* ]]; then
+  echo "MLX5 SUPPORT"
+  sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=n/CONFIG_RTE_LIBRTE_MLX5_PMD=y/' config/common_base
+fi
+
 make defconfig T=x86_64-native-linuxapp-gcc
 make EXTRA_CFLAGS="${DPDK_FLAGS}" -j
 
@@ -74,13 +79,26 @@ cd ../experiments/exp1/
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake -DUSE_MLX5=ON $HOROVOD_ARGS ..
+
+if [[ $@ == *"MLX5"* ]]; then
+  cmake -DUSE_MLX5=ON ..
+else
+  cmake ..
+fi
+
 make -j
+
 cd ../../exp2
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake -DUSE_MLX5=ON $HOROVOD_ARGS ..
+
+if [[ $@ == *"MLX5"* ]]; then
+  cmake -DUSE_MLX5=ON ..
+else
+  cmake ..
+fi
+
 make -j
 
 # Build example
@@ -88,7 +106,13 @@ cd ../../../daiet/example
 mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
-cmake -DUSE_MLX5=ON ..
+
+if [[ $@ == *"MLX5"* ]]; then
+  cmake -DUSE_MLX5=ON ..
+else
+  cmake ..
+fi
+
 make -j
 
 # Build dedicated PS
