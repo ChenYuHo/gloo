@@ -42,6 +42,8 @@ rm -rf build
 if [[ $@ == *"MLX5"* ]]; then
   echo "MLX5 SUPPORT"
   sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=n/CONFIG_RTE_LIBRTE_MLX5_PMD=y/' config/common_base
+else
+  sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=y/CONFIG_RTE_LIBRTE_MLX5_PMD=n/' config/common_base
 fi
 
 make defconfig T=x86_64-native-linuxapp-gcc
