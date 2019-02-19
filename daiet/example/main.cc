@@ -64,7 +64,7 @@ int main() {
         faulty = 0;
 
         for (int i = 0; i < count; i++)
-            fp[i] = -0.1 * (jj * i);
+            fp[i] = float(-0.1) * (jj * i);
 
         auto begin = std::chrono::high_resolution_clock::now();
         if (!ctx.try_daiet(fp, count,1)){
@@ -75,22 +75,13 @@ int main() {
         auto end = std::chrono::high_resolution_clock::now();
 
         for (int i = 0; i < count; i++) {
-            if (fp[i] != -(jj * i * num_workers))
+            if (fp[i] != float(-0.1)*(jj * i * num_workers))
                 faulty++;
         }
 
         std::cout << "Done FLOAT round " << jj << ": Faulty: " << faulty << " Time: "
                 << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
     }
-
-    /*
-     ofstream myfile;
-     myfile.open("example.txt");
-     for (int i = 0; i < count; i++) {
-     myfile << fp[i] << endl;
-     }
-     myfile.close();
-     */
 
     exit(EXIT_SUCCESS);
 }
