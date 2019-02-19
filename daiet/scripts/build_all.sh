@@ -1,56 +1,64 @@
 #!/bin/bash
 
-# FLAGS: INSTALL MLX5 COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG
+# FLAGS: INSTALL MLX5 COLOCATED LATENCIES TIMESTAMPS TIMERS DEBUG HOROVOD
 set -e
 set -x
 
 CWD=`pwd`
-DAIET_ARGS=""
-DPDK_FLAGS="-fPIC "
+DPDK_ARGS='-fPIC '
+DAIET_ARGS=''
+EXP_ARGS=''
+PS_ARGS=''
 HOROVOD_ARGS=''
 
-if [[ $@ == *"COLOCATED"* ]]; then
-  echo "COLOCATED ON"
-  DAIET_ARGS+="COLOCATED=ON "
+if [[ $@ == *'MLX5'* ]]; then
+  echo 'MLX5 SUPPORT'
+  EXP_ARGS+='-DUSE_MLX5=1 '
 fi
-if [[ $@ == *"LATENCIES"* ]]; then
-  echo "LATENCIES ON"
-  DAIET_ARGS+="LATENCIES=ON "
+if [[ $@ == *'COLOCATED'* ]]; then
+  echo 'COLOCATED SET'
+  DAIET_ARGS+='COLOCATED=ON '
 fi
-if [[ $@ == *"TIMESTAMPS"* ]]; then
-  echo "TIMESTAMPS ON"
-  DAIET_ARGS+="TIMESTAMPS=ON "
+if [[ $@ == *'LATENCIES'* ]]; then
+  echo 'LATENCIES SET'
+  DAIET_ARGS+='LATENCIES=ON '
 fi
-if [[ $@ == *"TIMERS"* ]]; then
-  echo "TIMERS ON"
-  DAIET_ARGS+="TIMERS=ON "
+if [[ $@ == *'TIMESTAMPS'* ]]; then
+  echo 'TIMESTAMPS SET'
+  DAIET_ARGS+='TIMESTAMPS=ON '
 fi
-if [[ $@ == *"DEBUG"* ]]; then
-  echo "DEBUG ON"
-  DAIET_ARGS+="DEBUG=ON "
-  DPDK_FLAGS+="-g -O0 "
+if [[ $@ == *'TIMERS'* ]]; then
+  echo 'TIMERS SET'
+  DAIET_ARGS+='TIMERS=ON '
 fi
-if [[ $@ == *"HOROVOD"* ]]; then
-  echo "HOROVOD FLAGS SET"
+if [[ $@ == *'DEBUG'* ]]; then
+  echo 'DEBUG SET'
+  DAIET_ARGS+='DEBUG=ON '
+  DPDK_ARGS+='-g -O0 '
+  PS_ARGS+='DEBUG=ON '
+  EXP_ARGS+='-DDEBUG=1'
+fi
+if [[ $@ == *'HOROVOD'* ]]; then
+  echo 'HOROVOD SET'
   HOROVOD_ARGS+='-DUSE_MPI=1 -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"'
+  EXP_ARGS+='-DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0"'
 fi
 
 # Build DPDK
 cd ../lib/dpdk/
 rm -rf build
 
-if [[ $@ == *"MLX5"* ]]; then
-  echo "MLX5 SUPPORT"
+if [[ $@ == *'MLX5'* ]]; then
   sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=n/CONFIG_RTE_LIBRTE_MLX5_PMD=y/' config/common_base
 else
   sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=y/CONFIG_RTE_LIBRTE_MLX5_PMD=n/' config/common_base
 fi
 
 make defconfig T=x86_64-native-linuxapp-gcc
-make EXTRA_CFLAGS="${DPDK_FLAGS}" -j
+make EXTRA_CFLAGS='${DPDK_ARGS}' -j
 
-if [[ $@ == *"INSTALL"* ]]; then
-make install
+if [[ $@ == *'INSTALL'* ]]; then
+  make install
 fi
 
 cd ../..
@@ -60,8 +68,8 @@ make clean
 rm -rf build
 make ${DAIET_ARGS} -j
 
-if [[ $@ == *"INSTALL"* ]]; then
-make libinstall
+if [[ $@ == *'INSTALL'* ]]; then
+  make libinstall
 fi
 
 cd ..
@@ -70,10 +78,17 @@ cd ..
 rm -rf build
 mkdir build
 cd build
-cmake -DUSE_REDIS=ON -DUSE_AVX=ON $HOROVOD_ARGS ..
+
+if [[ $@ == *'DEBUG'* ]]; then
+  CXXFLAGS='-g -O0' cmake -DUSE_REDIS=1 -DUSE_AVX=1 $HOROVOD_ARGS ..
+else
+  cmake -DUSE_REDIS=1 -DUSE_AVX=1 $HOROVOD_ARGS ..
+fi
+
 make -j
-if [[ $@ == *"INSTALL"* ]]; then
-make install
+
+if [[ $@ == *'INSTALL'* ]]; then
+  make install
 fi
 
 # Build experiments
@@ -82,11 +97,7 @@ mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
 
-if [[ $@ == *"MLX5"* ]]; then
-  cmake -DUSE_MLX5=ON ..
-else
-  cmake ..
-fi
+cmake ${EXP_ARGS} ..
 
 make -j
 
@@ -95,11 +106,7 @@ mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
 
-if [[ $@ == *"MLX5"* ]]; then
-  cmake -DUSE_MLX5=ON ..
-else
-  cmake ..
-fi
+cmake ${EXP_ARGS} ..
 
 make -j
 
@@ -109,16 +116,12 @@ mkdir -p build
 cd build
 find . ! -name 'daiet.cfg'   ! -name '.'  ! -name '..' -exec rm -rf {} +
 
-if [[ $@ == *"MLX5"* ]]; then
-  cmake -DUSE_MLX5=ON ..
-else
-  cmake ..
-fi
+cmake ${EXP_ARGS} ..
 
 make -j
 
 # Build dedicated PS
 cd ../../ps
 make clean
-make -j
+make ${PS_ARGS} -j
 cd $CWD
