@@ -55,7 +55,7 @@ else
 fi
 
 make defconfig T=x86_64-native-linuxapp-gcc
-make EXTRA_CFLAGS='${DPDK_ARGS}' -j
+make EXTRA_CFLAGS="${DPDK_ARGS}" -j
 
 if [[ $@ == *'INSTALL'* ]]; then
   make install
