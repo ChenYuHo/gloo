@@ -217,15 +217,14 @@ namespace daiet {
              */
 
             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
-
-                static_cast<float*>(tu.ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
+                static_cast<float*>(tu.ptr)[tsi] = (float((int32_t)rte_be_to_cpu_32(entry->upd))) / scalingfactor;
             }
 
         } else {
 
             for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<float*>(tu.ptr)[tsi] = (float(rte_be_to_cpu_32(entry->upd))) / scalingfactor;
+                static_cast<float*>(tu.ptr)[tsi] = (float((int32_t)rte_be_to_cpu_32(entry->upd))) / scalingfactor;
             }
         }
 
@@ -260,14 +259,14 @@ namespace daiet {
 
             for (final_tsi = tsi + num_updates; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<gloo::float16*>(tu.ptr)[tsi] = gloo::cpu_float2half_rn((float(rte_be_to_cpu_32(entry->upd))) / scalingfactor);
+                static_cast<gloo::float16*>(tu.ptr)[tsi] = gloo::cpu_float2half_rn((float((int32_t)rte_be_to_cpu_32(entry->upd))) / scalingfactor);
             }
 
         } else {
 
             for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
 
-                static_cast<gloo::float16*>(tu.ptr)[tsi] = gloo::cpu_float2half_rn((float(rte_be_to_cpu_32(entry->upd))) / scalingfactor);
+                static_cast<gloo::float16*>(tu.ptr)[tsi] = gloo::cpu_float2half_rn((float((int32_t)rte_be_to_cpu_32(entry->upd))) / scalingfactor);
             }
         }
 
@@ -301,11 +300,11 @@ namespace daiet {
     __rte_always_inline void fill_float32(struct entry_hdr *entry, uint32_t tsi, uint32_t tensor_size) {
 
         float* cur_float_ptr;
-        uint32_t* cur_int_ptr;
-        uint32_t* final_ptr;
+        int32_t* cur_int_ptr;
+        int32_t* final_ptr;
 
         cur_float_ptr = &(static_cast<float*>(tu.ptr)[tsi]);
-        cur_int_ptr = static_cast<uint32_t*>((void*) cur_float_ptr);
+        cur_int_ptr = static_cast<int32_t*>((void*) cur_float_ptr);
 
         if (likely(tsi + num_updates <= tensor_size)) {
 
@@ -342,12 +341,12 @@ namespace daiet {
     __rte_always_inline void fill_float16(struct entry_hdr *entry, uint32_t tsi, uint32_t tensor_size) {
 
         gloo::float16* cur_half_float_ptr;
-        uint32_t* cur_int_ptr;
-        uint32_t* final_ptr;
+        int32_t* cur_int_ptr;
+        int32_t* final_ptr;
         float cur_float_ptr[num_updates];
 
         cur_half_float_ptr = &(static_cast<gloo::float16*>(tu.ptr)[tsi]);
-        cur_int_ptr = static_cast<uint32_t*>((void*) cur_float_ptr);
+        cur_int_ptr = static_cast<int32_t*>((void*) cur_float_ptr);
 
         if (likely(tsi + num_updates <= tensor_size)) {
 

@@ -101,6 +101,7 @@ namespace daiet {
         if (daiet_par.getNumWorkers()<=0)
             LOG_FATAL("PS mode requires a positive number of workers.");
 #endif
+        daiet_par.print_params();
     }
 
     void print_dpdk_params() {
