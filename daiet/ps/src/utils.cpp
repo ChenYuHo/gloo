@@ -216,6 +216,7 @@ namespace daiet {
                     idx += sizeof(struct daiet_hdr);
                     struct daiet_hdr* daiet = (struct daiet_hdr *) (udp + 1);
                     LOG_INFO("** DAIET **");
+                    LOG_INFO("NUM_AGGREGATED: " + to_string(daiet->num_aggregated));
                     LOG_INFO("TSI: " + to_string(daiet->tsi));
                     LOG_INFO("PoolIndex: " + to_string(rte_be_to_cpu_16(daiet->pool_index)));
 
