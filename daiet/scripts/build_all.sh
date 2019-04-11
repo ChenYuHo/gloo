@@ -31,6 +31,11 @@ if [[ $@ == *'TIMERS'* ]]; then
   echo 'TIMERS SET'
   DAIET_ARGS+='TIMERS=ON '
 fi
+if [[ $@ == *'ALLOW_LOSS'* ]]; then
+  echo 'ALLOW_LOSS SET'
+  DAIET_ARGS+='ALLOW_LOSS=ON '
+  PS_ARGS+='ALLOW_LOSS=ON '
+fi
 if [[ $@ == *'DEBUG'* ]]; then
   echo 'DEBUG SET'
   DAIET_ARGS+='DEBUG=ON '
@@ -46,19 +51,23 @@ fi
 
 # Build DPDK
 cd ../lib/dpdk/
-rm -rf build
 
-if [[ $@ == *'MLX5'* ]]; then
-  sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=n/CONFIG_RTE_LIBRTE_MLX5_PMD=y/' config/common_base
-else
-  sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=y/CONFIG_RTE_LIBRTE_MLX5_PMD=n/' config/common_base
-fi
+if [[ $@ != *'NODPDK'* ]]; then
+  echo 'COMPILE DPDK'
+  rm -rf build
 
-make defconfig T=x86_64-native-linuxapp-gcc
-make EXTRA_CFLAGS="${DPDK_ARGS}" -j
+  if [[ $@ == *'MLX5'* ]]; then
+    sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=n/CONFIG_RTE_LIBRTE_MLX5_PMD=y/' config/common_base
+  else
+    sed -i 's/CONFIG_RTE_LIBRTE_MLX5_PMD=y/CONFIG_RTE_LIBRTE_MLX5_PMD=n/' config/common_base
+  fi
 
-if [[ $@ == *'INSTALL'* ]]; then
-  make install
+  make defconfig T=x86_64-native-linuxapp-gcc
+  make EXTRA_CFLAGS="${DPDK_ARGS}" -j
+
+  if [[ $@ == *'INSTALL'* ]]; then
+    make install
+  fi
 fi
 
 cd ../..

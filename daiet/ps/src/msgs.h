@@ -15,6 +15,7 @@ namespace daiet {
          * DAIET Header
          */
         struct daiet_hdr {
+                uint8_t num_aggregated;
                 uint32_t tsi; /**< tensor start index */
                 uint16_t pool_index; /**< pool index */
         }__attribute__((__packed__));
