@@ -123,7 +123,7 @@ namespace daiet {
 
             void setBasePsPort(uint16_t);
 
-#ifdef TIMERS
+#ifdef ALLOW_LOSS
             __rte_always_inline double& getPsTimeout() {
                 return ps_timeout;
             }
