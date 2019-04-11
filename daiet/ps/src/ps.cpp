@@ -106,10 +106,10 @@ namespace daiet {
             }
         }
 
-        ps_received_message_counters[pool_index]--;
+        ps_received_message_counters[pool_index]++;
 
-        if (unlikely(ps_received_message_counters[pool_index]==0)) {
-            ps_received_message_counters[pool_index] = num_workers;
+        if (unlikely(ps_received_message_counters[pool_index]==num_workers)) {
+            ps_received_message_counters[pool_index] = 0;
             return true;
         }
 
@@ -168,10 +168,6 @@ namespace daiet {
         ps_received_message_counters = (uint32_t*) rte_zmalloc_socket(NULL, max_num_pending_messages * sizeof(uint32_t), RTE_CACHE_LINE_SIZE, rte_socket_id());
         if (ps_received_message_counters == NULL)
             LOG_FATAL("Failed PS aggregated messages allocation!");
-
-        for (i = 0; i < max_num_pending_messages; i++) {
-            ps_received_message_counters[i] = num_workers;
-        }
 
         ps_workers_ip_to_mac = (mac_ip_pair*) rte_zmalloc_socket(NULL, num_workers * sizeof(struct mac_ip_pair), RTE_CACHE_LINE_SIZE, rte_socket_id());
         if (ps_workers_ip_to_mac == NULL)
