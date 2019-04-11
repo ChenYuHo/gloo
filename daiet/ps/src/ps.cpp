@@ -27,6 +27,12 @@ namespace daiet {
 
     thread_local static uint16_t ps_port_be;
 
+    thread_local static uint16_t ps_id;
+    thread_local static struct rte_mempool *pool;
+    thread_local static struct rte_mbuf** clone_burst;
+    thread_local static struct rte_mbuf* cache_packet;
+    thread_local static uint64_t ps_tx = 0;
+
 #ifdef DEBUG
     __rte_always_inline struct daiet_hdr * is_daiet_pkt_to_ps(struct ether_hdr* eth_hdr, uint16_t size) {
 
@@ -127,25 +133,26 @@ namespace daiet {
         int ret;
 
         unsigned lcore_id;
-        unsigned nb_rx = 0, j = 0, i = 0, nb_tx = 0, sent = 0;
+        unsigned nb_rx = 0, j = 0, i = 0, sent = 0;
 
-        uint16_t ps_id;
         uint16_t num_workers = daiet_par.getNumWorkers();
         const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
         num_updates = daiet_par.getNumUpdates();
-        uint64_t ps_tx = 0, ps_rx = 0;
+        uint64_t ps_rx = 0;
 
-        struct rte_mempool *pool;
         string pool_name = "ps_pool";
         struct rte_mbuf** pkts_burst;
         struct rte_mbuf* m;
-        struct rte_mbuf** clone_burst;
 
         struct ether_hdr* eth;
         struct ipv4_hdr * ip;
         struct udp_hdr * udp;
         struct daiet_hdr* daiet;
         uint16_t pool_index = 0, start_pool_index = 0;
+
+        bool packet_not_cached = true;
+        uint32_t cache_tsi;
+        uint16_t cache_pool_index;
 
         // Get core ID
         lcore_id = rte_lcore_id();
@@ -211,25 +218,39 @@ namespace daiet {
 
                     pool_index = (rte_be_to_cpu_16(daiet->pool_index) & 0x7FFF) - start_pool_index;
 
-                    if (ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index, num_workers)) {
 
+                    bool done_aggregating = ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index, num_workers);
+
+                    if (unlikely(packet_not_cached)) {
                         // Checksum offload
                         m->l2_len = sizeof(struct ether_hdr);
                         m->l3_len = sizeof(struct ipv4_hdr);
                         m->ol_flags |= daiet_par.getTxFlags();
-
                         // Set src MAC
                         ether_addr_copy(&(eth->d_addr), &(eth->s_addr));
-
                         // Set src IP
                         ip->hdr_checksum = 0;
                         ip->src_addr = ip->dst_addr;
-
                         // Swap ports
                         swap((uint16_t&) (udp->dst_port), (uint16_t&) (udp->src_port));
                         udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
+                        cache_packet = rte_pktmbuf_clone(m, pool);
+                        if (unlikely(cache_packet == NULL))
+                            LOG_FATAL("failed to allocate cache packet");
+                        packet_not_cached = false;
+                    }
 
+
+                    if (done_aggregating) {
+
+                        cache_tsi = daiet->tsi;
+                        cache_pool_index = daiet->pool_index;
+                        rte_prefetch0 (rte_pktmbuf_mtod(cache_packet, void *));
+                        eth = rte_pktmbuf_mtod(cache_packet, struct ether_hdr *);
+                        daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
                         ps_msg_setup(daiet, pool_index);
+                        daiet->tsi = cache_tsi;
+                        daiet->pool_index = cache_pool_index;
 
                         // Allocate pkt burst
                         ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
@@ -239,7 +260,7 @@ namespace daiet {
                         for (i = 0; i < num_workers; i++) {
 
                             // Clone packet
-                            deep_copy_single_segment_pkt(clone_burst[i], m);
+                            deep_copy_single_segment_pkt(clone_burst[i], cache_packet);
 
                             eth = rte_pktmbuf_mtod(clone_burst[i], struct ether_hdr *);
 
@@ -254,9 +275,7 @@ namespace daiet {
                         // Send packet burst
                         sent = 0;
                         do {
-                            nb_tx = rte_eth_tx_burst(dpdk_par.portid, ps_id,clone_burst, num_workers);
-
-                            sent += nb_tx;
+                            sent += rte_eth_tx_burst(dpdk_par.portid, ps_id, clone_burst, num_workers);
                         } while (sent < num_workers);
 
                         ps_tx += num_workers;
