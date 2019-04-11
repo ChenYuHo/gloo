@@ -91,6 +91,10 @@ namespace daiet {
 
             uint16_t num_workers;
 
+#ifdef ALLOW_LOSS
+            double ps_timeout;
+#endif
+
         public:
             daiet_params();
             ~daiet_params();
@@ -118,6 +122,12 @@ namespace daiet {
             }
 
             void setBasePsPort(uint16_t);
+
+#ifdef TIMERS
+            __rte_always_inline double& getPsTimeout() {
+                return ps_timeout;
+            }
+#endif
     };
 
     extern daiet_params daiet_par;

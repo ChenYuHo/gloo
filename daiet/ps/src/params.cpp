@@ -40,6 +40,9 @@ namespace daiet {
                 ("daiet.ps_port", po::value<uint16_t>(&ps_port)->default_value(48879), "PS UDP port")
                 ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
                 ("daiet.num_updates", po::value<uint32_t>(&num_updates)->default_value(32), "Number of updates per packet")
+#ifdef ALLOW_LOSS
+                ("daiet.ps_timeout", po::value<double>(&(daiet_par.getPsTimeout()))->default_value(10), "Timeout in millisecond")
+#endif
                 ("daiet.num_workers", po::value<uint16_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers");
 
         config_file_options.add(daiet_options).add(dpdk_options);

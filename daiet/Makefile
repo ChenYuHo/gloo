@@ -48,6 +48,11 @@ $(info "TIMERS ON")
 CXXFLAGS += -DTIMERS
 endif
 
+ifeq ($(ALLOW_LOSS),ON)
+$(info "ALLOW_LOSS ON")
+CXXFLAGS += -DALLOW_LOSS
+endif
+
 ifeq ($(DEBUG),ON)
 $(info "DEBUG ON")
 CXXFLAGS += -DDEBUG -g -O0
