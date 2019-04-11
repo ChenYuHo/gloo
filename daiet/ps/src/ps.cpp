@@ -122,7 +122,66 @@ namespace daiet {
         return false;
     }
 
+#ifdef ALLOW_LOSS
+    struct callback_arg {
+        uint16_t pool_index;
+        uint16_t original_pool_index;
+        uint32_t tsi;
+    };
+
+    void send_updates(struct rte_timer *, void *arguments) {
+        struct callback_arg* arg = (struct callback_arg*) arguments;
+        uint16_t num_workers = daiet_par.getNumWorkers();
+        if (unlikely(known_workers < num_workers)) {
+            LOG_DEBUG("not all the workers are known yet.");
+            return;
+        }
+        rte_prefetch0 (rte_pktmbuf_mtod(cache_packet, void *));
+        struct ether_hdr* eth = rte_pktmbuf_mtod(cache_packet, struct ether_hdr *);
+        struct daiet_hdr* daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
+        ps_msg_setup(daiet, arg->pool_index);
+        daiet->tsi = arg->tsi;
+        daiet->pool_index = arg->original_pool_index;
+        daiet->num_aggregated = ps_received_message_counters[arg->pool_index];
+
+        // Allocate pkt burst
+        int ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
+        if (unlikely(ret < 0))
+            LOG_FATAL("Cannot allocate clone burst");
+
+        for (unsigned i = 0; i < num_workers; i++) {
+
+            // Clone packet
+            deep_copy_single_segment_pkt(clone_burst[i], cache_packet);
+
+            eth = rte_pktmbuf_mtod(clone_burst[i], struct ether_hdr *);
+
+            // Set dst MAC
+            ether_addr_copy(&(ps_workers_ip_to_mac[i].mac), &(eth->d_addr));
+
+            // Set dst IP
+            struct ipv4_hdr* ip = (struct ipv4_hdr *) (eth + 1);
+            ip->dst_addr = ps_workers_ip_to_mac[i].be_ip;
+        }
+#ifdef DEBUG
+        print_packet(eth, cache_packet->data_len);
+#endif
+
+        // Send packet burst
+        unsigned sent = 0;
+        do {
+            sent += rte_eth_tx_burst(dpdk_par.portid, ps_id, clone_burst, num_workers);
+        } while (sent < num_workers);
+
+        ps_tx += num_workers;
+    }
+
+#endif
+
     void ps_setup() {
+#ifdef ALLOW_LOSS
+        rte_timer_subsystem_init();
+#endif
     }
 
     void ps_cleanup() {
@@ -194,6 +253,17 @@ namespace daiet {
         if (pool == NULL)
             LOG_FATAL("Cannot init mbuf pool: " + string(rte_strerror(rte_errno)));
 
+#ifdef ALLOW_LOSS
+        struct callback_arg arg[max_num_pending_messages];
+        uint64_t timer_prev_tsc = 0, timer_cur_tsc;
+        const uint64_t timer_cycles = (rte_get_timer_hz() / 1000) * daiet_par.getPsTimeout(); // cycles for daiet_par.getPsTimeout() ms
+        struct rte_timer timers[max_num_pending_messages];
+        for (i = 0; i < max_num_pending_messages; i++) {
+            arg[i].pool_index = i;
+            rte_timer_init(&timers[i]);
+        }
+#endif
+
         while (!force_quit) {
 
             nb_rx = rte_eth_rx_burst(dpdk_par.portid, ps_id, pkts_burst, dpdk_par.burst_rx);
@@ -243,6 +313,10 @@ namespace daiet {
 
                     if (done_aggregating) {
 
+#ifdef ALLOW_LOSS
+                        rte_timer_stop_sync(&timers[pool_index]);
+#endif
+
                         cache_tsi = daiet->tsi;
                         cache_pool_index = daiet->pool_index;
                         rte_prefetch0 (rte_pktmbuf_mtod(cache_packet, void *));
@@ -251,6 +325,10 @@ namespace daiet {
                         ps_msg_setup(daiet, pool_index);
                         daiet->tsi = cache_tsi;
                         daiet->pool_index = cache_pool_index;
+
+#ifdef ALLOW_LOSS
+                        daiet->num_aggregated = num_workers;
+#endif
 
                         // Allocate pkt burst
                         ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
@@ -283,6 +361,14 @@ namespace daiet {
                         // Free original packet
                         rte_pktmbuf_free(m);
 
+#ifdef ALLOW_LOSS
+                    } else if (ps_received_message_counters[pool_index] == 1) {
+                        rte_pktmbuf_free(m);
+                        arg[pool_index].tsi = daiet->tsi;
+                        arg[pool_index].original_pool_index = daiet->pool_index;
+                        rte_timer_reset_sync(&timers[pool_index], timer_cycles, SINGLE, lcore_id, send_updates, &arg[pool_index]);
+#endif
+
                     } else {
                         // Free original packet
                         rte_pktmbuf_free(m);
@@ -294,12 +380,23 @@ namespace daiet {
                 }
 #endif
             }
+
+#ifdef ALLOW_LOSS
+            // Check timers
+            timer_cur_tsc = rte_get_timer_cycles();
+            if (unlikely(timer_cur_tsc - timer_prev_tsc > timer_cycles)) {
+                rte_timer_manage();
+                timer_prev_tsc = timer_cur_tsc;
+            }
+#endif
+
         }
 
         // Set stats
         pkt_stats.set_ps(ps_id, ps_tx, ps_rx);
 
         // Cleanup
+        rte_pktmbuf_free(cache_packet);
         rte_free(clone_burst);
         rte_free(pkts_burst);
 
