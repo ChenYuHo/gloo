@@ -103,9 +103,9 @@ namespace daiet {
             double timeout;
 #endif
 
-#ifdef COLOCATED
+// #ifdef COLOCATED
             uint16_t num_workers;
-#endif
+// #endif
 
         public:
             daiet_params();
@@ -113,9 +113,9 @@ namespace daiet {
 
             void print_params();
 
-#ifdef COLOCATED
+// #ifdef COLOCATED
             uint16_t& getNumWorkers();
-#endif
+// #endif
 
             __rte_always_inline uint32_t getNumUpdates() const {
                 return num_updates;

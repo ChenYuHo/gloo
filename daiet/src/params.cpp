@@ -46,9 +46,9 @@ namespace daiet {
                 ("daiet.ps_macs", po::value<string>(&ps_macs_str)->required(), "Comma-separated list of PS MAC addresses")
                 ("daiet.max_num_pending_messages", po::value<uint32_t>(&(daiet_par.getMaxNumPendingMessages()))->default_value(256), "Max number of pending, unaggregated messages")
                 ("daiet.num_updates", po::value<uint32_t>(&num_updates)->default_value(32), "Number of updates per packet")
-#ifdef COLOCATED
+// #ifdef COLOCATED
                 ("daiet.num_workers", po::value<uint16_t>(&(daiet_par.getNumWorkers()))->default_value(0), "Number of workers")
-#endif
+// #endif
 #ifdef TIMERS
                 ("daiet.timeout", po::value<double>(&(daiet_par.getTimeout()))->default_value(1), "Timeout in millisecond")
 #endif
@@ -97,10 +97,10 @@ namespace daiet {
         daiet_par.setMaxFloat(max_float);
         daiet_par.setNumUpdates(num_updates);
 
-#ifdef COLOCATED
+// #ifdef COLOCATED
         if (daiet_par.getNumWorkers()<=0)
-            LOG_FATAL("PS mode requires a positive number of workers.");
-#endif
+            LOG_FATAL("requires a positive number of workers.");
+// #endif
         daiet_par.print_params();
     }
 
@@ -141,9 +141,9 @@ namespace daiet {
 
         num_ps = 0;
 
-#ifdef COLOCATED
+// #ifdef COLOCATED
         num_workers = 0;
-#endif
+// #endif
     }
 
     daiet_params::~daiet_params() {
@@ -169,16 +169,16 @@ namespace daiet {
             LOG_INFO("PS" + to_string(i) + ": " + mac_to_str(ps_macs_be[i]) + " " + ip_to_str(ps_ips_be[i]));
         }
 
-#ifdef COLOCATED
+// #ifdef COLOCATED
         LOG_INFO("Num workers: " + to_string(num_workers));
-#endif
+// #endif
     }
 
-#ifdef COLOCATED
+// #ifdef COLOCATED
     uint16_t& daiet_params::getNumWorkers() {
         return num_workers;
     }
-#endif
+// #endif
 
     void daiet_params::setNumUpdates(uint32_t numUpdates) {
         num_updates = numUpdates;

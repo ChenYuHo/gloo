@@ -40,6 +40,7 @@ namespace daiet {
 
     thread_local static uint16_t tno = 0;
     thread_local static uint32_t total_num_msgs = 0;
+    thread_local static struct rte_bitmap *bitmap;
 
 #if MAX_VECTOR_SIZE >= 512
     thread_local static Vec16f vec_f;
@@ -168,6 +169,7 @@ namespace daiet {
     __rte_always_inline void store_int32(daiet_hdr* daiet, uint32_t tensor_size) {
 
         uint32_t tsi = daiet->tsi;
+        uint32_t pkt_idx = tsi / num_updates;
         uint32_t final_tsi;
         struct entry_hdr * entry = (struct entry_hdr *) (daiet + 1);
 
@@ -187,6 +189,18 @@ namespace daiet {
             for (final_tsi = tsi + tensor_size - tsi; tsi < final_tsi; tsi++, entry++) {
 
                 static_cast<uint32_t*>(tu.ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
+            }
+        }
+        uint32_t num_ps = daiet_par.getNumPs();
+        uint16_t num_workers = daiet_par.getNumWorkers();
+        for (uint32_t idx = pkt_idx - num_ps; idx >= 0; idx -= num_ps) {
+            if (unlikely(rte_bitmap_get(bitmap, idx) == 0)) {
+                for (uint32_t i = 0, tsi = idx * num_updates; i < num_updates; i++, tsi++) {
+                    static_cast<uint32_t*>(tu.ptr)[tsi] = static_cast<uint32_t*>(tu.ptr)[tsi] * num_workers;
+                }
+                rte_bitmap_set(bitmap, idx);
+            } else {
+                break;
             }
         }
 
@@ -682,7 +696,6 @@ namespace daiet {
         // Bitmap
         void* bitmap_mem;
         uint32_t bitmap_size;
-        struct rte_bitmap *bitmap;
         uint32_t pkt_idx = 0;
 
         // Allocate pkt burst

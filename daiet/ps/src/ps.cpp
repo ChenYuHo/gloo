@@ -70,7 +70,7 @@ namespace daiet {
         struct entry_hdr *entry;
         int32_t* base_ptr = ps_aggregated_messages[pool_index];
         entry = (struct entry_hdr *) (daiet + 1);
-        if (likely(ps_received_message_counters[pool_index] == daiet_par.getNumWorkers())) {
+        if (likely(ps_received_message_counters[pool_index] == 0)) {
             for (uint32_t i = 0; i < num_updates; i++, entry++) {
                 entry->upd = rte_cpu_to_be_32(base_ptr[i]);
                 base_ptr[i] = 0;
@@ -152,6 +152,7 @@ namespace daiet {
         ps_msg_setup(daiet, arg->pool_index);
         daiet->tsi = arg->tsi;
         daiet->pool_index = arg->original_pool_index;
+        ps_received_message_counters[arg->pool_index] = 0;
 
         // Allocate pkt burst
         int ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
