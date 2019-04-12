@@ -704,7 +704,6 @@ namespace daiet {
 
             if (dctx_ptr->receive_tensor(tu, worker_id)) {
 
-                tno++;
 #ifdef DEBUG
                 memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
 #endif
@@ -968,7 +967,7 @@ namespace daiet {
 #if defined(TIMESTAMPS) || defined(LATENCIES)
                 round_ts++;
 #endif
-
+                tno++;
             }
         } // force quit
 

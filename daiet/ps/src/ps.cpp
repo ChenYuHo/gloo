@@ -32,7 +32,7 @@ namespace daiet {
     thread_local static struct rte_mbuf** clone_burst;
     thread_local static struct rte_mbuf* cache_packet;
     thread_local static uint64_t ps_tx = 0;
-    thread_local static uint16_t tno = 0;
+    thread_local static uint16_t tno = 0xFFFF;
     thread_local static struct rte_bitmap *bitmap = NULL;
 
 #ifdef DEBUG
@@ -288,9 +288,9 @@ namespace daiet {
 #else
                     daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
 #endif
-
-                    if (unlikely(rte_be_to_cpu_16(daiet->tno) > tno)) {
-                        tno = rte_be_to_cpu_16(daiet->tno);
+                    uint16_t tno_got = uint16_t(rte_be_to_cpu_16(daiet->tno));
+                    if (unlikely(tno_got > tno) || unlikely(tno_got==0 && tno !=0)) {
+                        tno = tno_got;
                         // new tensor
                         // Initialize bitmap
                         rte_bitmap_free(bitmap);
@@ -310,7 +310,7 @@ namespace daiet {
                             LOG_FATAL("Failed to init bitmap");
                         }
                         rte_bitmap_reset(bitmap);
-                    } else if (unlikely(rte_be_to_cpu_16(daiet->tno) < tno)) {
+                    } else if (unlikely(tno_got < tno)) {
                         // drop packet
                         rte_pktmbuf_free(m);
                         continue;
