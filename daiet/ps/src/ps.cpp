@@ -69,11 +69,19 @@ namespace daiet {
 
         struct entry_hdr *entry;
         int32_t* base_ptr = ps_aggregated_messages[pool_index];
-
         entry = (struct entry_hdr *) (daiet + 1);
-        for (uint32_t i = 0; i < num_updates; i++, entry++) {
-            entry->upd = rte_cpu_to_be_32(base_ptr[i]);
-            base_ptr[i] = 0;
+        if (likely(ps_received_message_counters[pool_index] == daiet_par.getNumWorkers())) {
+            for (uint32_t i = 0; i < num_updates; i++, entry++) {
+                entry->upd = rte_cpu_to_be_32(base_ptr[i]);
+                base_ptr[i] = 0;
+            }
+        } else {
+            // this is not P4 compatible...
+            double factor = double(daiet_par.getNumWorkers()) / double(ps_received_message_counters[pool_index]);
+            for (uint32_t i = 0; i < num_updates; i++, entry++) {
+                entry->upd = rte_cpu_to_be_32(int32_t(round(double(base_ptr[i])*factor)));
+                base_ptr[i] = 0;
+            }
         }
     }
 
@@ -144,7 +152,6 @@ namespace daiet {
         ps_msg_setup(daiet, arg->pool_index);
         daiet->tsi = arg->tsi;
         daiet->pool_index = arg->original_pool_index;
-        daiet->num_aggregated = ps_received_message_counters[arg->pool_index];
 
         // Allocate pkt burst
         int ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
@@ -364,10 +371,6 @@ namespace daiet {
                             ps_msg_setup(daiet, pool_index);
                             daiet->tsi = cache_tsi;
                             daiet->pool_index = cache_pool_index;
-
-#ifdef ALLOW_LOSS
-                            daiet->num_aggregated = num_workers;
-#endif
 
                             // Allocate pkt burst
                             ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
