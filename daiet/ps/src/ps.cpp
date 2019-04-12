@@ -32,6 +32,8 @@ namespace daiet {
     thread_local static struct rte_mbuf** clone_burst;
     thread_local static struct rte_mbuf* cache_packet;
     thread_local static uint64_t ps_tx = 0;
+    thread_local static uint16_t tno = 0;
+    thread_local static struct rte_bitmap *bitmap = NULL;
 
 #ifdef DEBUG
     __rte_always_inline struct daiet_hdr * is_daiet_pkt_to_ps(struct ether_hdr* eth_hdr, uint16_t size) {
@@ -173,6 +175,7 @@ namespace daiet {
             sent += rte_eth_tx_burst(dpdk_par.portid, ps_id, clone_burst, num_workers);
         } while (sent < num_workers);
 
+        rte_bitmap_set(bitmap, arg->tsi / num_updates);
         ps_tx += num_workers;
     }
 
@@ -212,6 +215,10 @@ namespace daiet {
         bool packet_not_cached = true;
         uint32_t cache_tsi;
         uint16_t cache_pool_index;
+
+        // Bitmap
+        void* bitmap_mem = NULL;
+        uint32_t bitmap_size;
 
         // Get core ID
         lcore_id = rte_lcore_id();
@@ -282,94 +289,131 @@ namespace daiet {
                     daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
 #endif
 
-                    ps_rx++;
-                    ip = (struct ipv4_hdr *) (eth + 1);
-                    udp = (struct udp_hdr *) (ip + 1);
-
-                    pool_index = (rte_be_to_cpu_16(daiet->pool_index) & 0x7FFF) - start_pool_index;
-
-
-                    bool done_aggregating = ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index, num_workers);
-
-                    if (unlikely(packet_not_cached)) {
-                        // Checksum offload
-                        m->l2_len = sizeof(struct ether_hdr);
-                        m->l3_len = sizeof(struct ipv4_hdr);
-                        m->ol_flags |= daiet_par.getTxFlags();
-                        // Set src MAC
-                        ether_addr_copy(&(eth->d_addr), &(eth->s_addr));
-                        // Set src IP
-                        ip->hdr_checksum = 0;
-                        ip->src_addr = ip->dst_addr;
-                        // Swap ports
-                        swap((uint16_t&) (udp->dst_port), (uint16_t&) (udp->src_port));
-                        udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
-                        cache_packet = rte_pktmbuf_clone(m, pool);
-                        if (unlikely(cache_packet == NULL))
-                            LOG_FATAL("failed to allocate cache packet");
-                        packet_not_cached = false;
-                    }
-
-
-                    if (done_aggregating) {
-
-#ifdef ALLOW_LOSS
-                        rte_timer_stop_sync(&timers[pool_index]);
-#endif
-
-                        cache_tsi = daiet->tsi;
-                        cache_pool_index = daiet->pool_index;
-                        rte_prefetch0 (rte_pktmbuf_mtod(cache_packet, void *));
-                        eth = rte_pktmbuf_mtod(cache_packet, struct ether_hdr *);
-                        daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
-                        ps_msg_setup(daiet, pool_index);
-                        daiet->tsi = cache_tsi;
-                        daiet->pool_index = cache_pool_index;
-
-#ifdef ALLOW_LOSS
-                        daiet->num_aggregated = num_workers;
-#endif
-
-                        // Allocate pkt burst
-                        ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
-                        if (unlikely(ret < 0))
-                            LOG_FATAL("Cannot allocate clone burst");
-
-                        for (i = 0; i < num_workers; i++) {
-
-                            // Clone packet
-                            deep_copy_single_segment_pkt(clone_burst[i], cache_packet);
-
-                            eth = rte_pktmbuf_mtod(clone_burst[i], struct ether_hdr *);
-
-                            // Set dst MAC
-                            ether_addr_copy(&(ps_workers_ip_to_mac[i].mac), &(eth->d_addr));
-
-                            // Set dst IP
-                            ip = (struct ipv4_hdr *) (eth + 1);
-                            ip->dst_addr = ps_workers_ip_to_mac[i].be_ip;
+                    if (unlikely(rte_be_to_cpu_16(daiet->tno) > tno)) {
+                        tno = rte_be_to_cpu_16(daiet->tno);
+                        // new tensor
+                        // Initialize bitmap
+                        rte_bitmap_free(bitmap);
+                        rte_free(bitmap_mem);
+                        bitmap_size = rte_bitmap_get_memory_footprint(rte_be_to_cpu_32(daiet->total_num_msgs));
+                        if (unlikely(bitmap_size == 0)) {
+                            LOG_FATAL("Bitmap failed");
                         }
 
-                        // Send packet burst
-                        sent = 0;
-                        do {
-                            sent += rte_eth_tx_burst(dpdk_par.portid, ps_id, clone_burst, num_workers);
-                        } while (sent < num_workers);
+                        bitmap_mem = rte_malloc_socket("bitmap", bitmap_size, RTE_CACHE_LINE_SIZE, rte_socket_id());
+                        if (unlikely(bitmap_mem == NULL)) {
+                            LOG_FATAL("Cannot allocate bitmap");
+                        }
 
-                        ps_tx += num_workers;
-
-                        // Free original packet
+                        bitmap = rte_bitmap_init(rte_be_to_cpu_32(daiet->total_num_msgs), (uint8_t*) bitmap_mem, bitmap_size);
+                        if (unlikely(bitmap == NULL)) {
+                            LOG_FATAL("Failed to init bitmap");
+                        }
+                        rte_bitmap_reset(bitmap);
+                    } else if (unlikely(rte_be_to_cpu_16(daiet->tno) < tno)) {
+                        // drop packet
                         rte_pktmbuf_free(m);
+                        continue;
+                    }
+
+                    uint32_t pkt_idx = daiet->tsi / num_updates;
+
+                    if (likely(rte_bitmap_get(bitmap, pkt_idx) == 0)) {
+                        ps_rx++;
+                        ip = (struct ipv4_hdr *) (eth + 1);
+                        udp = (struct udp_hdr *) (ip + 1);
+
+                        pool_index = (rte_be_to_cpu_16(daiet->pool_index) & 0x7FFF) - start_pool_index;
+
+
+                        bool done_aggregating = ps_aggregate_message(daiet, ip->src_addr, eth->s_addr, pool_index, num_workers);
+
+                        if (unlikely(packet_not_cached)) {
+                            // Checksum offload
+                            m->l2_len = sizeof(struct ether_hdr);
+                            m->l3_len = sizeof(struct ipv4_hdr);
+                            m->ol_flags |= daiet_par.getTxFlags();
+                            // Set src MAC
+                            ether_addr_copy(&(eth->d_addr), &(eth->s_addr));
+                            // Set src IP
+                            ip->hdr_checksum = 0;
+                            ip->src_addr = ip->dst_addr;
+                            // Swap ports
+                            swap((uint16_t&) (udp->dst_port), (uint16_t&) (udp->src_port));
+                            udp->dgram_cksum = rte_ipv4_phdr_cksum(ip, m->ol_flags);
+                            cache_packet = rte_pktmbuf_clone(m, pool);
+                            if (unlikely(cache_packet == NULL))
+                                LOG_FATAL("failed to allocate cache packet");
+                            packet_not_cached = false;
+                        }
+
+
+                        if (done_aggregating) {
+
+                            rte_bitmap_set(bitmap, pkt_idx);
 
 #ifdef ALLOW_LOSS
-                    } else if (ps_received_message_counters[pool_index] == 1) {
-                        rte_pktmbuf_free(m);
-                        arg[pool_index].tsi = daiet->tsi;
-                        arg[pool_index].original_pool_index = daiet->pool_index;
-                        rte_timer_reset_sync(&timers[pool_index], timer_cycles, SINGLE, lcore_id, send_updates, &arg[pool_index]);
+                            rte_timer_stop_sync(&timers[pool_index]);
 #endif
 
-                    } else {
+                            cache_tsi = daiet->tsi;
+                            cache_pool_index = daiet->pool_index;
+                            rte_prefetch0 (rte_pktmbuf_mtod(cache_packet, void *));
+                            eth = rte_pktmbuf_mtod(cache_packet, struct ether_hdr *);
+                            daiet = (struct daiet_hdr *) ((uint8_t *) (eth+1) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
+                            ps_msg_setup(daiet, pool_index);
+                            daiet->tsi = cache_tsi;
+                            daiet->pool_index = cache_pool_index;
+
+#ifdef ALLOW_LOSS
+                            daiet->num_aggregated = num_workers;
+#endif
+
+                            // Allocate pkt burst
+                            ret = rte_pktmbuf_alloc_bulk(pool, clone_burst, num_workers);
+                            if (unlikely(ret < 0))
+                                LOG_FATAL("Cannot allocate clone burst");
+
+                            for (i = 0; i < num_workers; i++) {
+
+                                // Clone packet
+                                deep_copy_single_segment_pkt(clone_burst[i], cache_packet);
+
+                                eth = rte_pktmbuf_mtod(clone_burst[i], struct ether_hdr *);
+
+                                // Set dst MAC
+                                ether_addr_copy(&(ps_workers_ip_to_mac[i].mac), &(eth->d_addr));
+
+                                // Set dst IP
+                                ip = (struct ipv4_hdr *) (eth + 1);
+                                ip->dst_addr = ps_workers_ip_to_mac[i].be_ip;
+                            }
+
+                            // Send packet burst
+                            sent = 0;
+                            do {
+                                sent += rte_eth_tx_burst(dpdk_par.portid, ps_id, clone_burst, num_workers);
+                            } while (sent < num_workers);
+
+                            ps_tx += num_workers;
+
+                            // Free original packet
+                            rte_pktmbuf_free(m);
+
+#ifdef ALLOW_LOSS
+                        } else if (ps_received_message_counters[pool_index] == 1) {
+                            rte_pktmbuf_free(m);
+                            arg[pool_index].tsi = daiet->tsi;
+                            arg[pool_index].original_pool_index = daiet->pool_index;
+                            rte_timer_reset_sync(&timers[pool_index], timer_cycles, SINGLE, lcore_id, send_updates, &arg[pool_index]);
+#endif
+
+                        } else { // done aggregation if
+                            // Free original packet
+                            rte_pktmbuf_free(m);
+                        }
+
+                    } else { // bitmap if
                         // Free original packet
                         rte_pktmbuf_free(m);
                     }
@@ -396,6 +440,8 @@ namespace daiet {
         pkt_stats.set_ps(ps_id, ps_tx, ps_rx);
 
         // Cleanup
+        rte_bitmap_free(bitmap);
+        rte_free(bitmap_mem);
         rte_pktmbuf_free(cache_packet);
         rte_free(clone_burst);
         rte_free(pkts_burst);

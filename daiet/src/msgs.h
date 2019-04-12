@@ -16,6 +16,8 @@ namespace daiet {
          */
         struct daiet_hdr {
                 uint8_t num_aggregated;
+                uint16_t tno; // tensor number
+                uint32_t total_num_msgs;
                 uint32_t tsi; /**< tensor start index */
                 uint16_t pool_index; /**< pool index */
         }__attribute__((__packed__));

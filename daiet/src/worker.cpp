@@ -38,6 +38,9 @@ namespace daiet {
 
     thread_local static float scalingfactor;
 
+    thread_local static uint16_t tno = 0;
+    thread_local static uint32_t total_num_msgs = 0;
+
 #if MAX_VECTOR_SIZE >= 512
     thread_local static Vec16f vec_f;
     thread_local static Vec16i vec_i;
@@ -407,6 +410,8 @@ namespace daiet {
 
         // DAIET header
         daiet->tsi = tsi;
+        daiet->tno = rte_cpu_to_be_16(tno);
+        daiet->total_num_msgs = rte_cpu_to_be_32(total_num_msgs);
         // Swap msb
         daiet->pool_index = rte_cpu_to_be_16(tsi_to_pool_index(tsi));
 
@@ -463,6 +468,8 @@ namespace daiet {
         // DAIET header
         daiet = (struct daiet_hdr *) (udp + 1);
         daiet->tsi = tsi;
+        daiet->tno = rte_cpu_to_be_16(tno);
+        daiet->total_num_msgs = rte_cpu_to_be_32(total_num_msgs);
         daiet->pool_index = rte_cpu_to_be_16(pool_index);
 
         entry = (struct entry_hdr *) (daiet + 1);
@@ -588,7 +595,6 @@ namespace daiet {
         volatile uint32_t rx_pkts = 0;
         uint64_t w_tx = 0, w_rx = 0;
 
-        uint32_t total_num_msgs = 0;
         uint32_t burst_size = 0;
 
 #ifdef DEBUG
@@ -698,6 +704,7 @@ namespace daiet {
 
             if (dctx_ptr->receive_tensor(tu, worker_id)) {
 
+                tno++;
 #ifdef DEBUG
                 memset(sent_message_counters, 0, max_num_pending_messages * sizeof(*sent_message_counters));
 #endif
