@@ -52,6 +52,7 @@ namespace daiet {
 #ifdef TIMERS
                 ("daiet.timeout", po::value<double>(&(daiet_par.getTimeout()))->default_value(1), "Timeout in millisecond")
 #endif
+                ("daiet.loss_rate", po::value<double>(&(daiet_par.getLossRate()))->default_value(0), "loss rate between 0 to 1")
                 ("daiet.max_float", po::value<float>(&max_float)->default_value(FLT_MAX), "Max float value");
 
 

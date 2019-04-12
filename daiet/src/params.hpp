@@ -102,6 +102,7 @@ namespace daiet {
 #ifdef TIMERS
             double timeout;
 #endif
+            double loss_rate;
 
 // #ifdef COLOCATED
             uint16_t num_workers;
@@ -185,6 +186,9 @@ namespace daiet {
                 return timeout;
             }
 #endif
+            __rte_always_inline double& getLossRate() {
+                return loss_rate;
+            }
     };
 
     extern daiet_params daiet_par;

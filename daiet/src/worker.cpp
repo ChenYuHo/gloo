@@ -17,6 +17,8 @@
 #endif
 #endif
 
+#include <random>
+
 #if defined ( __AVX512F__ ) || defined ( __AVX512__ )
 #define MAX_VECTOR_SIZE 512
 #endif
@@ -41,6 +43,10 @@ namespace daiet {
     thread_local static uint16_t tno = 0;
     thread_local static uint32_t total_num_msgs = 0;
     thread_local static struct rte_bitmap *bitmap;
+    thread_local static const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
+    thread_local static random_device rd;
+    thread_local static mt19937 e2(rd());
+    thread_local static uniform_real_distribution<> dist(0, 1);
 
 #if MAX_VECTOR_SIZE >= 512
     thread_local static Vec16f vec_f;
@@ -191,10 +197,12 @@ namespace daiet {
                 static_cast<uint32_t*>(tu.ptr)[tsi] = rte_be_to_cpu_32(entry->upd);
             }
         }
-        uint32_t num_ps = daiet_par.getNumPs();
+
         uint16_t num_workers = daiet_par.getNumWorkers();
-        for (uint32_t idx = pkt_idx - num_ps; idx >= 0; idx -= num_ps) {
+        for (int64_t idx = int64_t(pkt_idx) - int64_t(max_num_pending_messages); idx >= 0; idx -= int64_t(max_num_pending_messages)) {
             if (unlikely(rte_bitmap_get(bitmap, idx) == 0)) {
+                LOG_DEBUG("current: "+to_string(daiet->tsi)
+                    +" found "+to_string(idx*num_updates)+" also not set...");
                 for (uint32_t i = 0, tsi = idx * num_updates; i < num_updates; i++, tsi++) {
                     static_cast<uint32_t*>(tu.ptr)[tsi] = static_cast<uint32_t*>(tu.ptr)[tsi] * num_workers;
                 }
@@ -598,7 +606,6 @@ namespace daiet {
 
         DaietContext* dctx_ptr = (DaietContext*) arg;
 
-        const uint32_t max_num_pending_messages = daiet_par.getMaxNumPendingMessages();
         num_updates = daiet_par.getNumUpdates();
         entries_size = sizeof(struct entry_hdr) * num_updates;
         shift = 0;
@@ -910,6 +917,8 @@ namespace daiet {
 
                                     if (likely(tsi < tensor_size)) {
 
+if (dist(e2) > daiet_par.getLossRate()) {
+
                                         //Resend the packet
                                         reset_pkt(eth, dpdk_par.portid, tsi, tensor_size, m->ol_flags);
 
@@ -919,6 +928,9 @@ namespace daiet {
                                             prev_tsc = cur_tsc;
                                         }
 
+} else {
+    rte_pktmbuf_free(m);
+}
 #ifdef TIMERS
                                         // Start timer
                                         rte_timer_reset_sync(&timers[pool_index_monoset], timer_cycles, PERIODICAL, lcore_id, resend_pkt,
